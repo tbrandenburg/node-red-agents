@@ -1,0 +1,33 @@
+<script type="text/javascript">
+    (function () {
+        'use strict';
+        RED.nodes.registerType('example-node', {
+            category: 'function',
+            color: '#a6bbcf',
+            defaults: {
+                name: { value: "" }
+            },
+            inputs: 1,
+            outputs: 1,
+            icon: "file.svg",
+            label: function () {
+                return this.name || "example-node";
+            }
+        });
+    }());
+</script>
+
+<script type="text/html" data-template-name="example-node">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Name">
+    </div>
+</script>
+
+<script type="text/html" data-help-name="example-node">
+    <p>Example packaged node: converts msg.payload to upper-case. This node
+       lives in <code>custom-nodes/example-node</code> as its own npm module.
+       Install it via the editor: Menu -> Manage palette -> Install tab,
+       then enter the full path to the <code>custom-nodes/example-node</code>
+       folder.</p>
+</script>

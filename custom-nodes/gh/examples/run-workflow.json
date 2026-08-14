@@ -1,0 +1,42 @@
+[
+    {
+        "id": "gh-wf-example-function",
+        "type": "function",
+        "name": "Build gh args",
+        "func": "msg.gh = {\n    command: 'workflow',\n    args: ['run', 'deploy.yml', '--ref', 'main', '-f', 'environment=staging'],\n    repo: 'owner/repository'\n};\nreturn msg;",
+        "outputs": 1,
+        "x": 200,
+        "y": 220,
+        "wires": [["gh-wf-example-node"]]
+    },
+    {
+        "id": "gh-wf-example-node",
+        "type": "gh",
+        "name": "Trigger workflow",
+        "command": "",
+        "commandType": "str",
+        "args": "",
+        "argsType": "str",
+        "repo": "",
+        "repoType": "str",
+        "host": "",
+        "timeoutMs": 60000,
+        "x": 420,
+        "y": 220,
+        "wires": [["gh-wf-example-debug"]]
+    },
+    {
+        "id": "gh-wf-example-debug",
+        "type": "debug",
+        "name": "Result",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "x": 620,
+        "y": 220,
+        "wires": []
+    }
+]

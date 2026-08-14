@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 60">
+  <!--
+    Node-RED custom node icon requirements (docs/creating-nodes/appearance.md):
+    white on transparent background, 2:3 aspect ratio, >= 40x60px.
+    This viewBox is exactly 40x60 (2:3). Eyes/mouth are cut as transparent
+    holes out of the solid white silhouette via a mask, so the shape reads
+    correctly against any node background color.
+  -->
+  <defs>
+    <mask id="agent-face-mask">
+      <rect x="0" y="0" width="40" height="60" fill="#ffffff"/>
+      <circle cx="14" cy="30" r="3.2" fill="#000000"/>
+      <circle cx="26" cy="30" r="3.2" fill="#000000"/>
+      <rect x="13" y="38" width="14" height="4" rx="2" fill="#000000"/>
+    </mask>
+  </defs>
+  <g fill="#ffffff" mask="url(#agent-face-mask)">
+    <!-- antenna -->
+    <circle cx="20" cy="6" r="3"/>
+    <rect x="18.5" y="9" width="3" height="6" rx="1.5"/>
+    <!-- head -->
+    <rect x="4" y="15" width="32" height="34" rx="8"/>
+    <!-- side ears -->
+    <rect x="0" y="26" width="4" height="10" rx="2"/>
+    <rect x="36" y="26" width="4" height="10" rx="2"/>
+  </g>
+</svg>

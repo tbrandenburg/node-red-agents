@@ -1,0 +1,146 @@
+<script type="text/javascript">
+    (function () {
+        'use strict';
+        RED.nodes.registerType('gh', {
+            category: 'Collaboration',
+            color: '#6e5494',
+            defaults: {
+                name: { value: "" },
+                command: { value: "", required: true },
+                commandType: { value: "str" },
+                args: { value: "" },
+                argsType: { value: "str" },
+                repo: { value: "" },
+                repoType: { value: "str" },
+                host: { value: "" },
+                timeoutMs: { value: 60000, validate: RED.validators.number() }
+            },
+            inputs: 1,
+            outputs: 1,
+            icon: "gh.svg",
+            label: function () {
+                return this.name || (this.command ? "gh " + this.command : "gh");
+            },
+            oneditprepare: function () {
+                $('#node-input-command').typedInput({
+                    typeField: '#node-input-commandType',
+                    types: ['str', 'msg', 'flow', 'global']
+                });
+                $('#node-input-args').typedInput({
+                    typeField: '#node-input-argsType',
+                    types: ['str', 'msg', 'flow', 'global']
+                });
+                $('#node-input-repo').typedInput({
+                    typeField: '#node-input-repoType',
+                    types: ['str', 'msg', 'flow', 'global']
+                });
+            },
+            oneditsave: function () {
+                const cmd = ($('#node-input-command').val() || '').trim();
+                if (this.commandType === 'str' || !this.commandType) {
+                    if (cmd === 'gh' || /\s/.test(cmd)) {
+                        // Editor-side warning only; the runtime re-validates
+                        // regardless (flow JSON can be edited outside the UI).
+                        RED.notify(
+                            'Command should be a single gh subcommand (e.g. "pr"), not "gh" itself or a full command line.',
+                            'warning'
+                        );
+                    }
+                }
+            }
+        });
+    }());
+</script>
+
+<script type="text/html" data-template-name="gh">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Name">
+    </div>
+    <div class="form-row">
+        <label for="node-input-command"><i class="fa fa-terminal"></i> Command</label>
+        <input type="text" id="node-input-command" placeholder="pr">
+        <input type="hidden" id="node-input-commandType">
+    </div>
+    <div class="form-row">
+        <label for="node-input-args"><i class="fa fa-list"></i> Arguments</label>
+        <input type="text" id="node-input-args" placeholder="list --state open --json number,title,url">
+        <input type="hidden" id="node-input-argsType">
+    </div>
+    <div class="form-row">
+        <label for="node-input-repo"><i class="fa fa-book"></i> Repository</label>
+        <input type="text" id="node-input-repo" placeholder="owner/repo (optional)">
+        <input type="hidden" id="node-input-repoType">
+    </div>
+
+    <div class="form-row">
+        <a href="#" class="editor-tray-help-tray-hide" id="gh-advanced-toggle" style="font-weight:bold;">
+            <i class="fa fa-angle-right" id="gh-advanced-icon"></i> Advanced
+        </a>
+    </div>
+    <div id="gh-advanced-fields" style="display:none;">
+        <div class="form-row">
+            <label for="node-input-host"><i class="fa fa-globe"></i> Host</label>
+            <input type="text" id="node-input-host" placeholder="github.com (leave blank for gh's own default)">
+        </div>
+        <div class="form-row">
+            <label for="node-input-timeoutMs"><i class="fa fa-clock-o"></i> Timeout (ms)</label>
+            <input type="text" id="node-input-timeoutMs" style="width:100px">
+        </div>
+    </div>
+    <script type="text/javascript">
+        (function () {
+            $('#gh-advanced-toggle').on('click', function (e) {
+                e.preventDefault();
+                $('#gh-advanced-fields').slideToggle();
+                $('#gh-advanced-icon').toggleClass('fa-angle-right fa-angle-down');
+            });
+        }());
+    </script>
+</script>
+
+<script type="text/html" data-help-name="gh">
+    <p>Runs one GitHub CLI (<code>gh</code>) invocation per incoming message
+       and returns its result. Requires <code>gh</code> to already be
+       installed and authenticated (<code>gh auth login</code>) on the
+       Node-RED host -- this node does not implement its own login flow.</p>
+
+    <h3>Editor fields</h3>
+    <dl class="message-properties">
+        <dt>Command</dt>
+        <dd>The gh top-level subcommand, e.g. <code>pr</code>, <code>issue</code>,
+            <code>workflow</code>, <code>api</code>. Not the full command
+            line -- <code>gh</code> itself is always the executable.</dd>
+        <dt>Arguments</dt>
+        <dd>Everything after the command, e.g.
+            <code>list --state open --json number,title,url</code>. Quoted
+            spans stay together as one argument; nothing is passed through
+            a shell.</dd>
+        <dt>Repository</dt>
+        <dd>Optional <code>owner/repo</code>. Sets <code>GH_REPO</code> for
+            the invocation so it works without a checked-out git repo.</dd>
+    </dl>
+
+    <h3>Inputs</h3>
+    <dl class="message-properties">
+        <dt class="optional">gh <span class="property-type">object</span></dt>
+        <dd>Overrides the node's configuration for this message:
+            <code>msg.gh.command</code>, <code>msg.gh.args</code> (string or
+            array -- array is preferred, it skips argument parsing entirely),
+            <code>msg.gh.repo</code>, <code>msg.gh.host</code>.</dd>
+    </dl>
+
+    <h3>Outputs</h3>
+    <dl class="message-properties">
+        <dt>payload</dt>
+        <dd>Parsed JSON if stdout was valid JSON, otherwise the raw stdout
+            string.</dd>
+        <dt>gh <span class="property-type">object</span></dt>
+        <dd>Execution metadata: <code>{ command, args, repo, host, exitCode,
+            stderr }</code>. Never contains credentials.</dd>
+    </dl>
+
+    <p>A non-zero exit code, a timeout, or a missing <code>gh</code>
+       executable all trigger the node's error path (catchable with a Catch
+       node) instead of sending an output message.</p>
+</script>

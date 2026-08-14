@@ -1,0 +1,15 @@
+{
+  "name": "node-red-contrib-agent",
+  "version": "0.0.1",
+  "description": "Generic coding-agent execution node (OpenCode first) with pluggable runtimes (Direct, SRT).",
+  "keywords": ["node-red", "agent", "opencode", "ai", "llm"],
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {},
+  "node-red": {
+    "nodes": {
+      "agent": "agent.js"
+    }
+  }
+}

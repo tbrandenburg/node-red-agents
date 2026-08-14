@@ -1,0 +1,357 @@
+<script type="text/javascript">
+    (function () {
+        'use strict';
+
+        // Much simpler than the `agent` node's mcpServerRow: one plain text
+        // input per row, no per-row type switch. Used for the SRT "Allowed
+        // domains" and "Allowed write directories" lists.
+        function simpleStringRow(container, value) {
+            const input = $('<input/>', { type: 'text', style: 'width:100%' }).val(value || '').appendTo(container);
+            container.data('getValue', function () {
+                return input.val().trim();
+            });
+        }
+
+        RED.nodes.registerType('agent-server', {
+            category: 'Agent',
+            color: '#8B5CF6',
+            defaults: {
+                name: { value: '' },
+
+                operation: { value: 'message' },
+
+                hostname: { value: '127.0.0.1' },
+                opencodeBinary: { value: '' },
+
+                sessionIdProp: { value: 'sessionID' },
+                sessionIdPropType: { value: 'msg' },
+
+                promptProp: { value: 'payload' },
+                promptPropType: { value: 'msg' },
+
+                model: { value: '' },
+                modelType: { value: 'str' },
+
+                startupTimeoutMs: { value: 15000, validate: RED.validators.number() },
+                requestTimeoutMs: { value: 120000, validate: RED.validators.number() },
+                maxInstances: { value: 5, validate: RED.validators.number() },
+
+                authUsername: { value: '' },
+                authPassword: { value: '' },
+
+                runtime: { value: 'direct' },
+                srtBinary: { value: '' },
+                srtSettingsMode: { value: 'file' },
+                srtSettingsPath: { value: '' },
+                srtAllowedDomains: { value: [] },
+                srtAllowedWriteDirs: { value: ['.', '/tmp', '~/.local/share/opencode'] },
+                srtStrictAllowlist: { value: true },
+                srtAdvancedJson: { value: '' }
+            },
+            inputs: 1,
+            outputs: 2,
+            outputLabels: ['result', 'lifecycle events'],
+            icon: 'agent.svg',
+            paletteLabel: 'agent-server',
+            label: function () {
+                return this.name || `agent-server (${this.operation})`;
+            },
+            oneditprepare: function () {
+                const node = this;
+
+                $('#node-input-sessionIdProp').typedInput({
+                    typeField: '#node-input-sessionIdPropType',
+                    types: ['msg', 'str', 'flow', 'global']
+                });
+                $('#node-input-promptProp').typedInput({
+                    typeField: '#node-input-promptPropType',
+                    types: ['msg', 'str', 'flow', 'global', 'env']
+                });
+                $('#node-input-model').typedInput({
+                    typeField: '#node-input-modelType',
+                    types: ['str', 'msg', 'flow', 'global', 'env']
+                });
+
+                function updateOperationRows() {
+                    const op = $('#node-input-operation').val();
+                    $('.agent-server-row-prompt').toggle(op === 'message');
+                    $('.agent-server-row-spawn').toggle(op === 'message');
+                }
+                $('#node-input-operation').on('change', updateOperationRows);
+
+                function updateRuntimeRows() {
+                    $('.agent-server-row-srt').toggle($('#node-input-runtime').val() === 'srt');
+                }
+                $('#node-input-runtime').on('change', updateRuntimeRows);
+
+                function updateSrtModeRows() {
+                    const mode = $('#node-input-srtSettingsMode').val();
+                    $('.agent-server-row-srt-file').toggle(mode === 'file');
+                    $('.agent-server-row-srt-inline').toggle(mode === 'inline');
+                }
+                $('#node-input-srtSettingsMode').on('change', updateSrtModeRows);
+
+                const domainsList = $('#node-input-srtAllowedDomains-list');
+                domainsList.editableList({
+                    addButton: 'Add domain',
+                    height: 100,
+                    addItem: function (container, index, value) {
+                        simpleStringRow(container, value);
+                    },
+                    removable: true,
+                    sortable: true
+                });
+                (node.srtAllowedDomains || []).forEach((entry) => domainsList.editableList('addItem', entry));
+
+                const writeDirsList = $('#node-input-srtAllowedWriteDirs-list');
+                writeDirsList.editableList({
+                    addButton: 'Add directory',
+                    height: 100,
+                    addItem: function (container, index, value) {
+                        simpleStringRow(container, value);
+                    },
+                    removable: true,
+                    sortable: true
+                });
+                (node.srtAllowedWriteDirs || []).forEach((entry) => writeDirsList.editableList('addItem', entry));
+
+                updateOperationRows();
+                updateRuntimeRows();
+                updateSrtModeRows();
+            },
+            oneditsave: function () {
+                function collectStrings(listEl) {
+                    const values = [];
+                    listEl.editableList('items').each(function () {
+                        const v = $(this).data('getValue')();
+                        if (v) values.push(v);
+                    });
+                    return values;
+                }
+                this.srtAllowedDomains = collectStrings($('#node-input-srtAllowedDomains-list'));
+                this.srtAllowedWriteDirs = collectStrings($('#node-input-srtAllowedWriteDirs-list'));
+            }
+        });
+    }());
+</script>
+
+<script type="text/html" data-template-name="agent-server">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Agent Server">
+    </div>
+
+    <div class="form-row">
+        <label for="node-input-operation"><i class="fa fa-play"></i> Operation</label>
+        <select id="node-input-operation" style="width:70%">
+            <option value="message">Send message</option>
+            <option value="status">Status (this node's tracked sessions)</option>
+            <option value="abort">Abort session</option>
+            <option value="history">Session history</option>
+        </select>
+    </div>
+
+    <div class="form-row">
+        <label for="node-input-sessionIdProp"><i class="fa fa-key"></i> Session ID</label>
+        <input type="text" id="node-input-sessionIdProp" style="width:60%">
+        <input type="hidden" id="node-input-sessionIdPropType">
+    </div>
+    <div class="form-tips">
+        Empty/absent on a "Send message" trigger &rarr; spawns a <b>new</b> daemon + session and
+        returns its id (as <code>msg.sessionID</code>) for reuse. A <b>present</b> id must belong to
+        a session this node instance already spawned -- any other (foreign/unknown) id is always an
+        error, never a fallback spawn or resume.
+    </div>
+
+    <div class="form-row agent-server-row-prompt">
+        <label for="node-input-promptProp"><i class="fa fa-comment"></i> Prompt</label>
+        <input type="text" id="node-input-promptProp" style="width:60%">
+        <input type="hidden" id="node-input-promptPropType">
+    </div>
+
+    <div class="form-row agent-server-row-prompt">
+        <label for="node-input-model"><i class="fa fa-microchip"></i> Model</label>
+        <input type="text" id="node-input-model" placeholder="provider/model, e.g. github-copilot/claude-sonnet-4.6" style="width:60%">
+        <input type="hidden" id="node-input-modelType">
+    </div>
+    <div class="form-tips agent-server-row-prompt">
+        Leave blank to use opencode's own configured default. Only applies per-message
+        (the HTTP API takes <code>{providerID, modelID}</code>, not opencode's CLI
+        <code>provider/model</code> shorthand -- this field is split on the first
+        <code>/</code> for you).
+    </div>
+
+    <div class="form-row agent-server-row-spawn">
+        <label for="node-input-hostname"><i class="fa fa-server"></i> Hostname</label>
+        <input type="text" id="node-input-hostname" placeholder="127.0.0.1" style="width:60%">
+    </div>
+    <div class="form-row agent-server-row-spawn">
+        <label for="node-input-opencodeBinary"><i class="fa fa-terminal"></i> opencode binary</label>
+        <input type="text" id="node-input-opencodeBinary" placeholder="opencode" style="width:60%">
+    </div>
+    <div class="form-row agent-server-row-spawn">
+        <label for="node-input-maxInstances"><i class="fa fa-tasks"></i> Max instances</label>
+        <input type="text" id="node-input-maxInstances" placeholder="5" style="width:80px">
+        <i class="fa fa-info-circle" style="color:#888; cursor:help; margin-left:4px;"
+           title="Maximum number of daemons this node may have spawned at once. A new no-session-id trigger errors immediately once reached (no queueing). 0 = unlimited."></i>
+    </div>
+    <div class="form-row agent-server-row-spawn">
+        <label for="node-input-startupTimeoutMs"><i class="fa fa-clock-o"></i> Startup timeout</label>
+        <input type="text" id="node-input-startupTimeoutMs" placeholder="15000" style="width:100px"> ms
+    </div>
+
+    <div class="form-row">
+        <label for="node-input-requestTimeoutMs"><i class="fa fa-clock-o"></i> Request timeout</label>
+        <input type="text" id="node-input-requestTimeoutMs" placeholder="120000" style="width:100px"> ms
+    </div>
+
+    <div class="form-row">
+        <label for="node-input-runtime"><i class="fa fa-cogs"></i> Runtime</label>
+        <select id="node-input-runtime" style="width:70%">
+            <option value="direct">Direct</option>
+            <option value="srt">SRT (sandboxed -- currently non-functional, see below)</option>
+        </select>
+    </div>
+    <div class="form-row agent-server-row-srt" style="background:#fff3cd; padding:6px; border-radius:4px;">
+        <i class="fa fa-warning" style="color:#b8860b;"></i>
+        <b>SRT only sandboxes outbound network egress</b> -- it has no concept of
+        exposing an inbound listening port. A daemon spawned under <code>srt</code> will
+        print "listening" but genuinely never become reachable from this node (verified
+        empirically, not opencode-specific -- any inbound server behaves the same way
+        under srt). Startup will always time out. Use <b>Direct</b> runtime instead;
+        SRT sandboxing works fine for the one-shot <b>agent</b> node (outbound-only
+        <code>opencode run</code>), just not here.
+    </div>
+    <div class="form-row agent-server-row-srt">
+        <label for="node-input-srtSettingsMode"><i class="fa fa-shield"></i> SRT settings</label>
+        <select id="node-input-srtSettingsMode" style="width:60%">
+            <option value="file">File path</option>
+            <option value="inline">Inline</option>
+        </select>
+    </div>
+    <div class="form-row agent-server-row-srt agent-server-row-srt-file">
+        <label for="node-input-srtSettingsPath">&nbsp;</label>
+        <input type="text" id="node-input-srtSettingsPath" placeholder="~/.srt-settings.json (srt's own default)" style="width:60%">
+    </div>
+
+    <div class="form-row agent-server-row-srt agent-server-row-srt-inline">
+        <label>
+            <i class="fa fa-globe"></i> Allowed domains
+            <i class="fa fa-info-circle" style="color:#888; cursor:help; margin-left:4px;"
+               title="e.g. api.githubcopilot.com, opencode.ai -- the domain your configured model's API lives on."></i>
+        </label>
+        <ol id="node-input-srtAllowedDomains-list"></ol>
+    </div>
+
+    <div class="form-row agent-server-row-srt agent-server-row-srt-inline">
+        <label><i class="fa fa-folder"></i> Allowed write dirs</label>
+        <ol id="node-input-srtAllowedWriteDirs-list"></ol>
+    </div>
+
+    <div class="form-row agent-server-row-srt agent-server-row-srt-inline">
+        <input type="checkbox" id="node-input-srtStrictAllowlist" style="display:inline-block; width:auto; vertical-align:top;">
+        <label for="node-input-srtStrictAllowlist" style="width:auto;">Strict allowlist</label>
+    </div>
+
+    <div class="form-row agent-server-row-srt agent-server-row-srt-inline">
+        <details>
+            <summary style="cursor:pointer;">Advanced (raw JSON)</summary>
+            <textarea id="node-input-srtAdvancedJson" rows="4" style="width:100%; font-family:monospace;"
+                      placeholder='If set, replaces the domains/directories above entirely.'></textarea>
+        </details>
+    </div>
+
+    <div class="form-row agent-server-row-srt">
+        <label for="node-input-srtBinary"><i class="fa fa-terminal"></i> SRT binary</label>
+        <input type="text" id="node-input-srtBinary" placeholder="srt" style="width:60%">
+    </div>
+
+    <div class="form-row">
+        <details>
+            <summary style="cursor:pointer;"><i class="fa fa-lock"></i> Auth (optional)</summary>
+            <div class="form-row">
+                <label for="node-input-authUsername">Username</label>
+                <input type="text" id="node-input-authUsername" placeholder="opencode" style="width:60%">
+            </div>
+            <div class="form-row">
+                <label for="node-input-authPassword">Password</label>
+                <input type="password" id="node-input-authPassword" style="width:60%">
+            </div>
+        </details>
+    </div>
+</script>
+
+<script type="text/html" data-help-name="agent-server">
+    <p>Manages long-lived <code>opencode serve</code> daemons, one per session,
+       as a companion to the <b>agent</b> node's one-shot execution model.</p>
+    <h3>Known issues</h3>
+    <p><b>SRT runtime is currently non-functional here</b> (unlike the <b>agent</b>
+       node): srt only sandboxes <em>outbound</em> egress, not inbound connections,
+       so a daemon spawned under srt can never be reached back by this node -- use
+       <b>Direct</b> runtime instead. Verified empirically 2026-08-13 (a trivial
+       plain Node http server has the same problem, not opencode-specific).</p>
+    <p>On <b>Linux</b> this is structural, not a config gap: srt always runs the
+       sandboxed process in its own network namespace (<code>bwrap --unshare-net</code>),
+       and <code>network.allowLocalBinding</code> -- srt's one settings-file knob that
+       sounds related -- has no Linux implementation at all. Checked the installed
+       <code>@anthropic-ai/sandbox-runtime</code> source directly: the option is only
+       read by the macOS Seatbelt profile generator; the Linux code path never
+       receives it. Setting it in a settings file is a silent no-op here.</p>
+    <p>On <b>macOS</b>, <code>allowLocalBinding: true</code> might actually work,
+       since Seatbelt is a syscall policy on the same host network stack (no
+       separate namespace to cross) -- untested on real hardware. It's a broad
+       grant (<code>network-inbound "*:*"</code>, not scoped to one port), so treat
+       it as "open all loopback inbound for this process" if it's ever wired up
+       here, not a scalpel.</p>
+    <p>An FD-inheritance / socket-activation workaround (bind the port outside the
+       sandbox, hand the sandboxed process the already-listening socket) doesn't
+       work with the current tooling either: srt's own CLI spawns the sandboxed
+       command with a plain <code>stdio: 'inherit'</code> (fds 0-2 only, no extra-fd
+       forwarding), and <code>opencode serve</code> has no <code>--fd</code>/socket-
+       activation flag to accept a pre-bound socket even if one arrived.</p>
+    <h3>Operations</h3>
+    <ul>
+        <li><b>Send message</b>: no Session ID on the trigger &rarr; spawns a new daemon +
+            session; a tracked Session ID &rarr; reuses that same daemon. An unknown/foreign
+            Session ID is always an error.</li>
+        <li><b>Status</b>: no Session ID &rarr; local aggregate (count of tracked daemons,
+            busy/idle breakdown) for this node instance, no network calls. With a Session ID
+            &rarr; that session's own local status.</li>
+        <li><b>Abort</b> / <b>Session history</b>: require a tracked Session ID.</li>
+    </ul>
+    <p><b>Model</b> (only relevant to Send message) is split into the
+       <code>{providerID, modelID}</code> shape the HTTP API requires -- e.g.
+       <code>github-copilot/claude-sonnet-4.6</code>. Leave blank to use whatever
+       opencode is configured to default to.</p>
+    <p><b>Each node instance tracks its own daemons privately</b> -- there is no
+       shared/global registry across node instances (same scoping as the <b>agent</b>
+       node's running/queued counts). This means <code>Status</code>/<code>Abort</code>/
+       <code>Session history</code> are only useful when checking <em>this same node's own</em>
+       spawned sessions. Set <code>msg.operation</code> (<code>"message"</code> /
+       <code>"status"</code> / <code>"abort"</code> / <code>"history"</code>) to override the
+       configured Operation for a single trigger -- e.g. to ask a message-sending node
+       instance for its own current status, without needing a second node pointed at
+       nothing.</p>
+    <h3>Outputs</h3>
+    <ol class="node-ports">
+        <li>Result
+            <dl class="message-properties">
+                <dt>payload</dt>
+                <dd>Operation-dependent: assistant reply text (message), a status object, etc.</dd>
+                <dt>sessionID <span class="property-type">string</span></dt>
+                <dd>Echoed back so a later trigger can reuse the same daemon/session.</dd>
+            </dl>
+        </li>
+        <li>Lifecycle events
+            <dl class="message-properties">
+                <dt>payload.type</dt>
+                <dd><code>spawned</code> / <code>running</code> / <code>completed</code> /
+                    <code>failed</code> / <code>closed</code>, each with <code>sessionID</code>,
+                    <code>timestamp</code>, and this node instance's live <code>active</code>
+                    (busy) / <code>tracked</code> (total) daemon counts.</dd>
+            </dl>
+        </li>
+    </ol>
+    <p>On redeploy/removal, every daemon this node instance is still tracking is killed
+       (SIGTERM, escalating to SIGKILL).</p>
+</script>

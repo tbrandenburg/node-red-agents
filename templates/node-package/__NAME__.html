@@ -1,0 +1,29 @@
+<script type="text/javascript">
+    (function () {
+        'use strict';
+        RED.nodes.registerType('__NAME__', {
+            category: 'function',
+            color: '#a6bbcf',
+            defaults: {
+                name: { value: "" }
+            },
+            inputs: 1,
+            outputs: 1,
+            icon: "font-awesome/fa-cube",
+            label: function () {
+                return this.name || "__NAME__";
+            }
+        });
+    }());
+</script>
+
+<script type="text/html" data-template-name="__NAME__">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Name">
+    </div>
+</script>
+
+<script type="text/html" data-help-name="__NAME__">
+    <p>TODO: describe __NAME__.</p>
+</script>

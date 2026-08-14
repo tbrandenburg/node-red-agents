@@ -1,0 +1,73 @@
+# --- Node / npm -------------------------------------------------
+node_modules/
+custom-nodes/*/node_modules/
+data/node_modules/
+npm-debug.log*
+yarn-error.log*
+*.tgz
+
+# data/ is Node-RED's userDir: its package.json/package-lock.json get
+# rewritten by Node-RED itself (e.g. via Manage Palette), so track only
+# what we intentionally commit and ignore the generated lockfile.
+data/package-lock.json
+
+# --- Node-RED runtime state (regenerated on each run) ------------
+# data/flows.json is now intentionally tracked (see below) -- it holds the
+# actual flow definitions (Playground/Issue Control Center/Chat), which is
+# the whole point of this repo. Never track flows_cred.json though: it's
+# an encrypted *credentials* blob, and backups of either are just
+# Node-RED-generated scratch copies, not source of truth.
+data/flows_cred.json
+data/.flows.json.backup
+data/.flows_cred.json.backup
+data/.config.*.json
+data/.config.*.json.backup
+data/.sessions.json
+data/lib/
+data/.node-red.pid
+data/chat/
+
+# --- Issue Control Center: local clones/worktrees for investigate/fix ---
+workspace/
+
+# --- Env / secrets -------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# --- Logs -----------------------------------------------------------
+*.log
+logs/
+
+# --- OS / editor cruft -----------------------------------------------
+.DS_Store
+._*
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# --- Test / tool state (not produced today, but cheap to pre-empt) ---
+coverage/
+.node_repl_history
+.eslintcache
+
+# --- Shell / editor / agent tooling stubs (sandbox/container env, not
+# project content) -----------------------------------------------------
+.bash_profile
+.bashrc
+.gitconfig
+.gitmodules
+.mcp.json
+.profile
+.ripgreprc
+.zprofile
+.zshrc
+.claude/

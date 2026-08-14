@@ -1,0 +1,16 @@
+{
+  "name": "nodered-agents-runtime",
+  "description": "Node-RED user directory for this project (flows, credentials, installed palette nodes)",
+  "version": "0.0.1",
+  "private": true,
+  "dependencies": {
+    "@bartbutenaers/node-red-autolayout-sidebar": "~0.0.9",
+    "@flowfuse/node-red-dashboard": "^1.30.2",
+    "@flowfuse/node-red-dashboard-2-ui-chat": "^1.3.0",
+    "@node-red-contrib-themes/theme-collection": "^5.0.1",
+    "marked": "^18.0.9",
+    "node-red-contrib-agent": "file:../custom-nodes/agent",
+    "node-red-contrib-agent-server": "file:../custom-nodes/agent-server",
+    "node-red-contrib-gh": "file:../custom-nodes/gh"
+  }
+}

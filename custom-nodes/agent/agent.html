@@ -1,0 +1,530 @@
+<script type="text/javascript">
+    (function () {
+        'use strict';
+
+        const MODEL_SUGGESTIONS = [
+            'opencode/big-pickle',
+            'opencode/deepseek-v4-flash-free',
+            'opencode/hy3-free',
+            'opencode/laguna-s-2.1-free',
+            'opencode/mimo-v2.5-free',
+            'generic-anthropic/claude-sonnet-5',
+            'generic-anthropic/claude-opus-4-8',
+            'generic-anthropic/claude-haiku-4-5',
+            'github-copilot/claude-sonnet-5',
+            'github-copilot/gpt-5.4',
+            'generic-openai-gpt5/gpt-5.4',
+            'generic-openai-gpt4/gpt-4.1'
+        ];
+
+        function mcpServerRow(container, data) {
+            data = data || { name: '', type: 'remote', url: '', command: '', args: [] };
+            const row = $('<div/>', { style: 'display:flex; gap:4px; align-items:flex-start; width:100%;' }).appendTo(container);
+
+            const nameInput = $('<input/>', { type: 'text', placeholder: 'name', style: 'width:110px' })
+                .val(data.name || '')
+                .appendTo(row);
+
+            const typeSelect = $('<select/>', { style: 'width:90px' })
+                .append('<option value="remote">Remote</option>')
+                .append('<option value="local">Local</option>')
+                .val(data.type || 'remote')
+                .appendTo(row);
+
+            const fieldsContainer = $('<div/>', { style: 'flex:1; display:flex; gap:4px;' }).appendTo(row);
+
+            function renderFields() {
+                fieldsContainer.empty();
+                if (typeSelect.val() === 'remote') {
+                    $('<input/>', { type: 'text', placeholder: 'https://mcp.example.com/...', class: 'mcp-url', style: 'width:100%' })
+                        .val(data.url || '')
+                        .appendTo(fieldsContainer);
+                } else {
+                    $('<input/>', { type: 'text', placeholder: 'command (e.g. npx)', class: 'mcp-command', style: 'width:35%' })
+                        .val(data.command || '')
+                        .appendTo(fieldsContainer);
+                    $('<input/>', { type: 'text', placeholder: 'args (space separated)', class: 'mcp-args', style: 'width:65%' })
+                        .val(Array.isArray(data.args) ? data.args.join(' ') : (data.args || ''))
+                        .appendTo(fieldsContainer);
+                }
+            }
+            typeSelect.on('change', renderFields);
+            renderFields();
+
+            row.data('mcpGetValue', function () {
+                const type = typeSelect.val();
+                const out = { name: nameInput.val().trim(), type: type };
+                if (type === 'remote') {
+                    out.url = fieldsContainer.find('.mcp-url').val().trim();
+                } else {
+                    out.command = fieldsContainer.find('.mcp-command').val().trim();
+                    const argsRaw = fieldsContainer.find('.mcp-args').val().trim();
+                    out.args = argsRaw ? argsRaw.split(/\s+/) : [];
+                }
+                return out;
+            });
+        }
+
+        // Much simpler than mcpServerRow: one plain text input per row, no
+        // per-row type switch. Used for the SRT "Allowed domains" and
+        // "Allowed write directories" lists.
+        function simpleStringRow(container, value) {
+            const input = $('<input/>', { type: 'text', style: 'width:100%' }).val(value || '').appendTo(container);
+            container.data('getValue', function () {
+                return input.val().trim();
+            });
+        }
+
+        RED.nodes.registerType('agent', {
+            category: 'Agent',
+            color: '#8B5CF6',
+            defaults: {
+                name: { value: '' },
+                agent: { value: 'opencode' },
+                runtime: { value: 'direct' },
+                invocation: { value: 'prompt' },
+
+                model: { value: '' },
+                modelType: { value: 'str' },
+
+                prompt: { value: 'payload' },
+                promptType: { value: 'msg' },
+
+                sessionIdProp: { value: 'sessionID' },
+                sessionIdPropType: { value: 'msg' },
+
+                invocationName: { value: '' },
+                invocationNameType: { value: 'str' },
+
+                arguments: { value: 'payload' },
+                argumentsType: { value: 'msg' },
+
+                cwd: { value: 'cwd' },
+                cwdType: { value: 'msg' },
+
+                auto: { value: false },
+
+                concurrency: { value: 1, validate: RED.validators.number() },
+
+                timeout: { value: '' },
+                timeoutType: { value: 'num' },
+
+                mcpServers: { value: [] },
+
+                srtBinary: { value: '' },
+                srtSettingsMode: { value: 'file' },
+                srtSettingsPath: { value: '' },
+                srtAllowedDomains: { value: [] },
+                srtAllowedWriteDirs: { value: ['.', '/tmp', '~/.local/share/opencode'] },
+                srtStrictAllowlist: { value: true },
+                srtAdvancedJson: { value: '' }
+            },
+            inputs: 1,
+            outputs: 2,
+            outputLabels: ['result', 'events'],
+            icon: 'agent.svg',
+            paletteLabel: 'agent',
+            label: function () {
+                return this.name || (this.agent + ' (' + this.runtime + ')');
+            },
+            oneditprepare: function () {
+                const node = this;
+
+                $('#node-input-model').typedInput({
+                    typeField: '#node-input-modelType',
+                    types: ['str', 'msg', 'flow', 'global', 'env']
+                });
+                $('#node-input-model').attr('list', 'agent-model-suggestions');
+                if (!$('#agent-model-suggestions').length) {
+                    const datalist = $('<datalist id="agent-model-suggestions"></datalist>').appendTo('body');
+                    MODEL_SUGGESTIONS.forEach((m) => datalist.append('<option value="' + m + '">'));
+                }
+
+                $('#node-input-prompt').typedInput({
+                    typeField: '#node-input-promptType',
+                    types: ['msg', 'str', 'flow', 'global', 'env']
+                });
+                $('#node-input-sessionIdProp').typedInput({
+                    typeField: '#node-input-sessionIdPropType',
+                    types: ['msg', 'str', 'flow', 'global']
+                });
+                // RED.popover (Node-RED's own hover-tooltip system) rather
+                // than a plain HTML `title` attribute: `title` is the
+                // browser's native tooltip, whose appearance/delay/is even
+                // shown at all depends on OS/browser/accessibility settings
+                // outside our control (reported: not appearing at all in
+                // Firefox). RED.popover.create with trigger:'hover' is
+                // Node-RED's own JS-driven popover, used throughout its own
+                // editor (e.g. the debug sidebar's copy buttons) -- it
+                // doesn't depend on the browser's native tooltip behavior at
+                // all, so it renders identically regardless of browser.
+                RED.popover.create({
+                    target: $('#agent-session-id-hint'),
+                    direction: 'right',
+                    trigger: 'hover',
+                    size: 'small',
+                    width: 320,
+                    content:
+                        'Empty/absent &rarr; starts a <b>new</b> session (today\'s default). A <b>present</b> id ' +
+                        'resumes that session instead (<code>opencode run --session &lt;id&gt; ...</code>). The ' +
+                        'result\'s <code>msg.sessionID</code> (also under <code>agentExecution.sessionID</code>) ' +
+                        'can be fed straight back into this field on the next message to continue the ' +
+                        'conversation. OpenCode only -- Pi does not support session continuation.'
+                });
+                $('#node-input-invocationName').typedInput({
+                    typeField: '#node-input-invocationNameType',
+                    types: ['str', 'msg', 'flow', 'global']
+                });
+                $('#node-input-arguments').typedInput({
+                    typeField: '#node-input-argumentsType',
+                    types: ['msg', 'str', 'flow', 'global', 'env']
+                });
+                $('#node-input-cwd').typedInput({
+                    typeField: '#node-input-cwdType',
+                    types: ['msg', 'str', 'flow', 'global', 'env']
+                });
+                $('#node-input-timeout').typedInput({
+                    typeField: '#node-input-timeoutType',
+                    types: ['num', 'msg', 'flow', 'global', 'env']
+                });
+
+                const NAME_PLACEHOLDERS = {
+                    opencode: { skill: 'code-review', command: 'review' },
+                    pi: { skill: 'code-review (looked up under .github/skills/)', command: 'review (looked up under .github/prompts/)' }
+                };
+
+                function updateInvocationRows() {
+                    const invocation = $('#node-input-invocation').val();
+                    const agent = $('#node-input-agent').val();
+                    $('.agent-row-prompt').toggle(invocation === 'prompt');
+                    $('.agent-row-name').toggle(invocation !== 'prompt');
+                    $('.agent-row-arguments').toggle(invocation !== 'prompt');
+                    const label = invocation === 'skill' ? 'Skill' : 'Command';
+                    $('#agent-name-label-text').text(label);
+                    const placeholders = NAME_PLACEHOLDERS[agent] || NAME_PLACEHOLDERS.opencode;
+                    $('#node-input-invocationName').attr('placeholder', placeholders[invocation] || '');
+                }
+                $('#node-input-invocation').on('change', updateInvocationRows);
+
+                function updateRuntimeRows() {
+                    $('.agent-row-srt').toggle($('#node-input-runtime').val() === 'srt');
+                }
+                $('#node-input-runtime').on('change', updateRuntimeRows);
+
+                function updateSrtModeRows() {
+                    const mode = $('#node-input-srtSettingsMode').val();
+                    $('.agent-row-srt-file').toggle(mode === 'file');
+                    $('.agent-row-srt-inline').toggle(mode === 'inline');
+                }
+                $('#node-input-srtSettingsMode').on('change', updateSrtModeRows);
+
+                const AUTO_HINTS = {
+                    opencode: 'Maps to --auto: skips permission prompts for actions not explicitly denied.',
+                    pi: 'Pi has no permission prompts to bypass. Off = read-only tools (read/grep/find/ls). On = full tool access (bash/edit/write too).'
+                };
+
+                // Grey out (rather than hide) fields an agent doesn't
+                // support, so it's clear the setting exists but won't take
+                // effect for the currently selected agent -- instead of the
+                // section silently disappearing.
+                function setSectionSupported($section, supported) {
+                    $section.css({
+                        opacity: supported ? '' : 0.45,
+                        pointerEvents: supported ? '' : 'none'
+                    });
+                    $section.find('input, select, button, textarea').prop('disabled', !supported);
+                }
+
+                const list = $('#node-input-mcpServers-list');
+                list.editableList({
+                    addButton: 'Add MCP Server',
+                    height: 150,
+                    addItem: function (container, index, data) {
+                        mcpServerRow(container, data);
+                    },
+                    removable: true,
+                    sortable: true
+                });
+                (node.mcpServers || []).forEach((entry) => list.editableList('addItem', entry));
+
+                const domainsList = $('#node-input-srtAllowedDomains-list');
+                domainsList.editableList({
+                    addButton: 'Add domain',
+                    height: 100,
+                    addItem: function (container, index, value) {
+                        simpleStringRow(container, value);
+                    },
+                    removable: true,
+                    sortable: true
+                });
+                (node.srtAllowedDomains || []).forEach((entry) => domainsList.editableList('addItem', entry));
+
+                const writeDirsList = $('#node-input-srtAllowedWriteDirs-list');
+                writeDirsList.editableList({
+                    addButton: 'Add directory',
+                    height: 100,
+                    addItem: function (container, index, value) {
+                        simpleStringRow(container, value);
+                    },
+                    removable: true,
+                    sortable: true
+                });
+                (node.srtAllowedWriteDirs || []).forEach((entry) => writeDirsList.editableList('addItem', entry));
+
+                function updateAgentRows() {
+                    const agent = $('#node-input-agent').val();
+                    $('#agent-auto-hint').attr('title', AUTO_HINTS[agent] || '');
+                    const mcpSupported = agent !== 'pi';
+                    setSectionSupported($('.agent-row-mcp'), mcpSupported);
+                    $('.agent-row-mcp-hint').toggle(!mcpSupported);
+                    const sessionSupported = agent !== 'pi';
+                    setSectionSupported($('.agent-row-session'), sessionSupported);
+                    $('.agent-row-session-hint').toggle(!sessionSupported);
+                    updateInvocationRows();
+                }
+                $('#node-input-agent').on('change', updateAgentRows);
+                updateAgentRows();
+                updateRuntimeRows();
+                updateSrtModeRows();
+            },
+            oneditsave: function () {
+                const list = $('#node-input-mcpServers-list');
+                const items = list.editableList('items');
+                const out = [];
+                items.each(function () {
+                    out.push($(this).data('mcpGetValue')());
+                });
+                this.mcpServers = out;
+
+                function collectStrings(listEl) {
+                    const values = [];
+                    listEl.editableList('items').each(function () {
+                        const v = $(this).data('getValue')();
+                        if (v) values.push(v);
+                    });
+                    return values;
+                }
+                this.srtAllowedDomains = collectStrings($('#node-input-srtAllowedDomains-list'));
+                this.srtAllowedWriteDirs = collectStrings($('#node-input-srtAllowedWriteDirs-list'));
+            }
+        });
+    }());
+</script>
+
+<script type="text/html" data-template-name="agent">
+    <div class="form-row">
+        <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
+        <input type="text" id="node-input-name" placeholder="Agent">
+    </div>
+
+    <div class="form-row">
+        <label for="node-input-agent"><i class="fa fa-cube"></i> Agent</label>
+        <select id="node-input-agent" style="width:70%">
+            <option value="opencode">OpenCode</option>
+            <option value="pi">Pi</option>
+        </select>
+    </div>
+
+    <div class="form-row">
+        <label for="node-input-runtime"><i class="fa fa-cogs"></i> Runtime</label>
+        <select id="node-input-runtime" style="width:70%">
+            <option value="direct">Direct</option>
+            <option value="srt">SRT (sandboxed)</option>
+        </select>
+    </div>
+    <div class="form-row agent-row-srt">
+        <label for="node-input-srtSettingsMode"><i class="fa fa-shield"></i> SRT settings</label>
+        <select id="node-input-srtSettingsMode" style="width:60%">
+            <option value="file">File path</option>
+            <option value="inline">Inline</option>
+        </select>
+    </div>
+    <div class="form-row agent-row-srt agent-row-srt-file">
+        <label for="node-input-srtSettingsPath">&nbsp;</label>
+        <input type="text" id="node-input-srtSettingsPath" placeholder="~/.srt-settings.json (srt's own default)" style="width:60%">
+    </div>
+
+    <div class="form-row agent-row-srt agent-row-srt-inline">
+        <label>
+            <i class="fa fa-globe"></i> Allowed domains
+            <i class="fa fa-info-circle" style="color:#888; cursor:help; margin-left:4px;"
+               title="e.g. api.githubcopilot.com, opencode.ai -- the domain your configured model's API lives on."></i>
+        </label>
+        <ol id="node-input-srtAllowedDomains-list"></ol>
+    </div>
+
+    <div class="form-row agent-row-srt agent-row-srt-inline">
+        <label><i class="fa fa-folder"></i> Allowed write dirs</label>
+        <ol id="node-input-srtAllowedWriteDirs-list"></ol>
+    </div>
+
+    <div class="form-row agent-row-srt agent-row-srt-inline">
+        <input type="checkbox" id="node-input-srtStrictAllowlist" style="display:inline-block; width:auto; vertical-align:top;">
+        <label for="node-input-srtStrictAllowlist" style="width:auto;">Strict allowlist</label>
+        <i class="fa fa-info-circle" style="color:#888; cursor:help; margin-left:4px;"
+           title="Deny any host not in the allowed domains list. There is no interactive prompt to fall back on in non-interactive mode, so this should normally stay on."></i>
+    </div>
+
+    <div class="form-row agent-row-srt agent-row-srt-inline">
+        <details>
+            <summary style="cursor:pointer;">Advanced (raw JSON)</summary>
+            <textarea id="node-input-srtAdvancedJson" rows="4" style="width:100%; font-family:monospace;"
+                      placeholder='If set, replaces the domains/directories above entirely, e.g. {"network":{"allowedDomains":[],"deniedDomains":[]},"filesystem":{"allowWrite":[],"denyRead":[],"denyWrite":[]}}'></textarea>
+        </details>
+    </div>
+
+    <div class="form-row agent-row-srt">
+        <label for="node-input-srtBinary"><i class="fa fa-terminal"></i> SRT binary</label>
+        <input type="text" id="node-input-srtBinary" placeholder="srt" style="width:60%">
+    </div>
+
+    <div class="form-row">
+        <label for="node-input-invocation"><i class="fa fa-play"></i> Invocation</label>
+        <select id="node-input-invocation" style="width:70%">
+            <option value="prompt">Prompt</option>
+            <option value="skill">Skill</option>
+            <option value="command">Command / Template</option>
+        </select>
+    </div>
+
+    <div class="form-row agent-row-session">
+        <label for="node-input-sessionIdProp"><i class="fa fa-key"></i> Session ID
+            <i id="agent-session-id-hint" class="fa fa-info-circle" style="color:#888; cursor:help; margin-left:4px;"></i>
+        </label>
+        <input type="text" id="node-input-sessionIdProp" style="width:60%">
+        <input type="hidden" id="node-input-sessionIdPropType">
+    </div>
+    <div class="form-tips agent-row-session-hint" style="display:none;">Pi does not support session continuation; switch Agent to OpenCode to use it.</div>
+
+    <div class="form-row agent-row-prompt">
+        <label for="node-input-prompt"><i class="fa fa-comment"></i> Prompt</label>
+        <input type="text" id="node-input-prompt" placeholder="leave blank to use msg.payload" style="width:60%">
+        <input type="hidden" id="node-input-promptType">
+    </div>
+
+    <div class="form-row agent-row-name">
+        <label for="node-input-invocationName"><i class="fa fa-magic"></i> <span id="agent-name-label-text">Command</span></label>
+        <input type="text" id="node-input-invocationName" style="width:60%">
+        <input type="hidden" id="node-input-invocationNameType">
+    </div>
+    <div class="form-row agent-row-arguments">
+        <label for="node-input-arguments"><i class="fa fa-list"></i> Arguments</label>
+        <input type="text" id="node-input-arguments" placeholder="leave blank to use msg.payload" style="width:60%">
+        <input type="hidden" id="node-input-argumentsType">
+    </div>
+
+    <div class="form-row">
+        <label for="node-input-model"><i class="fa fa-microchip"></i> Model</label>
+        <input type="text" id="node-input-model" placeholder="leave blank for agent default" style="width:60%">
+        <input type="hidden" id="node-input-modelType">
+    </div>
+
+    <div class="form-row">
+        <label for="node-input-cwd"><i class="fa fa-folder-open"></i> Working directory</label>
+        <input type="text" id="node-input-cwd" placeholder="leave blank for Node-RED's own working directory" style="width:60%">
+        <input type="hidden" id="node-input-cwdType">
+    </div>
+
+    <div class="form-row">
+        <input type="checkbox" id="node-input-auto" style="display:inline-block; width:auto; vertical-align:top;">
+        <label for="node-input-auto" style="width:auto;">Auto approve (dangerous)</label>
+        <i id="agent-auto-hint" class="fa fa-info-circle" style="color:#888; cursor:help; margin-left:4px;"></i>
+    </div>
+
+    <div class="form-row">
+        <label for="node-input-timeout"><i class="fa fa-clock-o"></i> Timeout</label>
+        <input type="text" id="node-input-timeout" placeholder="seconds, leave empty for no timeout" style="width:60%">
+        <input type="hidden" id="node-input-timeoutType">
+    </div>
+
+    <div class="form-row">
+        <label for="node-input-concurrency"><i class="fa fa-tasks"></i> Concurrency</label>
+        <input type="text" id="node-input-concurrency" placeholder="1" style="width:80px">
+        <i class="fa fa-info-circle" style="color:#888; cursor:help; margin-left:4px;"
+           title="Maximum parallel executions for this node. Additional incoming messages queue (FIFO) until a slot frees up. 1 = sequential."></i>
+    </div>
+
+    <div class="form-row agent-row-mcp">
+        <label><i class="fa fa-plug"></i> MCP Servers</label>
+        <ol id="node-input-mcpServers-list"></ol>
+    </div>
+    <div class="form-tips agent-row-mcp-hint" style="display:none;">Pi does not support MCP servers; switch Agent to OpenCode to use them.</div>
+</script>
+
+<script type="text/html" data-help-name="agent">
+    <p>Runs a coding agent (<b>OpenCode</b> or <b>Pi</b>) non-interactively,
+       either directly on this host or sandboxed through <code>srt</code>.</p>
+    <h3>Inputs</h3>
+    <dl class="message-properties">
+        <dt class="optional">payload <span class="property-type">string</span></dt>
+        <dd>Used as the prompt/arguments if the corresponding field is left at
+            its default (<code>msg.payload</code>).</dd>
+        <dt class="optional">cwd <span class="property-type">string</span></dt>
+        <dd>Used as the working directory if the Working directory field is
+            left at its default (<code>msg.cwd</code>).</dd>
+        <dt class="optional">sessionID <span class="property-type">string</span></dt>
+        <dd>Used to resume a previous session if the Session ID field is left
+            at its default (<code>msg.sessionID</code>). Empty/absent starts a
+            new session. OpenCode only.</dd>
+    </dl>
+    <h3>Outputs</h3>
+    <ol class="node-ports">
+        <li>Result
+            <dl class="message-properties">
+                <dt>payload <span class="property-type">string</span></dt>
+                <dd>The agent's final text reply.</dd>
+                <dt>sessionID <span class="property-type">string</span></dt>
+                <dd>The session this execution ran in (new or resumed). Feed
+                    this back into the Session ID field to continue the
+                    conversation on the next message.</dd>
+                <dt>agentExecution <span class="property-type">object</span></dt>
+                <dd>id, status, exitCode, signal, timedOut, durationMs, sessionID.</dd>
+            </dl>
+        </li>
+        <li>Events
+            <dl class="message-properties">
+                <dt>payload <span class="property-type">object</span></dt>
+                <dd>One structured event per message as the agent runs
+                    (queued/started/tool/agent/progress/completed/failed/timeout/cancelled).</dd>
+                <dt>executionId <span class="property-type">string</span></dt>
+                <dd>Correlates events (and the eventual result) belonging to
+                    the same execution when several run concurrently.</dd>
+            </dl>
+        </li>
+    </ol>
+    <p><b>Concurrency</b> bounds how many executions this node runs at once
+       (default 1 = sequential). Extra incoming messages wait in an internal
+       FIFO queue -- each waiting message emits a <code>queued</code> event
+       immediately, then <code>started</code> once a slot frees up. The node
+       status shows e.g. <code>2 running &middot; 3 queued</code>. Results may
+       complete in a different order than the messages arrived; ordering is
+       not guaranteed above concurrency 1. On redeploy/removal, queued
+       messages are cancelled (a <code>cancelled</code> event plus a Node-RED
+       error) and any still-running agent processes are terminated.</p>
+    <p><b>Auto approve</b> maps to OpenCode's <code>--auto</code> (off by
+       default -- without it, any action gated by a permission policy not
+       already set to "allow" is auto-rejected, but the run still completes).
+       Pi has no equivalent permission-prompt system to bypass in
+       non-interactive mode -- for Pi this instead restricts the available
+       tools to read-only (<code>read/grep/find/ls</code>) when off, and
+       allows everything (including <code>bash/edit/write</code>) when on.</p>
+    <p><b>Skill</b>/<b>Command</b> invocation: for OpenCode this is the name
+       of a discovered skill or a <code>.opencode/command(s)/&lt;name&gt;.md</code>
+       file, dispatched deterministically via <code>--command</code>. Pi has
+       no equivalent dispatch mechanism -- the name is resolved to a file
+       under <code>.github/skills/</code> (skill) or
+       <code>.github/prompts/</code> (command), passed via
+       <code>--skill</code>/<code>--prompt-template</code>, and the model is
+       explicitly told in the prompt to use it. Pi also does not support
+       configuring MCP servers through this node.</p>
+    <p><b>Session ID</b>: leave blank to always start a fresh session (the
+       default). Set it (typically from the previous result's
+       <code>msg.sessionID</code>) to continue that conversation instead --
+       maps to OpenCode's <code>opencode run --session &lt;id&gt; ...</code>.
+       Only the OpenCode agent supports this; Pi rejects a non-empty Session
+       ID (every Pi run uses <code>--no-session</code>).</p>
+    <p><b>SRT</b> runtime shells out to the <code>srt</code> sandbox-runtime
+       CLI already installed on this host; its network/filesystem policy is
+       configured via its own settings file (default <code>~/.srt-settings.json</code>),
+       not through this node.</p>
+</script>

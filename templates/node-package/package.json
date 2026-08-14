@@ -1,0 +1,12 @@
+{
+  "name": "node-red-contrib-__NAME__",
+  "version": "0.0.1",
+  "description": "TODO: describe __NAME__",
+  "keywords": ["node-red"],
+  "dependencies": {},
+  "node-red": {
+    "nodes": {
+      "__NAME__": "__NAME__.js"
+    }
+  }
+}

@@ -1,4 +1,4 @@
-# generic-nodered-agents
+# nodered-agents
 
 Local Node-RED runtime and custom node development workspace, geared
 towards building nodes that call out to AI agents/CLIs (e.g. `opencode`)

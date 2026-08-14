@@ -79,6 +79,27 @@ Typical workflow for iterating on someone's live flow:
 3. `node scripts/run-and-watch.js <injectId> <debugId>` to run it and get
    the result back as soon as it's actually ready.
 
+## Debugging a flow from the shell
+
+Use the runtime APIs instead of Playwright when debugging a flow:
+
+1. Read the current graph: `curl -sS http://127.0.0.1:1880/flows`.
+2. Identify the inject node, target node, and a debug node connected to the
+   output under test.
+3. For a flow without a debug node, deploy a temporary copy that adds one,
+   run the test, then restore the original flow from the saved `GET /flows`
+   response. Do not overwrite `data/flows.json` with test-only nodes.
+4. Run `node scripts/run-and-watch.js <injectId> <debugId> [maxWaitMs]`.
+   It subscribes to `/comms`, injects the message, and prints the first
+   matching result or red node status.
+5. If the watcher times out, subscribe to `status/#` and `debug` directly
+   with a small Node 22+ WebSocket script to distinguish node status, output,
+   and transport problems. Check the Node-RED process log for node errors.
+
+Always restore temporary deployments, verify `POST /flows` returns `204`,
+and check `git diff` before finishing. For nodes that spawn child processes,
+use captured PIDs or `make stop`; never use broad `pkill` patterns.
+
 ## child_process gotchas (nodes that shell out, e.g. agent, opencode-run)
 
 `spawn()`'s default stdio leaves the child's stdin open as an unclosed

@@ -207,7 +207,10 @@ module.exports = function (RED) {
             // human-readable/correlatable wall-clock history, not duration.
             const startedAtNs = process.hrtime.bigint();
             try {
-                const body = { parts: [{ type: 'text', text: String(prompt) }] };
+                const body = {
+                    agent: msg.agent || 'build',
+                    parts: [{ type: 'text', text: String(prompt) }]
+                };
                 if (model) body.model = model;
                 const response = await request(`${baseUrl}/session/${sessionID}/message`, {
                     method: 'POST',

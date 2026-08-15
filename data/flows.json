@@ -4970,5 +4970,885 @@
         "wires": [
             []
         ]
+    },
+    {
+        "id": "advanced-chat-tab",
+        "type": "tab",
+        "label": "Advanced Chat",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "adc-page",
+        "type": "ui-page",
+        "name": "Advanced Chat",
+        "ui": "7cde684526b81393",
+        "path": "/advanced-chat",
+        "icon": "chat",
+        "layout": "grid",
+        "theme": "d0f5c6c8434eeb19",
+        "breakpoints": [
+            {
+                "name": "Default",
+                "px": "0",
+                "cols": "3"
+            },
+            {
+                "name": "Tablet",
+                "px": "576",
+                "cols": "6"
+            },
+            {
+                "name": "Small Desktop",
+                "px": "768",
+                "cols": "9"
+            },
+            {
+                "name": "Desktop",
+                "px": "1024",
+                "cols": "12"
+            }
+        ],
+        "order": 4,
+        "className": "",
+        "visible": "true",
+        "disabled": "false"
+    },
+    {
+        "id": "adc-group",
+        "type": "ui-group",
+        "name": "Advanced Chat",
+        "page": "adc-page",
+        "width": 6,
+        "height": 1,
+        "order": 1,
+        "showTitle": true,
+        "className": "",
+        "visible": "true",
+        "disabled": "false",
+        "groupType": "default"
+    },
+    {
+        "id": "adc-header",
+        "type": "ui-template",
+        "z": "advanced-chat-tab",
+        "group": "adc-group",
+        "page": "",
+        "ui": "",
+        "name": "Advanced Chat header",
+        "order": 1,
+        "width": 0,
+        "height": 0,
+        "head": "",
+        "format": "<div style=\"font-size:1.15em; font-weight:600; padding:6px 0 10px;\">🧠 Advanced Chat (session-aware) 🛡️</div>",
+        "storeOutMessages": true,
+        "passthru": true,
+        "resendOnRefresh": true,
+        "templateScope": "local",
+        "className": "",
+        "x": 260,
+        "y": 100,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adc-model-dropdown",
+        "type": "ui-dropdown",
+        "z": "advanced-chat-tab",
+        "group": "adc-group",
+        "name": "Model",
+        "label": "Model",
+        "tooltip": "",
+        "order": 2,
+        "width": 0,
+        "height": 0,
+        "passthru": false,
+        "multiple": false,
+        "chips": false,
+        "clearable": false,
+        "options": [
+            {
+                "value": "opencode/big-pickle",
+                "label": "opencode/big-pickle",
+                "type": "str"
+            },
+            {
+                "value": "opencode/deepseek-v4-flash-free",
+                "label": "opencode/deepseek-v4-flash-free",
+                "type": "str"
+            },
+            {
+                "value": "opencode/hy3-free",
+                "label": "opencode/hy3-free",
+                "type": "str"
+            },
+            {
+                "value": "opencode/laguna-s-2.1-free",
+                "label": "opencode/laguna-s-2.1-free",
+                "type": "str"
+            },
+            {
+                "value": "opencode/mimo-v2.5-free",
+                "label": "opencode/mimo-v2.5-free",
+                "type": "str"
+            },
+            {
+                "value": "opencode/nemotron-3-ultra-free",
+                "label": "opencode/nemotron-3-ultra-free",
+                "type": "str"
+            },
+            {
+                "value": "opencode/nemotron-3.5-lightning-free",
+                "label": "opencode/nemotron-3.5-lightning-free",
+                "type": "str"
+            },
+            {
+                "value": "bosch-litellm-openai/o3",
+                "label": "bosch-litellm-openai/o3",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/claude-haiku-4.5",
+                "label": "github-copilot/claude-haiku-4.5",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/claude-opus-4.5",
+                "label": "github-copilot/claude-opus-4.5",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/claude-opus-4.6",
+                "label": "github-copilot/claude-opus-4.6",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/claude-opus-4.6-fast",
+                "label": "github-copilot/claude-opus-4.6-fast",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/claude-opus-4.7",
+                "label": "github-copilot/claude-opus-4.7",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/claude-opus-4.7-fast",
+                "label": "github-copilot/claude-opus-4.7-fast",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/claude-opus-4.8",
+                "label": "github-copilot/claude-opus-4.8",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/claude-opus-4.8-fast",
+                "label": "github-copilot/claude-opus-4.8-fast",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/claude-opus-5",
+                "label": "github-copilot/claude-opus-5",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/claude-sonnet-4.5",
+                "label": "github-copilot/claude-sonnet-4.5",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/claude-sonnet-4.6",
+                "label": "github-copilot/claude-sonnet-4.6",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/claude-sonnet-5",
+                "label": "github-copilot/claude-sonnet-5",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/gemini-3.5-flash",
+                "label": "github-copilot/gemini-3.5-flash",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/gemini-3.6-flash",
+                "label": "github-copilot/gemini-3.6-flash",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/gpt-5-mini",
+                "label": "github-copilot/gpt-5-mini",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/gpt-5.3-codex",
+                "label": "github-copilot/gpt-5.3-codex",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/gpt-5.4",
+                "label": "github-copilot/gpt-5.4",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/gpt-5.4-mini",
+                "label": "github-copilot/gpt-5.4-mini",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/gpt-5.5",
+                "label": "github-copilot/gpt-5.5",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/gpt-5.6-luna",
+                "label": "github-copilot/gpt-5.6-luna",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/gpt-5.6-sol",
+                "label": "github-copilot/gpt-5.6-sol",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/gpt-5.6-terra",
+                "label": "github-copilot/gpt-5.6-terra",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/kimi-k2.7-code",
+                "label": "github-copilot/kimi-k2.7-code",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/kimi-k3",
+                "label": "github-copilot/kimi-k3",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/mai-code-1-flash-picker",
+                "label": "github-copilot/mai-code-1-flash-picker",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/mai-code-1.1-flash",
+                "label": "github-copilot/mai-code-1.1-flash",
+                "type": "str"
+            },
+            {
+                "value": "generic-anthropic/claude-haiku-4-5",
+                "label": "generic-anthropic/claude-haiku-4-5",
+                "type": "str"
+            },
+            {
+                "value": "generic-anthropic/claude-opus-4-5",
+                "label": "generic-anthropic/claude-opus-4-5",
+                "type": "str"
+            },
+            {
+                "value": "generic-anthropic/claude-opus-4-6",
+                "label": "generic-anthropic/claude-opus-4-6",
+                "type": "str"
+            },
+            {
+                "value": "generic-anthropic/claude-opus-4-7",
+                "label": "generic-anthropic/claude-opus-4-7",
+                "type": "str"
+            },
+            {
+                "value": "generic-anthropic/claude-opus-4-8",
+                "label": "generic-anthropic/claude-opus-4-8",
+                "type": "str"
+            },
+            {
+                "value": "generic-anthropic/claude-sonnet-4-5",
+                "label": "generic-anthropic/claude-sonnet-4-5",
+                "type": "str"
+            },
+            {
+                "value": "generic-anthropic/claude-sonnet-4-6",
+                "label": "generic-anthropic/claude-sonnet-4-6",
+                "type": "str"
+            },
+            {
+                "value": "generic-anthropic/claude-sonnet-5",
+                "label": "generic-anthropic/claude-sonnet-5",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-gpt4/gpt-4.1",
+                "label": "generic-openai-gpt4/gpt-4.1",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-gpt4/gpt-4.1-mini",
+                "label": "generic-openai-gpt4/gpt-4.1-mini",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-gpt4/gpt-4.1-nano",
+                "label": "generic-openai-gpt4/gpt-4.1-nano",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-gpt4/gpt-4o",
+                "label": "generic-openai-gpt4/gpt-4o",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-gpt4/gpt-4o-mini",
+                "label": "generic-openai-gpt4/gpt-4o-mini",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-gpt5/gpt-5",
+                "label": "generic-openai-gpt5/gpt-5",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-gpt5/gpt-5-chat",
+                "label": "generic-openai-gpt5/gpt-5-chat",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-gpt5/gpt-5-codex",
+                "label": "generic-openai-gpt5/gpt-5-codex",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-gpt5/gpt-5-mini",
+                "label": "generic-openai-gpt5/gpt-5-mini",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-gpt5/gpt-5.1",
+                "label": "generic-openai-gpt5/gpt-5.1",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-gpt5/gpt-5.1-chat",
+                "label": "generic-openai-gpt5/gpt-5.1-chat",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-gpt5/gpt-5.1-codex",
+                "label": "generic-openai-gpt5/gpt-5.1-codex",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-gpt5/gpt-5.1-codex-mini",
+                "label": "generic-openai-gpt5/gpt-5.1-codex-mini",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-gpt5/gpt-5.2",
+                "label": "generic-openai-gpt5/gpt-5.2",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-gpt5/gpt-5.2-chat",
+                "label": "generic-openai-gpt5/gpt-5.2-chat",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-gpt5/gpt-5.2-codex",
+                "label": "generic-openai-gpt5/gpt-5.2-codex",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-gpt5/gpt-5.2-none-filter",
+                "label": "generic-openai-gpt5/gpt-5.2-none-filter",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-gpt5/gpt-5.3-codex",
+                "label": "generic-openai-gpt5/gpt-5.3-codex",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-gpt5/gpt-5.4",
+                "label": "generic-openai-gpt5/gpt-5.4",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-gpt5/gpt-5.4-mini",
+                "label": "generic-openai-gpt5/gpt-5.4-mini",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-gpt5/gpt-5.4-nano",
+                "label": "generic-openai-gpt5/gpt-5.4-nano",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-gpt5/gpt-5.4-pro",
+                "label": "generic-openai-gpt5/gpt-5.4-pro",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-gpt5/gpt-5.5",
+                "label": "generic-openai-gpt5/gpt-5.5",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-gpt5/gpt-5.6-luna",
+                "label": "generic-openai-gpt5/gpt-5.6-luna",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-gpt5/gpt-5.6-sol",
+                "label": "generic-openai-gpt5/gpt-5.6-sol",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-gpt5/gpt-5.6-terra",
+                "label": "generic-openai-gpt5/gpt-5.6-terra",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-o/o1",
+                "label": "generic-openai-o/o1",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-o/o1-mini",
+                "label": "generic-openai-o/o1-mini",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-o/o3",
+                "label": "generic-openai-o/o3",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-o/o3-mini",
+                "label": "generic-openai-o/o3-mini",
+                "type": "str"
+            },
+            {
+                "value": "generic-openai-o/o4-mini",
+                "label": "generic-openai-o/o4-mini",
+                "type": "str"
+            },
+            {
+                "value": "openai/gpt-5.3-codex-spark",
+                "label": "openai/gpt-5.3-codex-spark",
+                "type": "str"
+            },
+            {
+                "value": "openai/gpt-5.4",
+                "label": "openai/gpt-5.4",
+                "type": "str"
+            },
+            {
+                "value": "openai/gpt-5.4-fast",
+                "label": "openai/gpt-5.4-fast",
+                "type": "str"
+            },
+            {
+                "value": "openai/gpt-5.4-mini",
+                "label": "openai/gpt-5.4-mini",
+                "type": "str"
+            },
+            {
+                "value": "openai/gpt-5.4-mini-fast",
+                "label": "openai/gpt-5.4-mini-fast",
+                "type": "str"
+            },
+            {
+                "value": "openai/gpt-5.5",
+                "label": "openai/gpt-5.5",
+                "type": "str"
+            },
+            {
+                "value": "openai/gpt-5.5-fast",
+                "label": "openai/gpt-5.5-fast",
+                "type": "str"
+            },
+            {
+                "value": "openai/gpt-5.6-luna",
+                "label": "openai/gpt-5.6-luna",
+                "type": "str"
+            },
+            {
+                "value": "openai/gpt-5.6-luna-fast",
+                "label": "openai/gpt-5.6-luna-fast",
+                "type": "str"
+            },
+            {
+                "value": "openai/gpt-5.6-sol",
+                "label": "openai/gpt-5.6-sol",
+                "type": "str"
+            },
+            {
+                "value": "openai/gpt-5.6-sol-fast",
+                "label": "openai/gpt-5.6-sol-fast",
+                "type": "str"
+            },
+            {
+                "value": "openai/gpt-5.6-terra",
+                "label": "openai/gpt-5.6-terra",
+                "type": "str"
+            },
+            {
+                "value": "openai/gpt-5.6-terra-fast",
+                "label": "openai/gpt-5.6-terra-fast",
+                "type": "str"
+            }
+        ],
+        "payload": "github-copilot/claude-sonnet-4.6",
+        "topic": "topic",
+        "topicType": "msg",
+        "className": "",
+        "typeIsComboBox": true,
+        "msgTrigger": "onChange",
+        "x": 290,
+        "y": 160,
+        "wires": [
+            [
+                "adc-store-model"
+            ]
+        ]
+    },
+    {
+        "id": "adc-store-model",
+        "type": "function",
+        "z": "advanced-chat-tab",
+        "name": "store selected model",
+        "func": "flow.set('advanced_chat_model', msg.payload);\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 520,
+        "y": 160,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adc-new-conv-button",
+        "type": "ui-button",
+        "z": "advanced-chat-tab",
+        "group": "adc-group",
+        "name": "New conversation",
+        "label": "New conversation",
+        "order": 3,
+        "width": 0,
+        "height": 0,
+        "emulateClick": false,
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
+        "payload": "",
+        "payloadType": "str",
+        "topic": "",
+        "topicType": "str",
+        "buttonColor": "",
+        "textColor": "",
+        "iconColor": "",
+        "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
+        "x": 260,
+        "y": 220,
+        "wires": [
+            [
+                "adc-clear-session"
+            ]
+        ]
+    },
+    {
+        "id": "adc-clear-session",
+        "type": "function",
+        "z": "advanced-chat-tab",
+        "name": "purge conversation",
+        "func": "// Clear the backend session so the next message starts fresh.\nflow.set('advanced_chat_session', undefined);\n\n// Prime the ui-chat node's persisted state with an empty transcript\n// so that when the browser reloads (triggered by the ui-control\n// message below), UIChat.vue's onLoad() replaces messages with [].\nconst clearMsg = { payload: [] };\n\n// Force a page refresh for any client currently viewing this page,\n// which re-fires the widget-load event and picks up the empty\n// transcript primed above.\nconst refreshMsg = { payload: { page: '' } };\n\nreturn [clearMsg, refreshMsg];",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 520,
+        "y": 220,
+        "wires": [
+            [
+                "adc-chat"
+            ],
+            [
+                "adc-control"
+            ]
+        ]
+    },
+    {
+        "id": "adc-control",
+        "type": "ui-control",
+        "z": "advanced-chat-tab",
+        "name": "Refresh Advanced Chat page",
+        "ui": "7cde684526b81393",
+        "events": "none",
+        "x": 780,
+        "y": 260,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adc-chat",
+        "type": "ui-chat",
+        "z": "advanced-chat-tab",
+        "group": "adc-group",
+        "name": "Chat",
+        "order": 4,
+        "width": 0,
+        "height": 0,
+        "showAuthor": true,
+        "className": "",
+        "inputPlaceholder": "Ask the agent anything...",
+        "x": 280,
+        "y": 300,
+        "wires": [
+            [
+                "adc-attach-session"
+            ]
+        ]
+    },
+    {
+        "id": "adc-attach-session",
+        "type": "function",
+        "z": "advanced-chat-tab",
+        "name": "attach stored sessionID",
+        "func": "// Preserve the original prompt text (agent.js overwrites\n// msg.payload with the reply) in case we need it later for\n// debugging or logging.\nmsg.prompt = msg.payload;\nif (flow.get('advanced_chat_session')) {\n    msg.sessionID = flow.get('advanced_chat_session');\n}\nmsg.model = flow.get('advanced_chat_model') || 'github-copilot/claude-sonnet-4.6';\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 530,
+        "y": 300,
+        "wires": [
+            [
+                "adc-agent"
+            ]
+        ]
+    },
+    {
+        "id": "adc-agent",
+        "type": "agent",
+        "z": "advanced-chat-tab",
+        "name": "Advanced Chat Agent",
+        "agent": "opencode",
+        "runtime": "srt",
+        "invocation": "prompt",
+        "model": "model",
+        "modelType": "msg",
+        "prompt": "payload",
+        "promptType": "msg",
+        "sessionIdProp": "sessionID",
+        "sessionIdPropType": "msg",
+        "invocationName": "",
+        "invocationNameType": "str",
+        "arguments": "payload",
+        "argumentsType": "msg",
+        "cwd": "chatDir",
+        "cwdType": "global",
+        "auto": false,
+        "concurrency": 1,
+        "timeout": 120,
+        "timeoutType": "num",
+        "mcpServers": [],
+        "srtBinary": "",
+        "srtSettingsMode": "inline",
+        "srtSettingsPath": "",
+        "srtAllowedDomains": [
+            "api.githubcopilot.com",
+            "opencode.ai",
+            "bosch-lud-api.azure-api.net",
+            "litellm.orchestration.bbm.ai.bosch.com",
+            "api.openai.com"
+        ],
+        "srtAllowedWriteDirs": [
+            ".",
+            "/tmp",
+            "~/.local/share/opencode"
+        ],
+        "srtStrictAllowlist": true,
+        "srtAdvancedJson": "",
+        "x": 800,
+        "y": 300,
+        "wires": [
+            [
+                "adc-store-session",
+                "adc-reply-to-chat",
+                "adc-response-debug"
+            ],
+            [
+                "adc-events-debug",
+                "adc-derive-status"
+            ]
+        ]
+    },
+    {
+        "id": "adc-store-session",
+        "type": "function",
+        "z": "advanced-chat-tab",
+        "name": "store sessionID",
+        "func": "if (msg.sessionID) flow.set('advanced_chat_session', msg.sessionID);\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1060,
+        "y": 240,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adc-reply-to-chat",
+        "type": "function",
+        "z": "advanced-chat-tab",
+        "name": "prep reply for chat display",
+        "func": "return { payload: msg.payload, topic: 'Agent' };",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1060,
+        "y": 300,
+        "wires": [
+            [
+                "adc-chat"
+            ]
+        ]
+    },
+    {
+        "id": "adc-response-debug",
+        "type": "debug",
+        "z": "advanced-chat-tab",
+        "name": "Chat Response (debug)",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1060,
+        "y": 900,
+        "wires": []
+    },
+    {
+        "id": "adc-events-debug",
+        "type": "debug",
+        "z": "advanced-chat-tab",
+        "name": "Chat Events (debug)",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1060,
+        "y": 840,
+        "wires": []
+    },
+    {
+        "id": "adc-derive-status",
+        "type": "function",
+        "z": "advanced-chat-tab",
+        "name": "Derive typing indicator",
+        "func": "const type = msg.payload && msg.payload.type;\nconst TERMINAL = ['completed', 'failed', 'timeout', 'cancelled'];\n// Only forward a '_typing' hint while the agent is still working;\n// the real reply (routed separately via adc-reply-to-chat) clears\n// the typing indicator on the client once it arrives.\nif (TERMINAL.includes(type)) {\n    return null;\n}\nreturn { topic: '_typing', payload: true };",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1060,
+        "y": 360,
+        "wires": [
+            [
+                "adc-chat",
+                "adc-status-debug"
+            ]
+        ]
+    },
+    {
+        "id": "adc-status-debug",
+        "type": "debug",
+        "z": "advanced-chat-tab",
+        "name": "Chat Status (debug)",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1360,
+        "y": 400,
+        "wires": []
+    },
+    {
+        "id": "adc-error-catch",
+        "type": "catch",
+        "z": "advanced-chat-tab",
+        "name": "Session expired handler",
+        "scope": [
+            "adc-agent"
+        ],
+        "uncaught": false,
+        "x": 340,
+        "y": 520,
+        "wires": [
+            [
+                "adc-handle-stale-session"
+            ]
+        ]
+    },
+    {
+        "id": "adc-handle-stale-session",
+        "type": "function",
+        "z": "advanced-chat-tab",
+        "name": "clear stale sessionID + friendly message",
+        "func": "// Most likely cause: the model/CLI no longer recognizes the\n// stored sessionID (e.g. its data was cleared). Clear it so the\n// next message starts a fresh session instead of erroring forever.\nflow.set('advanced_chat_session', undefined);\nreturn {\n    payload: 'Previous session expired -- send your message again to start a new one.',\n    topic: 'System'\n};",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 700,
+        "y": 540,
+        "wires": [
+            [
+                "adc-chat",
+                "adc-response-debug"
+            ]
+        ]
     }
 ]

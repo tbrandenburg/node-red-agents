@@ -25,7 +25,14 @@ data/.config.*.json.backup
 data/.sessions.json
 data/lib/
 data/.node-red.pid
-data/chat/
+
+# data/chat/ is the agent's sandboxed cwd (functionGlobalContext.chatDir in
+# data/settings.js) -- its contents are runtime scratch state, but the
+# directory itself must exist (agent.js rejects a missing cwd), and git
+# doesn't track empty directories, so keep it via .gitkeep while ignoring
+# everything actually written into it.
+data/chat/*
+!data/chat/.gitkeep
 
 # --- Issue Control Center: local clones/worktrees for investigate/fix ---
 workspace/

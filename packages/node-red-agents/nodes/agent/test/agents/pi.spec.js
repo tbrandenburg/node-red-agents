@@ -39,9 +39,9 @@ test('buildExecution: auto:true drops the --tools restriction entirely', () => {
 
 test('buildExecution: model passes straight through to --model (pi itself parses "provider/id")', () => {
     const adapter = new PiAdapter();
-    const { args } = adapter.buildExecution(baseResolved({ model: 'generic-anthropic/claude-sonnet-5' }));
+    const { args } = adapter.buildExecution(baseResolved({ model: 'anthropic/claude-sonnet-5' }));
     assert.ok(args.includes('--model'));
-    assert.equal(args[args.indexOf('--model') + 1], 'generic-anthropic/claude-sonnet-5');
+    assert.equal(args[args.indexOf('--model') + 1], 'anthropic/claude-sonnet-5');
 });
 
 test('buildExecution: skill invocation resolves a path and crafts an explicit-use instruction', () => {

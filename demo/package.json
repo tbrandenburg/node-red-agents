@@ -1,6 +1,6 @@
 {
-  "name": "nodered-agents-runtime",
-  "description": "Node-RED user directory for this project (flows, credentials, installed palette nodes)",
+  "name": "nodered-agents-demo",
+  "description": "Demo Node-RED userDir for this project -- showcases the node-red-agents package's nodes (agent, agent-server, gh) via the flows checked in here.",
   "version": "0.0.1",
   "private": true,
   "dependencies": {

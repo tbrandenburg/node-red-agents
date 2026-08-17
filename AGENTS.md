@@ -17,16 +17,55 @@ Makefile for the supported commands (`make help`).
   node-red overwrites its own process title to just `node-red`, so the
   full command line isn't matchable; use `make stop` or kill a pid you
   actually captured (e.g. from `data/.node-red.pid`).
+- `make demo` / `make demo-stop` run a *separate* instance against
+  `demo/` (own userDir, own port `1881`, own pidfile) seeded from
+  `demo/flows.json` -- a showcase flow, not a dev sandbox. It never
+  reads or writes `data/flows.json`; use it for a clean, disposable
+  round-trip check without disturbing real dev work in `data/`.
+
+## Testing
+
+- `make test` (or `npm test` from repo root) -- unit + node-level
+  integration tests (`node --test` across `packages/node-red-agents`).
+  Offline, no real CLIs invoked, this is the CI-facing gate. Run this
+  after any change to `packages/node-red-agents/**`.
+- `make test-e2e` -- smoke/E2E suite (`test/integration/`): boots a real,
+  throwaway Node-RED instance and shells out to the real `gh`/`opencode`
+  CLIs. Deliberately not part of `make test`; only run it when those
+  CLIs are installed and authenticated.
+
+## Releasing
+
+- `make release BUMP=patch|minor|major` bumps
+  `packages/node-red-agents/package.json`'s version, commits, and tags
+  `node-red-agents@<version>`. Refuses to run on a dirty tree or if
+  `make test` fails.
+- `make publish` verifies the tree is clean, HEAD is the tagged release
+  commit, and `make test` passes, then runs the real `npm publish` --
+  which needs the human's own npm OTP (2FA), so an agent should never
+  attempt to complete this step itself. Use `PUBLISH_DRY_RUN=1 make
+  publish` to rehearse every precondition without publishing.
 
 ## Custom nodes
 
-- `custom-nodes/<name>/` are standalone npm packages with a `node-red`
-  field in `package.json`. `make new-node-package NAME=x` scaffolds one.
-- Nodes needing their own npm deps: `cd custom-nodes/<name> && npm install <pkg>`.
-- Install/link a node into the running instance via the editor: **Menu ->
-  Manage palette -> Install tab -> full path to `custom-nodes/<name>`**.
-  This is equivalent to `POST /nodes {"module": "<absolute path>"}` against
-  the admin API (see below) -- use that when working headlessly.
+- `packages/node-red-agents/nodes/<name>/` holds all custom nodes
+  (`agent`, `agent-server`, `gh`, and any new ones), published together
+  as the single `@tbrandenburg/node-red-agents` npm package
+  (`packages/node-red-agents/package.json`'s `node-red.nodes` map lists
+  all of them). It's linked into `data/` via npm workspaces
+  (`data/package.json`'s `@tbrandenburg/node-red-agents` dependency) --
+  restarting Node-RED is enough to pick up a new node, no palette
+  install step.
+- `make new-node-package NAME=x` scaffolds
+  `packages/node-red-agents/nodes/x/` (JS, HTML, starter test) and
+  registers it in `packages/node-red-agents/package.json` via
+  `scripts/register-node.js`.
+- Nodes needing their own npm deps:
+  `cd packages/node-red-agents && npm install <pkg>` (shared across all
+  nodes in the package -- there is no per-node dependency isolation).
+- `POST /nodes {"module": "<absolute path>"}` against the admin API (see
+  below) is only needed for installing a *separate*, not-yet-workspaced
+  package (e.g. while prototyping outside `packages/node-red-agents`).
 - After editing the JS/HTML of an *already-loaded* node, Node-RED must be
   **restarted** to pick up the change (re-POSTing to `/nodes` just replies
   `module_already_loaded`; there's no hot-reload for installed node code).
@@ -116,3 +155,8 @@ meant to read stdin.
 - `data/node_modules/`, `data/package-lock.json`, `data/.config.*.json`,
   `data/lib/`, `data/.node-red.pid` are regenerable and gitignored --
   safe to delete freely.
+- `demo/flows.json` is also intentionally tracked -- it's the demo flow
+  (see `docs/260817_Refactoring.md` step 13), curated by hand, not
+  test-only scratch content. `demo/node_modules/`, `demo/package-lock.json`,
+  `demo/.config.*.json`, `demo/.node-red.pid` are regenerable and
+  gitignored, same as their `data/` counterparts.

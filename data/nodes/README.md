@@ -10,8 +10,10 @@ This is the fastest way to prototype a node. `example-lower-case.js/.html`
 is a working example — copy the pair, rename, edit.
 
 Once a node is ready to share/publish or needs its own npm dependencies,
-move it to a real package under `../../custom-nodes/` instead (see
-`custom-nodes/example-node` and `custom-nodes/gh` for examples, or use
-`node-red-nodegen` to scaffold one), then install it from the editor:
-Menu -> Manage palette -> Install tab -> enter the full path to the
-package folder.
+scaffold it into the real package via `make new-node-package NAME=my-node`
+(from repo root) -- this creates
+`../../packages/node-red-agents/nodes/my-node/` (JS, HTML, starter test)
+and registers it automatically; no separate palette install step needed,
+since `node-red-agents` is already linked into `data/` via npm workspaces.
+See `agent` or `gh` under `../../packages/node-red-agents/nodes/` for
+real examples.

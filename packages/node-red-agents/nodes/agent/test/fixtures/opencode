@@ -1,0 +1,17 @@
+#!/usr/bin/env node
+'use strict';
+
+// Stand-in for the real `opencode` CLI's `run --format json` output, used
+// only by node-level integration tests (see ../integration/). Emits a
+// single JSONL "text" event (opencode's real event vocabulary -- see
+// lib/agents/opencode.js's TYPE_MAP) with a fixed sessionID, then exits 0.
+// Ignores its argv entirely -- these tests are proving the agent node's
+// real Node-RED wiring (RED.nodes.createNode/registerType, node.on('input'),
+// node.status()), not opencode's own CLI behavior (already covered by
+// lib/agents/opencode.spec.js against real recorded event shapes).
+process.stdout.write(JSON.stringify({
+    type: 'text',
+    sessionID: 'fake-session-id',
+    part: { text: 'hello from fake opencode' }
+}) + '\n');
+process.exit(0);

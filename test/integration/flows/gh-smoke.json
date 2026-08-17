@@ -1,0 +1,67 @@
+[
+    {
+        "id": "smoke-gh-tab",
+        "type": "tab",
+        "label": "smoke-gh"
+    },
+    {
+        "id": "smoke-gh-inject",
+        "type": "inject",
+        "z": "smoke-gh-tab",
+        "name": "trigger",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "payload": "",
+        "payloadType": "date",
+        "repeat": "",
+        "once": false,
+        "wires": [
+            [
+                "smoke-gh-node"
+            ]
+        ],
+        "x": 100,
+        "y": 100
+    },
+    {
+        "id": "smoke-gh-node",
+        "type": "gh",
+        "z": "smoke-gh-tab",
+        "name": "gh",
+        "command": "pr",
+        "commandType": "str",
+        "args": "list",
+        "argsType": "str",
+        "repo": "",
+        "repoType": "str",
+        "host": "",
+        "timeoutMs": 15000,
+        "wires": [
+            [
+                "smoke-gh-debug"
+            ]
+        ],
+        "x": 300,
+        "y": 100
+    },
+    {
+        "id": "smoke-gh-debug",
+        "type": "debug",
+        "z": "smoke-gh-tab",
+        "name": "smoke-gh-debug",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "wires": [],
+        "x": 500,
+        "y": 100
+    }
+]

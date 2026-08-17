@@ -2,14 +2,18 @@
 
 USER_DIR      := data
 NODES_DIR     := $(USER_DIR)/nodes
-PACKAGES_DIR  := custom-nodes
+DEMO_DIR      := demo
+DEMO_PID_FILE := $(DEMO_DIR)/.node-red.pid
+PACKAGE_DIR   := packages/node-red-agents
+PACKAGE_JSON  := $(PACKAGE_DIR)/package.json
 TEMPLATE_DIR  := templates/node-package
 NODE_RED      := node_modules/.bin/node-red
 NODEMON       := node_modules/.bin/nodemon
 PID_FILE      := $(USER_DIR)/.node-red.pid
 NAME          ?=
+BUMP          ?=
 
-.PHONY: help install start dev stop new-node-package clean
+.PHONY: help install start dev stop demo demo-install demo-stop new-node-package test test-e2e release publish clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | sed -E 's/:.*## /|/' | awk -F'|' '{printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -24,7 +28,7 @@ start: ## Run Node-RED (Ctrl+C to stop; or background it and use 'make stop'), U
 	wait $$!
 
 dev: ## Run Node-RED and auto-restart when node code changes
-	setsid $(NODEMON) --watch $(NODES_DIR) --watch $(PACKAGES_DIR) --ext js,html,json \
+	setsid $(NODEMON) --watch $(NODES_DIR) --watch $(PACKAGE_DIR)/nodes --ext js,html,json \
 		--exec "$(NODE_RED) --userDir ./$(USER_DIR)" & \
 	echo $$! > $(PID_FILE); \
 	wait $$!
@@ -42,18 +46,85 @@ stop: ## Stop a Node-RED instance started via 'make start'/'make dev' in the bac
 	fi; \
 	rm -f $(PID_FILE)
 
-new-node-package: ## Scaffold a new node package skeleton in custom-nodes/ (usage: make new-node-package NAME=my-node)
+demo-install: ## Install demo/'s own declared dependencies (dashboard, theme, node-red-agents)
+	cd $(DEMO_DIR) && npm install
+
+demo: demo-install ## Run the demo flow (data/flows.json's public counterpart), UI at http://localhost:1881
+	setsid $(NODE_RED) --userDir ./$(DEMO_DIR) & \
+	echo $$! > $(DEMO_PID_FILE); \
+	wait $$!
+
+demo-stop: ## Stop a demo instance started via 'make demo' in the background
+	@if [ ! -f $(DEMO_PID_FILE) ]; then \
+		echo "No pidfile at $(DEMO_PID_FILE); nothing to stop."; \
+		exit 0; \
+	fi; \
+	PID=$$(cat $(DEMO_PID_FILE)); \
+	if kill -0 $$PID 2>/dev/null; then \
+		kill -TERM -$$PID 2>/dev/null && echo "Stopped demo Node-RED (pid $$PID, and its process group)."; \
+	else \
+		echo "No process running with pid $$PID (stale pidfile)."; \
+	fi; \
+	rm -f $(DEMO_PID_FILE)
+
+new-node-package: ## Scaffold a new node inside packages/node-red-agents/nodes/ (usage: make new-node-package NAME=my-node)
 	@test -n "$(NAME)" || (echo "usage: make new-node-package NAME=my-node" && exit 1)
-	@test ! -d $(PACKAGES_DIR)/$(NAME) || (echo "$(PACKAGES_DIR)/$(NAME) already exists" && exit 1)
-	mkdir -p $(PACKAGES_DIR)/$(NAME)
-	cp $(TEMPLATE_DIR)/package.json $(PACKAGES_DIR)/$(NAME)/package.json
-	cp $(TEMPLATE_DIR)/__NAME__.js $(PACKAGES_DIR)/$(NAME)/$(NAME).js
-	cp $(TEMPLATE_DIR)/__NAME__.html $(PACKAGES_DIR)/$(NAME)/$(NAME).html
-	sed -i "s/__NAME__/$(NAME)/g" $(PACKAGES_DIR)/$(NAME)/package.json $(PACKAGES_DIR)/$(NAME)/$(NAME).js $(PACKAGES_DIR)/$(NAME)/$(NAME).html
-	@echo "Created $(PACKAGES_DIR)/$(NAME) -- it's a plain, uninstalled npm package."
-	@echo "Edit it, add any npm deps with 'cd $(PACKAGES_DIR)/$(NAME) && npm install <pkg>',"
-	@echo "then load it from the editor: Menu -> Manage palette -> Install tab ->"
-	@echo "full path to $(PACKAGES_DIR)/$(NAME)"
+	@test ! -d $(PACKAGE_DIR)/nodes/$(NAME) || (echo "$(PACKAGE_DIR)/nodes/$(NAME) already exists" && exit 1)
+	mkdir -p $(PACKAGE_DIR)/nodes/$(NAME)/test
+	cp $(TEMPLATE_DIR)/__NAME__.js $(PACKAGE_DIR)/nodes/$(NAME)/$(NAME).js
+	cp $(TEMPLATE_DIR)/__NAME__.html $(PACKAGE_DIR)/nodes/$(NAME)/$(NAME).html
+	cp $(TEMPLATE_DIR)/__NAME__.spec.js $(PACKAGE_DIR)/nodes/$(NAME)/test/$(NAME).spec.js
+	sed -i "s/__NAME__/$(NAME)/g" $(PACKAGE_DIR)/nodes/$(NAME)/$(NAME).js $(PACKAGE_DIR)/nodes/$(NAME)/$(NAME).html $(PACKAGE_DIR)/nodes/$(NAME)/test/$(NAME).spec.js
+	node scripts/register-node.js $(NAME)
+	@echo "Created $(PACKAGE_DIR)/nodes/$(NAME) and registered it in $(PACKAGE_JSON)."
+	@echo "Edit it, add any npm deps with 'cd $(PACKAGE_DIR) && npm install <pkg>',"
+	@echo "then restart Node-RED (already linked into data/ via npm workspaces --"
+	@echo "no separate 'Manage palette -> Install' step needed)."
+
+test: ## Run unit + node-level integration tests for node-red-agents (offline, CI's default gate)
+	npm test
+
+test-e2e: ## Run the smoke/E2E suite (boots a real, throwaway Node-RED instance; needs real gh/opencode CLIs on PATH -- not part of 'make test'/CI's default gate)
+	node --test test/integration/smoke.spec.js
+
+release: ## Bump packages/node-red-agents's version and tag the release commit (usage: make release BUMP=patch, minor, or major)
+	@case "$(BUMP)" in \
+		patch|minor|major) ;; \
+		*) echo "usage: make release BUMP=patch|minor|major"; exit 1;; \
+	esac
+	@git diff --quiet && git diff --cached --quiet || \
+		(echo "release: working tree has uncommitted changes -- commit or stash first" && exit 1)
+	$(MAKE) test
+	cd $(PACKAGE_DIR) && npm version $(BUMP) --no-git-tag-version
+	@NEW_VERSION=$$(node -p "require('./$(PACKAGE_JSON)').version"); \
+	echo "Bumped $(PACKAGE_DIR) to $$NEW_VERSION"; \
+	npm install --package-lock-only --workspaces >/dev/null 2>&1; \
+	git add $(PACKAGE_JSON) package-lock.json; \
+	git commit -m "release: node-red-agents v$$NEW_VERSION"; \
+	git tag "node-red-agents@$$NEW_VERSION"; \
+	echo "Tagged node-red-agents@$$NEW_VERSION on $$(git rev-parse --short HEAD)."; \
+	echo "Next: 'git push --follow-tags', then 'make publish' (you'll need to enter your npm OTP -- 2FA)."
+
+publish: ## Verify preconditions and run npm publish for packages/node-red-agents (you complete the npm 2FA/OTP prompt yourself; PUBLISH_DRY_RUN=1 to rehearse without publishing)
+	@git diff --quiet && git diff --cached --quiet || \
+		(echo "publish: working tree has uncommitted changes -- aborting" && exit 1)
+	@VERSION=$$(node -p "require('./$(PACKAGE_JSON)').version"); \
+	if ! git rev-parse -q --verify "refs/tags/node-red-agents@$$VERSION" >/dev/null; then \
+		echo "publish: no tag node-red-agents@$$VERSION found -- run 'make release BUMP=...' first"; \
+		exit 1; \
+	fi; \
+	TAG_COMMIT=$$(git rev-list -n1 "node-red-agents@$$VERSION"); \
+	HEAD_COMMIT=$$(git rev-parse HEAD); \
+	if [ "$$TAG_COMMIT" != "$$HEAD_COMMIT" ]; then \
+		echo "publish: HEAD ($$HEAD_COMMIT) is not the tagged release commit ($$TAG_COMMIT) -- checkout the tag first"; \
+		exit 1; \
+	fi
+	$(MAKE) test
+	cd $(PACKAGE_DIR) && npm pack --dry-run
+	@npm whoami >/dev/null 2>&1 || (echo "publish: not logged in to npm -- run 'npm login' first" && exit 1)
+	@VERSION=$$(node -p "require('./$(PACKAGE_JSON)').version"); \
+	echo "About to publish node-red-agents@$$VERSION -- you'll be prompted for your npm OTP."
+	cd $(PACKAGE_DIR) && npm publish --access public $(if $(PUBLISH_DRY_RUN),--dry-run,)
 
 clean: ## Remove installed dependencies and generated runtime state
 	rm -rf node_modules $(USER_DIR)/node_modules $(USER_DIR)/package-lock.json

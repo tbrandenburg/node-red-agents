@@ -3,9 +3,13 @@
   "version": "1.0.0",
   "description": "Local Node-RED runtime with custom node development workspace",
   "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "start": "node-red --userDir ./data",
-    "dev": "nodemon --watch data/nodes --ext js,html,json --exec \"node-red --userDir ./data\""
+    "dev": "nodemon --watch data/nodes --ext js,html,json --exec \"node-red --userDir ./data\"",
+    "test": "npm test --workspaces --if-present"
   },
   "keywords": [],
   "author": "",

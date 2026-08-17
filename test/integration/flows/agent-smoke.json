@@ -1,0 +1,67 @@
+[
+    {
+        "id": "smoke-agent-tab",
+        "type": "tab",
+        "label": "smoke-agent"
+    },
+    {
+        "id": "smoke-agent-inject",
+        "type": "inject",
+        "z": "smoke-agent-tab",
+        "name": "trigger",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "payload": "reply with exactly the word: pong",
+        "payloadType": "str",
+        "repeat": "",
+        "once": false,
+        "wires": [
+            [
+                "smoke-agent-node"
+            ]
+        ],
+        "x": 100,
+        "y": 100
+    },
+    {
+        "id": "smoke-agent-node",
+        "type": "agent",
+        "z": "smoke-agent-tab",
+        "name": "agent",
+        "agent": "opencode",
+        "runtime": "direct",
+        "invocation": "prompt",
+        "prompt": "payload",
+        "promptType": "msg",
+        "timeout": 60000,
+        "timeoutType": "num",
+        "wires": [
+            [
+                "smoke-agent-debug"
+            ],
+            []
+        ],
+        "x": 300,
+        "y": 100
+    },
+    {
+        "id": "smoke-agent-debug",
+        "type": "debug",
+        "z": "smoke-agent-tab",
+        "name": "smoke-agent-debug",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "wires": [],
+        "x": 500,
+        "y": 100
+    }
+]

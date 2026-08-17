@@ -1,0 +1,60 @@
+{
+  "name": "@tbrandenburg/node-red-agents",
+  "version": "0.1.0",
+  "description": "Node-RED nodes for running coding agents (opencode, pi) and GitHub CLI operations from flows.",
+  "keywords": [
+    "node-red",
+    "agent",
+    "ai-agent",
+    "opencode",
+    "pi",
+    "coding-agent",
+    "sandbox",
+    "srt",
+    "ai",
+    "llm",
+    "github",
+    "gh",
+    "github-cli"
+  ],
+  "homepage": "https://github.com/tbrandenburg/nodered-agents#readme",
+  "bugs": {
+    "url": "https://github.com/tbrandenburg/nodered-agents/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tbrandenburg/nodered-agents.git",
+    "directory": "packages/node-red-agents"
+  },
+  "license": "ISC",
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "nodes/**/*.js",
+    "nodes/**/*.html",
+    "nodes/**/icons/**",
+    "nodes/**/examples/**",
+    "nodes/gh/README.md",
+    "shared/**/*.js",
+    "!**/test/**",
+    "!**/fixtures/**"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test --experimental-test-coverage=false 'nodes/**/test/**/*.spec.js' 'shared/**/test/**/*.spec.js'"
+  },
+  "node-red": {
+    "version": ">=4.0.0",
+    "nodes": {
+      "agent": "nodes/agent/agent.js",
+      "agent-server": "nodes/agent-server/agent-server.js",
+      "gh": "nodes/gh/gh.js"
+    }
+  },
+  "devDependencies": {
+    "node-red-node-test-helper": "^0.3.6"
+  }
+}

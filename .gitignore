@@ -1,7 +1,8 @@
 # --- Node / npm -------------------------------------------------
 node_modules/
-custom-nodes/*/node_modules/
+packages/*/node_modules/
 data/node_modules/
+demo/node_modules/
 npm-debug.log*
 yarn-error.log*
 *.tgz
@@ -10,6 +11,7 @@ yarn-error.log*
 # rewritten by Node-RED itself (e.g. via Manage Palette), so track only
 # what we intentionally commit and ignore the generated lockfile.
 data/package-lock.json
+demo/package-lock.json
 
 # --- Node-RED runtime state (regenerated on each run) ------------
 # data/flows.json is now intentionally tracked (see below) -- it holds the
@@ -26,6 +28,20 @@ data/.sessions.json
 data/lib/
 data/.node-red.pid
 
+# demo/flows.json is also intentionally tracked -- it's the demo flow
+# (see docs/260817_Refactoring.md step 13). Same runtime-state exclusions
+# as data/ apply, minus the flows.json/flows_cred.json difference: the demo
+# instance has no credentials of its own, but keep the rule for symmetry
+# in case someone adds a credentialed node later.
+demo/flows_cred.json
+demo/.flows.json.backup
+demo/.flows_cred.json.backup
+demo/.config.*.json
+demo/.config.*.json.backup
+demo/.sessions.json
+demo/lib/
+demo/.node-red.pid
+
 # data/chat/ is the agent's sandboxed cwd (functionGlobalContext.chatDir in
 # data/settings.js) -- its contents are runtime scratch state, but the
 # directory itself must exist (agent.js rejects a missing cwd), and git
@@ -33,6 +49,8 @@ data/.node-red.pid
 # everything actually written into it.
 data/chat/*
 !data/chat/.gitkeep
+demo/chat/*
+!demo/chat/.gitkeep
 
 # --- Issue Control Center: local clones/worktrees for investigate/fix ---
 workspace/

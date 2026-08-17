@@ -1,0 +1,61 @@
+[
+    {
+        "id": "smoke-agent-server-tab",
+        "type": "tab",
+        "label": "smoke-agent-server"
+    },
+    {
+        "id": "smoke-agent-server-inject",
+        "type": "inject",
+        "z": "smoke-agent-server-tab",
+        "name": "trigger",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "payload": "",
+        "payloadType": "date",
+        "repeat": "",
+        "once": false,
+        "wires": [
+            [
+                "smoke-agent-server-node"
+            ]
+        ],
+        "x": 100,
+        "y": 100
+    },
+    {
+        "id": "smoke-agent-server-node",
+        "type": "agent-server",
+        "z": "smoke-agent-server-tab",
+        "name": "agent-server",
+        "operation": "status",
+        "wires": [
+            [
+                "smoke-agent-server-debug"
+            ],
+            []
+        ],
+        "x": 300,
+        "y": 100
+    },
+    {
+        "id": "smoke-agent-server-debug",
+        "type": "debug",
+        "z": "smoke-agent-server-tab",
+        "name": "smoke-agent-server-debug",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "wires": [],
+        "x": 500,
+        "y": 100
+    }
+]

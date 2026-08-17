@@ -126,13 +126,16 @@ make publish               # you enter your npm OTP (2FA) yourself
   `make test` first, bumps `packages/node-red-agents/package.json`'s
   version (and the root lockfile), then commits and tags the result as
   `node-red-agents@<version>`.
-- `make publish` refuses to run unless the tree is clean, HEAD is exactly
-  the tagged release commit, and `make test` passes again; then shows you
-  the real `npm pack` contents before publishing. The actual
-  `npm publish` step is interactive — you complete the OTP prompt
-  yourself. After a real (non-dry-run) publish succeeds, it also creates
-  the matching GitHub Release (`gh release create ... --generate-notes`),
-  skipping cleanly if `gh` isn't installed/authenticated or a release for
+- `make publish` refuses to run unless the tree is clean,
+  `packages/node-red-agents/` at HEAD matches exactly what the version's
+  tag pointed at (not literally HEAD == the tag commit -- unrelated
+  commits after tagging, e.g. tooling/docs, don't block a release), and
+  `make test` passes again; then shows you the real `npm pack` contents
+  before publishing. The actual `npm publish` step is interactive — you
+  complete the OTP prompt yourself. After a real (non-dry-run) publish
+  succeeds, it also creates the matching GitHub Release (`gh release
+  create ... --generate-notes`), skipping cleanly if `gh` isn't
+  installed/authenticated or a release for
   that tag already exists. Set `PUBLISH_DRY_RUN=1` to rehearse every
   precondition check without actually publishing or creating a release.
 

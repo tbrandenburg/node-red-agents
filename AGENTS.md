@@ -42,11 +42,14 @@ commands (`make help`).
   `packages/node-red-agents/package.json`'s version, commits, and tags
   `node-red-agents@<version>`. Refuses to run on a dirty tree or if
   `make test` fails.
-- `make publish` verifies the tree is clean, HEAD is the tagged release
-  commit, and `make test` passes, then runs the real `npm publish` --
-  which needs the human's own npm OTP (2FA), so an agent should never
-  attempt to complete this step itself. On a real (non-dry-run) publish,
-  it also creates the matching GitHub Release via `gh release create
+- `make publish` verifies the tree is clean,
+  `packages/node-red-agents/` at HEAD matches what the version's tag
+  pointed at (a tree-content check, not a literal HEAD == tag-commit
+  check -- unrelated commits after tagging don't block a release), and
+  `make test` passes, then runs the real `npm publish` -- which needs
+  the human's own npm OTP (2FA), so an agent should never attempt to
+  complete this step itself. On a real (non-dry-run) publish, it also
+  creates the matching GitHub Release via `gh release create
   ... --generate-notes` (skips cleanly if `gh` isn't available/authed or
   the release already exists) -- so a plain git tag from `make release`
   is not yet "released" until `make publish` actually runs. Use

@@ -113,10 +113,10 @@ publish: ## Verify preconditions, run npm publish, and create the matching GitHu
 		echo "publish: no tag node-red-agents@$$VERSION found -- run 'make release BUMP=...' first"; \
 		exit 1; \
 	fi; \
-	TAG_COMMIT=$$(git rev-list -n1 "node-red-agents@$$VERSION"); \
-	HEAD_COMMIT=$$(git rev-parse HEAD); \
-	if [ "$$TAG_COMMIT" != "$$HEAD_COMMIT" ]; then \
-		echo "publish: HEAD ($$HEAD_COMMIT) is not the tagged release commit ($$TAG_COMMIT) -- checkout the tag first"; \
+	TAG_TREE=$$(git rev-parse "node-red-agents@$$VERSION:$(PACKAGE_DIR)"); \
+	HEAD_TREE=$$(git rev-parse "HEAD:$(PACKAGE_DIR)"); \
+	if [ "$$TAG_TREE" != "$$HEAD_TREE" ]; then \
+		echo "publish: $(PACKAGE_DIR) at HEAD doesn't match what node-red-agents@$$VERSION tagged -- rerun 'make release BUMP=...' or checkout the tag"; \
 		exit 1; \
 	fi
 	$(MAKE) test

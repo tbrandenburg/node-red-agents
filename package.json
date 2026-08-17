@@ -18,5 +18,10 @@
   "devDependencies": {
     "node-red": "^5.0.4",
     "nodemon": "^3.1.14"
+  },
+  "overrides": {
+    "ip-address": "^10.5.0",
+    "js-yaml": "^4.3.1",
+    "jsonata": "^2.2.2"
   }
 }

@@ -23,12 +23,12 @@ install: ## Install Node-RED + dev tooling, and data/'s own declared dependencie
 	cd $(USER_DIR) && npm install
 
 start: ## Run Node-RED (Ctrl+C to stop; or background it and use 'make stop'), UI at http://localhost:1880
-	setsid $(NODE_RED) --userDir ./$(USER_DIR) & \
+	$(NODE_RED) --userDir ./$(USER_DIR) & \
 	echo $$! > $(PID_FILE); \
 	wait $$!
 
 dev: ## Run Node-RED and auto-restart when node code changes
-	setsid $(NODEMON) --watch $(NODES_DIR) --watch $(PACKAGE_DIR)/nodes --ext js,html,json \
+	$(NODEMON) --watch $(NODES_DIR) --watch $(PACKAGE_DIR)/nodes --ext js,html,json \
 		--exec "$(NODE_RED) --userDir ./$(USER_DIR)" & \
 	echo $$! > $(PID_FILE); \
 	wait $$!
@@ -38,9 +38,10 @@ stop: ## Stop a Node-RED instance started via 'make start'/'make dev' in the bac
 		echo "No pidfile at $(PID_FILE); nothing to stop."; \
 		exit 0; \
 	fi; \
+	stop_tree() { for CHILD in $$(pgrep -P "$$1" 2>/dev/null); do stop_tree "$$CHILD"; done; kill -TERM "$$1" 2>/dev/null; }; \
 	PID=$$(cat $(PID_FILE)); \
 	if kill -0 $$PID 2>/dev/null; then \
-		kill -TERM -$$PID 2>/dev/null && echo "Stopped Node-RED (pid $$PID, and its process group)."; \
+		stop_tree $$PID && echo "Stopped Node-RED (pid $$PID and its child processes)."; \
 	else \
 		echo "No process running with pid $$PID (stale pidfile)."; \
 	fi; \
@@ -50,7 +51,7 @@ demo-install: ## Install demo/'s own declared dependencies (dashboard, theme, no
 	cd $(DEMO_DIR) && npm install
 
 demo: demo-install ## Run the demo flow (data/flows.json's public counterpart), UI at http://localhost:1881
-	setsid $(NODE_RED) --userDir ./$(DEMO_DIR) & \
+	$(NODE_RED) --userDir ./$(DEMO_DIR) & \
 	echo $$! > $(DEMO_PID_FILE); \
 	wait $$!
 
@@ -59,9 +60,10 @@ demo-stop: ## Stop a demo instance started via 'make demo' in the background
 		echo "No pidfile at $(DEMO_PID_FILE); nothing to stop."; \
 		exit 0; \
 	fi; \
+	stop_tree() { for CHILD in $$(pgrep -P "$$1" 2>/dev/null); do stop_tree "$$CHILD"; done; kill -TERM "$$1" 2>/dev/null; }; \
 	PID=$$(cat $(DEMO_PID_FILE)); \
 	if kill -0 $$PID 2>/dev/null; then \
-		kill -TERM -$$PID 2>/dev/null && echo "Stopped demo Node-RED (pid $$PID, and its process group)."; \
+		stop_tree $$PID && echo "Stopped demo Node-RED (pid $$PID and its child processes)."; \
 	else \
 		echo "No process running with pid $$PID (stale pidfile)."; \
 	fi; \

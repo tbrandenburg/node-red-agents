@@ -11,10 +11,11 @@ commands (`make help`).
   `data/` userDir dependencies (e.g. the editor theme).
 - `make start` / `make dev` - run in the foreground (Ctrl+C to stop).
   Both also write the pid to `data/.node-red.pid`.
-- `make stop` - stops a backgrounded `start`/`dev` instance. It kills the
-  whole process group, not just one pid -- important because `dev` runs
-  node-red as a child of nodemon, and killing nodemon alone leaves
-  node-red running as an orphan still bound to the port.
+- `make stop` - stops a backgrounded `start`/`dev` instance and its child
+  processes. This is important because `dev` runs node-red as a child of
+  nodemon, and killing nodemon alone leaves node-red running as an orphan
+  still bound to the port. The process-tree approach works on both Linux and
+  macOS, where `setsid` is not available by default.
 - Requires Node 22+ (see `.nvmrc`). Don't `pkill -f "node-red ..."` --
   node-red overwrites its own process title to just `node-red`, so the
   full command line isn't matchable; use `make stop` or kill a pid you

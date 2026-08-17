@@ -5,7 +5,7 @@
 any other node, and orchestrate them with Node-RED's visual, event-driven
 programming model.
 
-[![License: ISC](https://img.shields.io/badge/license-ISC-blue.svg)](./LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](./LICENSE)
 [![Node.js >=22](https://img.shields.io/badge/node-%3E%3D22-339933?logo=node.js&logoColor=white)](.nvmrc)
 [![Node-RED >=4.0.0](https://img.shields.io/badge/node--red-%3E%3D4.0.0-8f0000?logo=nodered&logoColor=white)](https://nodered.org)
 [![npm package](https://img.shields.io/badge/npm-%40tbrandenburg%2Fnode--red--agents-cb3837?logo=npm&logoColor=white)](https://www.npmjs.com/package/@tbrandenburg/node-red-agents)
@@ -227,4 +227,4 @@ output without a browser, process management gotchas, etc.).
 
 ## License
 
-[ISC](./LICENSE)
+[MIT](./LICENSE)

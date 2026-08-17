@@ -105,7 +105,7 @@ release: ## Bump packages/node-red-agents's version and tag the release commit (
 	echo "Tagged node-red-agents@$$NEW_VERSION on $$(git rev-parse --short HEAD)."; \
 	echo "Next: 'git push --follow-tags', then 'make publish' (you'll need to enter your npm OTP -- 2FA)."
 
-publish: ## Verify preconditions and run npm publish for packages/node-red-agents (you complete the npm 2FA/OTP prompt yourself; PUBLISH_DRY_RUN=1 to rehearse without publishing)
+publish: ## Verify preconditions, run npm publish, and create the matching GitHub Release for packages/node-red-agents (you complete the npm 2FA/OTP prompt yourself; PUBLISH_DRY_RUN=1 to rehearse without publishing or releasing)
 	@git diff --quiet && git diff --cached --quiet || \
 		(echo "publish: working tree has uncommitted changes -- aborting" && exit 1)
 	@VERSION=$$(node -p "require('./$(PACKAGE_JSON)').version"); \
@@ -125,6 +125,23 @@ publish: ## Verify preconditions and run npm publish for packages/node-red-agent
 	@VERSION=$$(node -p "require('./$(PACKAGE_JSON)').version"); \
 	echo "About to publish node-red-agents@$$VERSION -- you'll be prompted for your npm OTP."
 	cd $(PACKAGE_DIR) && npm publish --access public $(if $(PUBLISH_DRY_RUN),--dry-run,)
+	@if [ -n "$(PUBLISH_DRY_RUN)" ]; then \
+		echo "PUBLISH_DRY_RUN set -- skipping GitHub Release creation (nothing was actually published)."; \
+		exit 0; \
+	fi; \
+	VERSION=$$(node -p "require('./$(PACKAGE_JSON)').version"); \
+	TAG="node-red-agents@$$VERSION"; \
+	if ! command -v gh >/dev/null 2>&1 || ! gh auth status >/dev/null 2>&1; then \
+		echo "gh not installed/authenticated -- skipping GitHub Release. Create it yourself with:"; \
+		echo "  gh release create $$TAG --title \"node-red-agents v$$VERSION\" --generate-notes"; \
+		exit 0; \
+	fi; \
+	if gh release view "$$TAG" >/dev/null 2>&1; then \
+		echo "GitHub release $$TAG already exists -- skipping."; \
+	else \
+		gh release create "$$TAG" --title "node-red-agents v$$VERSION" --generate-notes; \
+		echo "Created GitHub release $$TAG."; \
+	fi
 
 clean: ## Remove installed dependencies and generated runtime state
 	rm -rf node_modules $(USER_DIR)/node_modules $(USER_DIR)/package-lock.json

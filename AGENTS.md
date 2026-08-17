@@ -45,8 +45,13 @@ commands (`make help`).
 - `make publish` verifies the tree is clean, HEAD is the tagged release
   commit, and `make test` passes, then runs the real `npm publish` --
   which needs the human's own npm OTP (2FA), so an agent should never
-  attempt to complete this step itself. Use `PUBLISH_DRY_RUN=1 make
-  publish` to rehearse every precondition without publishing.
+  attempt to complete this step itself. On a real (non-dry-run) publish,
+  it also creates the matching GitHub Release via `gh release create
+  ... --generate-notes` (skips cleanly if `gh` isn't available/authed or
+  the release already exists) -- so a plain git tag from `make release`
+  is not yet "released" until `make publish` actually runs. Use
+  `PUBLISH_DRY_RUN=1 make publish` to rehearse every precondition
+  without publishing or creating a release.
 
 ## Custom nodes
 

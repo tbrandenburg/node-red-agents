@@ -130,8 +130,11 @@ make publish               # you enter your npm OTP (2FA) yourself
   the tagged release commit, and `make test` passes again; then shows you
   the real `npm pack` contents before publishing. The actual
   `npm publish` step is interactive — you complete the OTP prompt
-  yourself. Set `PUBLISH_DRY_RUN=1` to rehearse every precondition check
-  without actually publishing.
+  yourself. After a real (non-dry-run) publish succeeds, it also creates
+  the matching GitHub Release (`gh release create ... --generate-notes`),
+  skipping cleanly if `gh` isn't installed/authenticated or a release for
+  that tag already exists. Set `PUBLISH_DRY_RUN=1` to rehearse every
+  precondition check without actually publishing or creating a release.
 
 ## Adding a node
 

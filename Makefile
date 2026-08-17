@@ -81,10 +81,10 @@ new-node-package: ## Scaffold a new node inside packages/node-red-agents/nodes/ 
 	@echo "then restart Node-RED (already linked into data/ via npm workspaces --"
 	@echo "no separate 'Manage palette -> Install' step needed)."
 
-test: ## Run unit + node-level integration tests for node-red-agents (offline, CI's default gate)
+test: install ## Run unit + node-level integration tests for node-red-agents (offline, CI's default gate)
 	npm test
 
-test-e2e: ## Run the smoke/E2E suite (boots a real, throwaway Node-RED instance; needs real gh/opencode CLIs on PATH -- not part of 'make test'/CI's default gate)
+test-e2e: install ## Run the smoke/E2E suite (boots a real, throwaway Node-RED instance; needs real gh/opencode CLIs on PATH -- not part of 'make test'/CI's default gate)
 	node --test test/integration/smoke.spec.js
 
 release: ## Bump packages/node-red-agents's version and tag the release commit (usage: make release BUMP=patch, minor, or major)

@@ -114,7 +114,10 @@ Three tiers, run against `packages/node-red-agents`:
 
 `packages/node-red-agents` is versioned and published independently of
 this repo's own version (`package.json` at the root is just the private
-dev workspace).
+dev workspace). `make test`/`make test-e2e` (and therefore `make
+release`/`make publish`, which both run `make test`) depend on `make
+install`, so a fresh checkout doesn't need a separate manual install step
+first.
 
 ```sh
 make release BUMP=patch   # or minor / major

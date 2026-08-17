@@ -1,41 +1,43 @@
 #!/usr/bin/env node
-'use strict';
+"use strict";
 
 // Stand-in for the real GitHub CLI used by gh.spec.js. Behavior is
 // selected via GH_TEST_MODE so tests don't need network access or a real
 // gh installation. Always echoes back its own argv plus the two env vars
 // gh.js is responsible for propagating, so tests can assert on both
 // argument construction and GH_REPO/GH_HOST propagation in one place.
-const mode = process.env.GH_TEST_MODE || 'json';
+const mode = process.env.GH_TEST_MODE || "json";
 const argv = process.argv.slice(2);
 
 function echo() {
-    process.stdout.write(JSON.stringify({
-        argv,
-        GH_REPO: process.env.GH_REPO || null,
-        GH_HOST: process.env.GH_HOST || null
-    }) + '\n');
+  process.stdout.write(
+    JSON.stringify({
+      argv,
+      GH_REPO: process.env.GH_REPO || null,
+      GH_HOST: process.env.GH_HOST || null,
+    }) + "\n",
+  );
 }
 
 switch (mode) {
-    case 'json':
-        echo();
-        process.exit(0);
-        break;
-    case 'text':
-        process.stdout.write('plain text output\n');
-        process.exit(0);
-        break;
-    case 'fail':
-        process.stderr.write('boom: something went wrong\n');
-        process.exit(3);
-        break;
-    case 'hang':
-        // Deliberately never exits on its own; relies on gh.js's spawn
-        // timeout to SIGTERM it.
-        setInterval(() => {}, 1000);
-        break;
-    default:
-        process.stderr.write('unknown GH_TEST_MODE: ' + mode + '\n');
-        process.exit(2);
+  case "json":
+    echo();
+    process.exit(0);
+    break;
+  case "text":
+    process.stdout.write("plain text output\n");
+    process.exit(0);
+    break;
+  case "fail":
+    process.stderr.write("boom: something went wrong\n");
+    process.exit(3);
+    break;
+  case "hang":
+    // Deliberately never exits on its own; relies on gh.js's spawn
+    // timeout to SIGTERM it.
+    setInterval(() => {}, 1000);
+    break;
+  default:
+    process.stderr.write("unknown GH_TEST_MODE: " + mode + "\n");
+    process.exit(2);
 }

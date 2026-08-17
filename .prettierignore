@@ -1,0 +1,12 @@
+node_modules/
+data/
+demo/
+docs/
+package-lock.json
+*.min.js
+# Node-RED node HTML templates mix multiple <script> tags in ways
+# Prettier's HTML parser doesn't handle; leave hand-formatted.
+**/*.html
+# Hand-formatted prose with deliberate list/code-block indentation;
+# Prettier's markdown formatter mangles list continuation whitespace.
+**/*.md

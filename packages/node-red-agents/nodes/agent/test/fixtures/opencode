@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-'use strict';
+"use strict";
 
 // Stand-in for the real `opencode` CLI's `run --format json` output, used
 // only by node-level integration tests (see ../integration/). Emits a
@@ -9,9 +9,11 @@
 // real Node-RED wiring (RED.nodes.createNode/registerType, node.on('input'),
 // node.status()), not opencode's own CLI behavior (already covered by
 // lib/agents/opencode.spec.js against real recorded event shapes).
-process.stdout.write(JSON.stringify({
-    type: 'text',
-    sessionID: 'fake-session-id',
-    part: { text: 'hello from fake opencode' }
-}) + '\n');
+process.stdout.write(
+  JSON.stringify({
+    type: "text",
+    sessionID: "fake-session-id",
+    part: { text: "hello from fake opencode" },
+  }) + "\n",
+);
 process.exit(0);

@@ -13,7 +13,7 @@ PID_FILE      := $(USER_DIR)/.node-red.pid
 NAME          ?=
 BUMP          ?=
 
-.PHONY: help install start dev stop demo demo-install demo-stop new-node-package test test-e2e release publish clean
+.PHONY: help install start dev stop demo demo-install demo-stop new-node-package format lint test test-e2e ci release publish clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | sed -E 's/:.*## /|/' | awk -F'|' '{printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -88,6 +88,14 @@ test: install ## Run unit + node-level integration tests for node-red-agents (of
 
 test-e2e: install ## Run the smoke/E2E suite (boots a real, throwaway Node-RED instance; needs real gh/opencode CLIs on PATH -- not part of 'make test'/CI's default gate)
 	node --test test/integration/smoke.spec.js
+
+format: install ## Check formatting with Prettier (use FIX=1 to rewrite files in place)
+	node_modules/.bin/prettier $(if $(FIX),--write,--check) .
+
+lint: install ## Lint with ESLint (use FIX=1 to auto-fix what it can)
+	node_modules/.bin/eslint $(if $(FIX),--fix,) .
+
+ci: format lint test test-e2e ## Run the full local gate: format check, lint, unit+integration tests, and the E2E suite
 
 release: ## Bump packages/node-red-agents's version and tag the release commit (usage: make release BUMP=patch, minor, or major)
 	@case "$(BUMP)" in \

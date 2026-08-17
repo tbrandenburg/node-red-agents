@@ -36,6 +36,11 @@ commands (`make help`).
   throwaway Node-RED instance and shells out to the real `gh`/`opencode`
   CLIs. Deliberately not part of `make test`; only run it when those
   CLIs are installed and authenticated.
+- `make format` / `make lint` -- Prettier / ESLint (flat config,
+  `eslint.config.js`); pass `FIX=1` to rewrite/auto-fix instead of just
+  checking. `make ci` runs format + lint + test + test-e2e, the same
+  local gate CI enforces across its three jobs (see
+  `.github/workflows/tests.yml`).
 
 ## Releasing
 

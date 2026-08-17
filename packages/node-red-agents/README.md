@@ -27,7 +27,7 @@ and example flows (`nodes/gh/examples/`).
 ## Install
 
 ```sh
-npm install node-red-agents
+npm install @tbrandenburg/node-red-agents
 ```
 
 Then restart Node-RED, or install via the editor: **Menu -> Manage

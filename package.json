@@ -1,7 +1,7 @@
 {
   "name": "nodered-agents",
   "version": "1.0.0",
-  "description": "Local Node-RED runtime with custom node development workspace",
+  "description": "Private dev workspace for the @tbrandenburg/node-red-agents package (local Node-RED runtime + demo)",
   "private": true,
   "workspaces": [
     "packages/*"

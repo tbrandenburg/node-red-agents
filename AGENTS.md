@@ -1,7 +1,9 @@
 # AGENTS.md
 
-Local Node-RED runtime + custom node development workspace. See the
-Makefile for the supported commands (`make help`).
+A Node-RED node package for agentic workflows (`@tbrandenburg/node-red-agents`
+-- `agent`, `agent-server`, `gh`) plus the local Node-RED runtime this
+repo uses to develop and demo it. See the Makefile for the supported
+commands (`make help`).
 
 ## Running Node-RED
 

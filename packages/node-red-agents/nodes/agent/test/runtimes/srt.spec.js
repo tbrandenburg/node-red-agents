@@ -33,7 +33,17 @@ test('buildCommand: omits -s when no settingsPath configured (srt falls back to 
 // shell-quoting step. Skips (rather than fails) when `srt` isn't on PATH,
 // since SRT is an optional runtime (spec: v1 requires only Direct + SRT
 // where available).
-test('real srt binary: adversarial args reach the wrapped process as literal argv, not shell-interpreted', { skip: !hasSrt() }, async () => {
+//
+// Also skips (rather than fails) when `srt` *is* installed but its
+// bubblewrap sandbox can't create a network namespace in this environment
+// -- e.g. Ubuntu 23.10+'s AppArmor unprivileged-userns restriction (see
+// README.md's Troubleshooting section: `bwrap: loopback: Failed
+// RTM_NEWADDR: Operation not permitted`). That's a machine-level
+// permission limitation, not a regression in this runtime's argv-building
+// logic (already covered, mock-free, by buildCommand above); distinguish
+// it from a real failure by checking for that exact bwrap/userns error
+// text before deciding whether to skip or fail.
+test('real srt binary: adversarial args reach the wrapped process as literal argv, not shell-interpreted', { skip: !hasSrt() }, async (t) => {
     const { runProcess } = require('../../lib/runtimes/process-exec');
     const runtime = new SrtRuntime({});
     const adversarial = ['a; touch /tmp/srt-injection-canary-should-not-exist', '$(echo pwned)', 'has space'];
@@ -48,6 +58,11 @@ test('real srt binary: adversarial args reach the wrapped process as literal arg
         { id: 'srt-injection-' + Date.now(), cmd, args, timeoutMs: 15000 },
         { onLine: (line) => { output += line; } }
     );
+
+    if (result.exitCode !== 0 && /RTM_NEWADDR|bubblewrap|bwrap:/i.test(result.stderr)) {
+        t.skip(`srt's bubblewrap sandbox can't create a network namespace in this environment (see README.md Troubleshooting): ${result.stderr.trim()}`);
+        return;
+    }
 
     assert.equal(result.exitCode, 0, `srt run failed: ${result.stderr}`);
     const received = JSON.parse(output);

@@ -148,6 +148,7 @@
             <option value="status">Status (this node's tracked sessions)</option>
             <option value="abort">Abort session</option>
             <option value="history">Session history</option>
+            <option value="terminate">Terminate session (kill daemon)</option>
         </select>
     </div>
 
@@ -318,6 +319,12 @@
             busy/idle breakdown) for this node instance, no network calls. With a Session ID
             &rarr; that session's own local status.</li>
         <li><b>Abort</b> / <b>Session history</b>: require a tracked Session ID.</li>
+        <li><b>Terminate</b>: kills the daemon process for a tracked Session ID
+            (SIGTERM, escalating to SIGKILL after a grace period) and stops
+            tracking it -- unlike <b>Abort</b>, the daemon does not survive this
+            and the Session ID becomes unknown/foreign afterwards. Use this to
+            actually free resources held by a long-running or stuck session
+            instead of just cancelling its current message.</li>
     </ul>
     <p><b>Model</b> (only relevant to Send message) is split into the
        <code>{providerID, modelID}</code> shape the HTTP API requires -- e.g.
@@ -328,7 +335,8 @@
        node's running/queued counts). This means <code>Status</code>/<code>Abort</code>/
        <code>Session history</code> are only useful when checking <em>this same node's own</em>
        spawned sessions. Set <code>msg.operation</code> (<code>"message"</code> /
-       <code>"status"</code> / <code>"abort"</code> / <code>"history"</code>) to override the
+       <code>"status"</code> / <code>"abort"</code> / <code>"history"</code> /
+       <code>"terminate"</code>) to override the
        configured Operation for a single trigger -- e.g. to ask a message-sending node
        instance for its own current status, without needing a second node pointed at
        nothing.</p>

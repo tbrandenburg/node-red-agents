@@ -389,7 +389,37 @@ module.exports = function (RED) {
                 .catch((err) => done(new Error(`agent-server: history fetch failed: ${err.message}`)));
         }
 
-        const VALID_OPERATIONS = ['message', 'status', 'abort', 'history'];
+        // Kills the daemon process itself, unlike `abort` (which only
+        // HTTP-cancels the in-flight message and leaves the daemon running,
+        // reusable for a later message). After this, the sessionID is no
+        // longer tracked -- a later message with this sessionID is a foreign/
+        // unknown id, same as if it had never been spawned.
+        function handleTerminateOperation(msg, send, done) {
+            let sessionID;
+            try {
+                sessionID = resolveTyped(node.sessionIdProp, node.sessionIdPropType, msg, undefined);
+            } catch (err) {
+                done(err);
+                return;
+            }
+            if (!sessionID || !node.registry.has(sessionID)) {
+                done(new Error(`agent-server: unknown sessionID "${sessionID}" (not tracked by this node instance)`));
+                return;
+            }
+
+            const record = node.registry.get(sessionID);
+            node.registry.delete(sessionID);
+            killDaemon(record.child)
+                .then(() => {
+                    emitEvent(sessionID, 'terminated', msg);
+                    updateStatus();
+                    send([Object.assign({}, msg, { payload: true, sessionID }), null]);
+                    done();
+                })
+                .catch((err) => done(new Error(`agent-server: terminate failed: ${err.message}`)));
+        }
+
+        const VALID_OPERATIONS = ['message', 'status', 'abort', 'history', 'terminate'];
 
         node.on('input', function (msg, send, done) {
             if (node.srtSettingsError) {
@@ -416,6 +446,9 @@ module.exports = function (RED) {
                     return;
                 case 'history':
                     handleHistoryOperation(msg, send, done);
+                    return;
+                case 'terminate':
+                    handleTerminateOperation(msg, send, done);
                     return;
                 case 'message':
                 default:

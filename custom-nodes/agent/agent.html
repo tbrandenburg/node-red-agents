@@ -466,6 +466,15 @@
         <dd>Used to resume a previous session if the Session ID field is left
             at its default (<code>msg.sessionID</code>). Empty/absent starts a
             new session. OpenCode only.</dd>
+        <dt class="optional">operation <span class="property-type">string</span></dt>
+        <dd>Set to <code>"terminate"</code> to kill an in-flight (or still-
+            queued) execution of this node instance instead of starting a new
+            one -- see <code>executionId</code> below.</dd>
+        <dt class="optional">executionId <span class="property-type">string</span></dt>
+        <dd>Required when <code>operation</code> is <code>"terminate"</code>:
+            the id of the execution to kill, as returned by an earlier run in
+            <code>msg.agentExecution.id</code> or an Events message's
+            <code>executionId</code>.</dd>
     </dl>
     <h3>Outputs</h3>
     <ol class="node-ports">
@@ -501,6 +510,17 @@
        not guaranteed above concurrency 1. On redeploy/removal, queued
        messages are cancelled (a <code>cancelled</code> event plus a Node-RED
        error) and any still-running agent processes are terminated.</p>
+    <p><b>Terminating a specific execution on demand</b>: send a message with
+       <code>msg.operation = "terminate"</code> and <code>msg.executionId</code>
+       set to the id to kill (from a prior run's <code>msg.agentExecution.id</code>
+       or an Events message's <code>executionId</code>). A still-queued
+       execution is cancelled immediately (never spawned); an active one gets
+       SIGTERM to its whole process group, escalating to SIGKILL after a grace
+       period -- this works the same way for both the Direct and SRT runtimes.
+       The terminated execution's own original trigger still completes on its
+       own (status <code>failed</code>, with the kill signal) once the process
+       actually exits; this terminate trigger's own output is only the
+       immediate "kill requested" acknowledgement.</p>
     <p><b>Auto approve</b> maps to OpenCode's <code>--auto</code> (off by
        default -- without it, any action gated by a permission policy not
        already set to "allow" is auto-rejected, but the run still completes).

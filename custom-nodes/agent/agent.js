@@ -264,12 +264,61 @@ module.exports = function (RED) {
             }
         });
 
+        // On-demand termination of one in-flight (or still-queued) execution
+        // of *this* node instance, addressed by the executionId a previous
+        // trigger returned (msg.agentExecution.id / the events envelope's
+        // executionId). A separate msg from the one being terminated -- the
+        // terminated execution's own original done()/outputs still fire on
+        // their own once the process actually exits (status 'failed' with a
+        // SIGTERM/SIGKILL signal, same as any other non-zero exit), this
+        // handler's output/done is only the immediate "kill requested" ack.
+        function handleTerminateOperation(msg, send, done) {
+            const executionId = typeof msg.executionId === 'string' ? msg.executionId.trim() : '';
+            if (!executionId) {
+                done(new Error('agent: terminate requires msg.executionId'));
+                return;
+            }
+
+            const result = node.scheduler.cancel(executionId);
+            if (!result) {
+                done(new Error(`agent: unknown or already-finished executionId "${executionId}"`));
+                return;
+            }
+
+            if (result.status === 'queued') {
+                const queuedItem = result.item;
+                emitEvent(queuedItem.send, queuedItem.msg, executionId, 'cancelled');
+                queuedItem.done(new Error('agent: execution cancelled before it started (terminate requested)'));
+                updateStatus();
+                send([Object.assign({}, msg, { payload: { executionId, terminated: true, status: 'cancelled' } }), null]);
+                done();
+                return;
+            }
+
+            // Active: send SIGTERM (escalating to SIGKILL) to the whole
+            // process group. Works identically for both the direct and srt
+            // runtimes -- see process-exec.js's killProcessGroup -- so no
+            // per-runtime branching is needed here.
+            const runtime = buildRuntime(node);
+            Promise.resolve(runtime.terminate(executionId))
+                .then(() => {
+                    send([Object.assign({}, msg, { payload: { executionId, terminated: true, status: 'terminating' } }), null]);
+                    done();
+                })
+                .catch((err) => done(err));
+        }
+
         node.on('input', function (msg, send, done) {
             if (node.srtSettingsError) {
                 node.lastTerminal = 'failed';
                 node.lastText = 'bad srt settings';
                 updateStatus();
                 done(new Error(`agent: ${node.srtSettingsError}`));
+                return;
+            }
+
+            if (msg.operation === 'terminate') {
+                handleTerminateOperation(msg, send, done);
                 return;
             }
 

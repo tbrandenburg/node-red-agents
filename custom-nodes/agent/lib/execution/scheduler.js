@@ -70,6 +70,28 @@ class ExecutionScheduler {
         if (onCancel) remaining.forEach((item) => onCancel(item));
         return remaining;
     }
+
+    // On-demand single-item cancellation (the `terminate` operation), as
+    // opposed to drainQueue's "everything, node is closing" semantics.
+    // Returns:
+    //   { status: 'active', item }  -- still running; caller must kill the
+    //                                  actual process/runtime itself, this
+    //                                  scheduler has no handle on that.
+    //   { status: 'queued', item }  -- removed from the queue before it ever
+    //                                  started; caller must still settle the
+    //                                  item's own done()/send() itself, same
+    //                                  as drainQueue's onCancel.
+    //   null                        -- unknown executionId (already finished,
+    //                                  or never existed).
+    cancel(executionId) {
+        if (this.active.has(executionId)) {
+            return { status: 'active', item: this.active.get(executionId) };
+        }
+        const idx = this.queue.findIndex((item) => item.executionId === executionId);
+        if (idx === -1) return null;
+        const [item] = this.queue.splice(idx, 1);
+        return { status: 'queued', item };
+    }
 }
 
 module.exports = { ExecutionScheduler };

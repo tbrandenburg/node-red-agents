@@ -188,3 +188,55 @@ test('defaults to concurrency 1 for invalid/missing configuration (0, negative, 
     assert.equal(new ExecutionScheduler({ concurrency: -3, onStart: () => Promise.resolve() }).concurrency, 1);
     assert.equal(new ExecutionScheduler({ concurrency: NaN, onStart: () => Promise.resolve() }).concurrency, 1);
 });
+
+test('cancel() removes a still-queued item without starting it, leaving other queued/active items untouched', () => {
+    const started = [];
+    const pending = new Map();
+    const scheduler = new ExecutionScheduler({
+        concurrency: 1,
+        onStart: (item) => {
+            started.push(item.executionId);
+            const d = deferred();
+            pending.set(item.executionId, d);
+            return d.promise;
+        }
+    });
+
+    scheduler.submit({ executionId: 'A' });
+    scheduler.submit({ executionId: 'B' });
+    scheduler.submit({ executionId: 'C' });
+
+    const result = scheduler.cancel('B');
+    assert.deepEqual(result.status, 'queued');
+    assert.equal(result.item.executionId, 'B');
+    assert.equal(scheduler.queuedCount, 1);
+    assert.deepEqual(started, ['A']);
+
+    pending.get('A').resolve();
+});
+
+test('cancel() on an active item reports status "active" and does not remove it', () => {
+    const pending = new Map();
+    const scheduler = new ExecutionScheduler({
+        concurrency: 1,
+        onStart: (item) => {
+            const d = deferred();
+            pending.set(item.executionId, d);
+            return d.promise;
+        }
+    });
+
+    scheduler.submit({ executionId: 'A' });
+    const result = scheduler.cancel('A');
+    assert.deepEqual(result.status, 'active');
+    assert.equal(result.item.executionId, 'A');
+    assert.equal(scheduler.activeCount, 1, 'cancel() must not remove active items -- caller kills the real process itself');
+
+    pending.get('A').resolve();
+});
+
+test('cancel() returns null for an unknown executionId', () => {
+    const scheduler = new ExecutionScheduler({ onStart: () => Promise.resolve() });
+    scheduler.submit({ executionId: 'A' });
+    assert.equal(scheduler.cancel('does-not-exist'), null);
+});

@@ -17,13 +17,13 @@
     "gh",
     "github-cli"
   ],
-  "homepage": "https://github.com/tbrandenburg/nodered-agents#readme",
+  "homepage": "https://github.com/tbrandenburg/node-red-agents#readme",
   "bugs": {
-    "url": "https://github.com/tbrandenburg/nodered-agents/issues"
+    "url": "https://github.com/tbrandenburg/node-red-agents/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tbrandenburg/nodered-agents.git",
+    "url": "git+https://github.com/tbrandenburg/node-red-agents.git",
     "directory": "packages/node-red-agents"
   },
   "license": "ISC",

@@ -1,4 +1,4 @@
-'use strict';
+"use strict";
 
 // Subscribes to a running Node-RED instance's /comms WebSocket, fires an
 // inject node via the admin HTTP API, and resolves as soon as either the
@@ -16,53 +16,53 @@
 // timeout or an error status -- never rejects, so callers don't need a
 // try/catch just to distinguish "no result" from a real thrown error.
 function waitForDebug({ baseUrl, injectId, debugId, maxWaitMs = 60000 }) {
-    return new Promise((resolve) => {
-        const ws = new WebSocket(baseUrl.replace(/^http/, 'ws') + '/comms');
-        let settled = false;
+  return new Promise((resolve) => {
+    const ws = new WebSocket(baseUrl.replace(/^http/, "ws") + "/comms");
+    let settled = false;
 
-        function finish(result) {
-            if (settled) return;
-            settled = true;
-            clearTimeout(timer);
-            ws.close();
-            resolve(result);
-        }
+    function finish(result) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      ws.close();
+      resolve(result);
+    }
 
-        const timer = setTimeout(() => finish({ ok: false, reason: 'timeout' }), maxWaitMs);
+    const timer = setTimeout(() => finish({ ok: false, reason: "timeout" }), maxWaitMs);
 
-        ws.addEventListener('open', async () => {
-            ws.send(JSON.stringify({ subscribe: 'debug' }));
-            ws.send(JSON.stringify({ subscribe: 'status/#' }));
-            // Give the subscribe a moment to land server-side before firing
-            // the inject, so we don't race and miss the first message.
-            await new Promise((r) => setTimeout(r, 300));
-            const res = await fetch(baseUrl + '/inject/' + injectId, { method: 'POST' });
-            if (process.env.WATCH_DEBUG_QUIET !== '1') {
-                console.error('[watch] injected', injectId, '->', res.status);
-            }
-        });
-
-        ws.addEventListener('message', (ev) => {
-            let events;
-            try {
-                events = JSON.parse(ev.data);
-            } catch (e) {
-                return;
-            }
-            for (const e of events) {
-                if (e.topic === 'debug' && e.data && e.data.id === debugId) {
-                    finish({ ok: true, data: e.data });
-                }
-                if (e.topic && e.topic.startsWith('status/') && e.data && e.data.fill === 'red') {
-                    finish({ ok: false, reason: 'red-status', topic: e.topic, data: e.data });
-                }
-            }
-        });
-
-        ws.addEventListener('error', (ev) => {
-            finish({ ok: false, reason: 'ws-error', data: ev.message || ev });
-        });
+    ws.addEventListener("open", async () => {
+      ws.send(JSON.stringify({ subscribe: "debug" }));
+      ws.send(JSON.stringify({ subscribe: "status/#" }));
+      // Give the subscribe a moment to land server-side before firing
+      // the inject, so we don't race and miss the first message.
+      await new Promise((r) => setTimeout(r, 300));
+      const res = await fetch(baseUrl + "/inject/" + injectId, { method: "POST" });
+      if (process.env.WATCH_DEBUG_QUIET !== "1") {
+        console.error("[watch] injected", injectId, "->", res.status);
+      }
     });
+
+    ws.addEventListener("message", (ev) => {
+      let events;
+      try {
+        events = JSON.parse(ev.data);
+      } catch (e) {
+        return;
+      }
+      for (const e of events) {
+        if (e.topic === "debug" && e.data && e.data.id === debugId) {
+          finish({ ok: true, data: e.data });
+        }
+        if (e.topic && e.topic.startsWith("status/") && e.data && e.data.fill === "red") {
+          finish({ ok: false, reason: "red-status", topic: e.topic, data: e.data });
+        }
+      }
+    });
+
+    ws.addEventListener("error", (ev) => {
+      finish({ ok: false, reason: "ws-error", data: ev.message || ev });
+    });
+  });
 }
 
 module.exports = { waitForDebug };

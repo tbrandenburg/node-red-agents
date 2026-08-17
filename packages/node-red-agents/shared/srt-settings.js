@@ -1,8 +1,8 @@
-'use strict';
+"use strict";
 
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
 
 // Translates the simple "Inline" SRT settings UI (two string lists + one
 // checkbox), used by both the `agent` and `agent-server` nodes, into the
@@ -25,18 +25,18 @@ const path = require('path');
 // "<field>: Required" for each one missing. This function always includes
 // all four.
 function buildSettingsJson({ allowedDomains, allowedWriteDirs, strictAllowlist } = {}) {
-    return {
-        network: {
-            allowedDomains: Array.isArray(allowedDomains) ? allowedDomains : [],
-            deniedDomains: [],
-            strictAllowlist: strictAllowlist !== false
-        },
-        filesystem: {
-            allowWrite: Array.isArray(allowedWriteDirs) ? allowedWriteDirs : [],
-            denyRead: [],
-            denyWrite: []
-        }
-    };
+  return {
+    network: {
+      allowedDomains: Array.isArray(allowedDomains) ? allowedDomains : [],
+      deniedDomains: [],
+      strictAllowlist: strictAllowlist !== false,
+    },
+    filesystem: {
+      allowWrite: Array.isArray(allowedWriteDirs) ? allowedWriteDirs : [],
+      denyRead: [],
+      denyWrite: [],
+    },
+  };
 }
 
 // config: { allowedDomains, allowedWriteDirs, strictAllowlist, advancedJson }
@@ -45,14 +45,17 @@ function buildSettingsJson({ allowedDomains, allowedWriteDirs, strictAllowlist }
 // writeInlineSettingsFile so tests can check the generated content without
 // needing a real filesystem.
 function resolveSettingsJsonString(config = {}) {
-    const raw = config.advancedJson && config.advancedJson.trim() ? config.advancedJson : JSON.stringify(buildSettingsJson(config));
-    // Throws a clear SyntaxError if the (usually hand-edited advanced) JSON
-    // is invalid -- deliberately no deeper validation than "is this valid
-    // JSON"; srt's own runtime error for a structurally-wrong-but-valid-JSON
-    // settings file is already clear and surfaces through the normal
-    // execution/spawn-failure path.
-    JSON.parse(raw);
-    return raw;
+  const raw =
+    config.advancedJson && config.advancedJson.trim()
+      ? config.advancedJson
+      : JSON.stringify(buildSettingsJson(config));
+  // Throws a clear SyntaxError if the (usually hand-edited advanced) JSON
+  // is invalid -- deliberately no deeper validation than "is this valid
+  // JSON"; srt's own runtime error for a structurally-wrong-but-valid-JSON
+  // settings file is already clear and surfaces through the normal
+  // execution/spawn-failure path.
+  JSON.parse(raw);
+  return raw;
 }
 
 // nodeId is used only to make the temp filename recognizable/stable per
@@ -61,11 +64,11 @@ function resolveSettingsJsonString(config = {}) {
 // filePrefix distinguishes callers (e.g. 'agent' vs 'agent-server') so two
 // different node types configuring the same nodeId-shaped id can never
 // collide on the same temp file.
-function writeInlineSettingsFile(nodeId, config, filePrefix = 'srt-settings') {
-    const json = resolveSettingsJsonString(config);
-    const filePath = path.join(os.tmpdir(), `${filePrefix}-${nodeId}-${process.pid}.json`);
-    fs.writeFileSync(filePath, json);
-    return filePath;
+function writeInlineSettingsFile(nodeId, config, filePrefix = "srt-settings") {
+  const json = resolveSettingsJsonString(config);
+  const filePath = path.join(os.tmpdir(), `${filePrefix}-${nodeId}-${process.pid}.json`);
+  fs.writeFileSync(filePath, json);
+  return filePath;
 }
 
 module.exports = { buildSettingsJson, resolveSettingsJsonString, writeInlineSettingsFile };

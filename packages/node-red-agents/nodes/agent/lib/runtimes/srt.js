@@ -1,9 +1,9 @@
-'use strict';
+"use strict";
 
-const { RuntimeProvider } = require('./base');
-const { runProcess, terminate } = require('./process-exec');
+const { RuntimeProvider } = require("./base");
+const { runProcess, terminate } = require("./process-exec");
 
-const DEFAULT_BINARY = 'srt';
+const DEFAULT_BINARY = "srt";
 
 // Wraps execution in Anthropic's `srt` (sandbox-runtime) CLI, which is
 // already installed on this host as a plain binary. Verified empirically
@@ -19,45 +19,45 @@ const DEFAULT_BINARY = 'srt';
 // top of the exact same process-exec.js used by Direct: no new npm
 // dependency, no shell-quoting step, no separate process lifecycle code.
 class SrtRuntime extends RuntimeProvider {
-    constructor(options = {}) {
-        super();
-        this.binary = options.binary || DEFAULT_BINARY;
-        // Left undefined by default so `srt` falls back to its own default
-        // (~/.srt-settings.json) -- SRT policy is deliberately kept out of
-        // the Agent node's core schema (spec: "SRT-specific configuration
-        // should be hidden... implemented by the runtime adapter").
-        this.settingsPath = options.settingsPath || undefined;
-        this.extraArgs = Array.isArray(options.extraArgs) ? options.extraArgs : [];
-    }
+  constructor(options = {}) {
+    super();
+    this.binary = options.binary || DEFAULT_BINARY;
+    // Left undefined by default so `srt` falls back to its own default
+    // (~/.srt-settings.json) -- SRT policy is deliberately kept out of
+    // the Agent node's core schema (spec: "SRT-specific configuration
+    // should be hidden... implemented by the runtime adapter").
+    this.settingsPath = options.settingsPath || undefined;
+    this.extraArgs = Array.isArray(options.extraArgs) ? options.extraArgs : [];
+  }
 
-    buildCommand(executionRequest) {
-        const flags = [];
-        if (this.settingsPath) flags.push('-s', this.settingsPath);
-        flags.push(...this.extraArgs);
-        return {
-            cmd: this.binary,
-            args: [...flags, executionRequest.command, ...executionRequest.args]
-        };
-    }
+  buildCommand(executionRequest) {
+    const flags = [];
+    if (this.settingsPath) flags.push("-s", this.settingsPath);
+    flags.push(...this.extraArgs);
+    return {
+      cmd: this.binary,
+      args: [...flags, executionRequest.command, ...executionRequest.args],
+    };
+  }
 
-    async execute(executionRequest, handlers) {
-        const { cmd, args } = this.buildCommand(executionRequest);
-        return runProcess(
-            {
-                id: executionRequest.id,
-                cmd,
-                args,
-                cwd: executionRequest.cwd,
-                env: executionRequest.env,
-                timeoutMs: executionRequest.timeoutMs
-            },
-            handlers
-        );
-    }
+  async execute(executionRequest, handlers) {
+    const { cmd, args } = this.buildCommand(executionRequest);
+    return runProcess(
+      {
+        id: executionRequest.id,
+        cmd,
+        args,
+        cwd: executionRequest.cwd,
+        env: executionRequest.env,
+        timeoutMs: executionRequest.timeoutMs,
+      },
+      handlers,
+    );
+  }
 
-    async terminate(executionId) {
-        terminate(executionId);
-    }
+  async terminate(executionId) {
+    terminate(executionId);
+  }
 }
 
 module.exports = { SrtRuntime };

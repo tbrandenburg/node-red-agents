@@ -1,30 +1,30 @@
-'use strict';
+"use strict";
 
-const { test } = require('node:test');
-const assert = require('node:assert/strict');
-const { execFileSync } = require('node:child_process');
-const { SrtRuntime } = require('../../lib/runtimes/srt');
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const { execFileSync } = require("node:child_process");
+const { SrtRuntime } = require("../../lib/runtimes/srt");
 
 function hasSrt() {
-    try {
-        execFileSync('srt', ['--version'], { stdio: 'ignore' });
-        return true;
-    } catch (err) {
-        return false;
-    }
+  try {
+    execFileSync("srt", ["--version"], { stdio: "ignore" });
+    return true;
+  } catch (err) {
+    return false;
+  }
 }
 
-test('buildCommand: prefixes settings/binary flags in front of the wrapped command', () => {
-    const runtime = new SrtRuntime({ binary: 'srt', settingsPath: '/tmp/srt-settings.json' });
-    const { cmd, args } = runtime.buildCommand({ command: 'opencode', args: ['run', 'hello world'] });
-    assert.equal(cmd, 'srt');
-    assert.deepEqual(args, ['-s', '/tmp/srt-settings.json', 'opencode', 'run', 'hello world']);
+test("buildCommand: prefixes settings/binary flags in front of the wrapped command", () => {
+  const runtime = new SrtRuntime({ binary: "srt", settingsPath: "/tmp/srt-settings.json" });
+  const { cmd, args } = runtime.buildCommand({ command: "opencode", args: ["run", "hello world"] });
+  assert.equal(cmd, "srt");
+  assert.deepEqual(args, ["-s", "/tmp/srt-settings.json", "opencode", "run", "hello world"]);
 });
 
-test('buildCommand: omits -s when no settingsPath configured (srt falls back to its own default)', () => {
-    const runtime = new SrtRuntime({ binary: 'srt' });
-    const { args } = runtime.buildCommand({ command: 'echo', args: ['hi'] });
-    assert.deepEqual(args, ['echo', 'hi']);
+test("buildCommand: omits -s when no settingsPath configured (srt falls back to its own default)", () => {
+  const runtime = new SrtRuntime({ binary: "srt" });
+  const { args } = runtime.buildCommand({ command: "echo", args: ["hi"] });
+  assert.deepEqual(args, ["echo", "hi"]);
 });
 
 // High-signal test (3/5, SRT half): confirms -- against the *actual*
@@ -43,31 +43,49 @@ test('buildCommand: omits -s when no settingsPath configured (srt falls back to 
 // logic (already covered, mock-free, by buildCommand above); distinguish
 // it from a real failure by checking for that exact bwrap/userns error
 // text before deciding whether to skip or fail.
-test('real srt binary: adversarial args reach the wrapped process as literal argv, not shell-interpreted', { skip: !hasSrt() }, async (t) => {
-    const { runProcess } = require('../../lib/runtimes/process-exec');
+test(
+  "real srt binary: adversarial args reach the wrapped process as literal argv, not shell-interpreted",
+  { skip: !hasSrt() },
+  async (t) => {
+    const { runProcess } = require("../../lib/runtimes/process-exec");
     const runtime = new SrtRuntime({});
-    const adversarial = ['a; touch /tmp/srt-injection-canary-should-not-exist', '$(echo pwned)', 'has space'];
+    const adversarial = [
+      "a; touch /tmp/srt-injection-canary-should-not-exist",
+      "$(echo pwned)",
+      "has space",
+    ];
 
     const { cmd, args } = runtime.buildCommand({
-        command: process.execPath,
-        args: ['-e', 'process.stdout.write(JSON.stringify(process.argv.slice(1)))', ...adversarial]
+      command: process.execPath,
+      args: ["-e", "process.stdout.write(JSON.stringify(process.argv.slice(1)))", ...adversarial],
     });
 
-    let output = '';
+    let output = "";
     const result = await runProcess(
-        { id: 'srt-injection-' + Date.now(), cmd, args, timeoutMs: 15000 },
-        { onLine: (line) => { output += line; } }
+      { id: "srt-injection-" + Date.now(), cmd, args, timeoutMs: 15000 },
+      {
+        onLine: (line) => {
+          output += line;
+        },
+      },
     );
 
     if (result.exitCode !== 0 && /RTM_NEWADDR|bubblewrap|bwrap:/i.test(result.stderr)) {
-        t.skip(`srt's bubblewrap sandbox can't create a network namespace in this environment (see README.md Troubleshooting): ${result.stderr.trim()}`);
-        return;
+      t.skip(
+        `srt's bubblewrap sandbox can't create a network namespace in this environment (see README.md Troubleshooting): ${result.stderr.trim()}`,
+      );
+      return;
     }
 
     assert.equal(result.exitCode, 0, `srt run failed: ${result.stderr}`);
     const received = JSON.parse(output);
     assert.deepEqual(received, adversarial);
 
-    const fs = require('node:fs');
-    assert.equal(fs.existsSync('/tmp/srt-injection-canary-should-not-exist'), false, 'the `;`-separated command must never have executed');
-});
+    const fs = require("node:fs");
+    assert.equal(
+      fs.existsSync("/tmp/srt-injection-canary-should-not-exist"),
+      false,
+      "the `;`-separated command must never have executed",
+    );
+  },
+);

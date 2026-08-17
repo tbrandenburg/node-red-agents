@@ -9,6 +9,7 @@ programming model.
 [![Node.js >=22](https://img.shields.io/badge/node-%3E%3D22-339933?logo=node.js&logoColor=white)](.nvmrc)
 [![Node-RED >=4.0.0](https://img.shields.io/badge/node--red-%3E%3D4.0.0-8f0000?logo=nodered&logoColor=white)](https://nodered.org)
 [![npm package](https://img.shields.io/badge/npm-%40tbrandenburg%2Fnode--red--agents-cb3837?logo=npm&logoColor=white)](https://www.npmjs.com/package/@tbrandenburg/node-red-agents)
+[![Tests](https://github.com/tbrandenburg/node-red-agents/actions/workflows/tests.yml/badge.svg)](https://github.com/tbrandenburg/node-red-agents/actions/workflows/tests.yml)
 
 This repository *is* the source and development home of that npm
 package (`packages/node-red-agents`) — plus a runnable Node-RED instance
@@ -22,6 +23,8 @@ specific, versioned, publishable package with three nodes.
 - [Quick start](#quick-start)
 - [Project layout](#project-layout)
 - [Testing](#testing)
+- [Code style](#code-style)
+- [Continuous integration](#continuous-integration)
 - [Releasing](#releasing)
 - [Adding a node](#adding-a-node)
 - [Troubleshooting: SRT sandbox errors](#troubleshooting-srt-fails-with-loopback-failed-rtm_newaddr)
@@ -86,8 +89,9 @@ it. It never reads or writes `data/flows.json`.
 ## Project layout
 
 ```
-Makefile              install / start / dev / stop / demo / test / test-e2e /
-                       release / publish / new-node-package / clean
+Makefile              install / start / dev / stop / demo / format / lint /
+                       test / test-e2e / ci / release / publish /
+                       new-node-package / clean
 packages/
   node-red-agents/     the publishable npm package (@tbrandenburg/node-red-agents):
                        agent, agent-server, gh nodes and their lib/
@@ -109,6 +113,37 @@ Three tiers, run against `packages/node-red-agents`:
 | Unit + node-level integration | `make test` (or `npm test`) | Every node, `node --test`, includes `node-red-node-test-helper` specs. Offline, fast — this is the CI gate. |
 | Smoke / E2E | `make test-e2e` | Boots a real, throwaway Node-RED instance, deploys a minimal flow per node, asserts on real debug output. Shells out to the real `gh`/`opencode` CLIs — deliberately **not** part of `make test`. |
 | Manual spot-check | `make demo` + `scripts/run-and-watch.js` | Human-in-the-loop check against the actual demo flows (see `AGENTS.md` for the round-trip workflow: inject a node, wait for its debug output over `/comms`, no browser needed). |
+
+## Code style
+
+Formatting ([Prettier](https://prettier.io)) and linting
+([ESLint](https://eslint.org), flat config in `eslint.config.js`) are
+enforced across the repo's JS (Node-RED node HTML templates and
+markdown docs are excluded -- see `.prettierignore`).
+
+```sh
+make format          # check formatting (CI mode)
+make format FIX=1    # rewrite files in place
+make lint            # lint (CI mode)
+make lint FIX=1      # lint and auto-fix what's fixable
+make ci              # format + lint + test + test-e2e, the full local gate
+```
+
+## Continuous integration
+
+`.github/workflows/tests.yml` runs on every pull request, on push to
+`main`, and on manual dispatch, as three jobs (shown as `Tests / ...`
+in GitHub's checks UI):
+
+- **Format + Lint** -- `make format` + `make lint`.
+- **Unit + Integration** -- `make test`. This is the required merge gate.
+- **E2E** -- `make test-e2e`. Installs the `opencode` CLI and shells out
+  to it and to the runner's preinstalled, preauthenticated `gh` CLI.
+  Needs an `ANTHROPIC_API_KEY` repository secret; skips (rather than
+  fails) on forked PRs, which don't get repo secrets, or if the secret
+  isn't configured yet. The `agent` smoke flow uses the `direct` runtime,
+  so `srt` ([Anthropic's sandbox-runtime](https://github.com/anthropic-experimental/sandbox-runtime))
+  isn't needed in CI even though the `agent` node supports it.
 
 ## Releasing
 

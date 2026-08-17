@@ -18,22 +18,22 @@ This package does not bundle `gh` or implement its own login flow.
 
 **Inputs:** 1 &nbsp; **Outputs:** 1
 
-| Field | Type | Notes |
-|---|---|---|
-| Command | str/msg/flow/global | The `gh` subcommand, e.g. `pr`, `issue`, `workflow`, `api`. Not the full command line -- `gh` itself is always the executable and can never be overridden. |
-| Arguments | str/msg/flow/global | Everything after the command, e.g. `list --state open --json number,title,url`. A string value is tokenized (quote-aware, no shell evaluation); an array value (e.g. from `msg.`) is used as-is. |
-| Repository | str/msg/flow/global | Optional `owner/repo`. Sets `GH_REPO` for the invocation. |
-| Host (Advanced) | str | Optional GitHub Enterprise hostname, e.g. `github.example.com`. Sets `GH_HOST`. |
-| Timeout (Advanced) | number (ms) | Default 60000. The child process is killed (`SIGTERM`) if it runs longer than this. |
+| Field              | Type                | Notes                                                                                                                                                                                            |
+| ------------------ | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Command            | str/msg/flow/global | The `gh` subcommand, e.g. `pr`, `issue`, `workflow`, `api`. Not the full command line -- `gh` itself is always the executable and can never be overridden.                                       |
+| Arguments          | str/msg/flow/global | Everything after the command, e.g. `list --state open --json number,title,url`. A string value is tokenized (quote-aware, no shell evaluation); an array value (e.g. from `msg.`) is used as-is. |
+| Repository         | str/msg/flow/global | Optional `owner/repo`. Sets `GH_REPO` for the invocation.                                                                                                                                        |
+| Host (Advanced)    | str                 | Optional GitHub Enterprise hostname, e.g. `github.example.com`. Sets `GH_HOST`.                                                                                                                  |
+| Timeout (Advanced) | number (ms)         | Default 60000. The child process is killed (`SIGTERM`) if it runs longer than this.                                                                                                              |
 
 ### `msg.gh` overrides
 
 ```js
 msg.gh = {
-  command: 'issue',
-  args: ['list', '--state', 'open'],   // array preferred; skips parsing entirely
-  repo: 'owner/repo',
-  host: 'github.example.com'
+  command: "issue",
+  args: ["list", "--state", "open"], // array preferred; skips parsing entirely
+  repo: "owner/repo",
+  host: "github.example.com",
 };
 ```
 

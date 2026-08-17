@@ -101,7 +101,7 @@ release: ## Bump packages/node-red-agents's version and tag the release commit (
 	npm install --package-lock-only --workspaces >/dev/null 2>&1; \
 	git add $(PACKAGE_JSON) package-lock.json; \
 	git commit -m "release: node-red-agents v$$NEW_VERSION"; \
-	git tag "node-red-agents@$$NEW_VERSION"; \
+	git tag -a "node-red-agents@$$NEW_VERSION" -m "release: node-red-agents v$$NEW_VERSION"; \
 	echo "Tagged node-red-agents@$$NEW_VERSION on $$(git rev-parse --short HEAD)."; \
 	echo "Next: 'git push --follow-tags', then 'make publish' (you'll need to enter your npm OTP -- 2FA)."
 

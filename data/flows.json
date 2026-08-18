@@ -1096,7 +1096,7 @@
         "argsType": "str",
         "repo": "tbrandenburg/node-red-agents",
         "repoType": "str",
-        "host": "github.boschdevcloud.com",
+        "host": "",
         "timeoutMs": 60000,
         "x": 520,
         "y": 940,
@@ -2594,11 +2594,6 @@
                 "type": "str"
             },
             {
-                "value": "bosch-litellm-openai/o3",
-                "label": "bosch-litellm-openai/o3",
-                "type": "str"
-            },
-            {
                 "value": "github-copilot/claude-haiku-4.5",
                 "label": "github-copilot/claude-haiku-4.5",
                 "type": "str"
@@ -3177,7 +3172,7 @@
         "type": "function",
         "z": "9c4510ab1faa72ba",
         "name": "set test repo context",
-        "func": "flow.set('icc_host', 'github.boschdevcloud.com');\nflow.set('icc_owner', 'tbrandenburg');\nflow.set('icc_repo', 'node-red-agents');\nreturn msg;",
+        "func": "flow.set('icc_host', '');\nflow.set('icc_owner', 'tbrandenburg');\nflow.set('icc_repo', 'node-red-agents');\nreturn msg;",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,
@@ -3937,8 +3932,6 @@
         "srtAllowedDomains": [
             "api.githubcopilot.com",
             "opencode.ai",
-            "bosch-lud-api.azure-api.net",
-            "litellm.orchestration.bbm.ai.bosch.com",
             "api.openai.com"
         ],
         "srtAllowedWriteDirs": [
@@ -4322,11 +4315,6 @@
             {
                 "value": "opencode/nemotron-3.5-lightning-free",
                 "label": "opencode/nemotron-3.5-lightning-free",
-                "type": "str"
-            },
-            {
-                "value": "bosch-litellm-openai/o3",
-                "label": "bosch-litellm-openai/o3",
                 "type": "str"
             },
             {
@@ -4715,11 +4703,6 @@
                 "type": "str"
             },
             {
-                "value": "bosch-litellm-openai/o3",
-                "label": "bosch-litellm-openai/o3",
-                "type": "str"
-            },
-            {
                 "value": "github-copilot/claude-haiku-4.5",
                 "label": "github-copilot/claude-haiku-4.5",
                 "type": "str"
@@ -5093,8 +5076,6 @@
         "srtAllowedDomains": [
             "api.githubcopilot.com",
             "opencode.ai",
-            "bosch-lud-api.azure-api.net",
-            "litellm.orchestration.bbm.ai.bosch.com",
             "api.openai.com"
         ],
         "srtAllowedWriteDirs": [

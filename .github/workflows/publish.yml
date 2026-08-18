@@ -49,6 +49,9 @@ jobs:
           registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
 
+      - name: Ensure npm CLI supports OIDC trusted publishing (requires npm >= 11.5.1)
+        run: npm install -g npm@^11.5.1
+
       - name: Resolve version, tag and dry-run mode
         id: vars
         if: github.event_name != 'pull_request'

@@ -41,15 +41,17 @@ jobs:
     runs-on: ubuntu-latest
     # Shells out to the real `gh`/`opencode` CLIs (see AGENTS.md/README), so
     # it needs an authenticated `gh` (the runner's default GITHUB_TOKEN) and
-    # an ANTHROPIC_API_KEY repo secret. Forked PRs don't get repo secrets,
-    # so skip there rather than fail on missing credentials; the "skip"
-    # step below also no-ops gracefully if a same-repo run has no key
-    # configured yet.
+    # an OPENCODE_API_KEY repo secret for OpenCode Zen (the agent smoke flow
+    # pins opencode/big-pickle, a Zen model that's free to use -- see
+    # https://opencode.ai/docs/zen -- so this only needs a Zen account/key,
+    # no billed provider). Forked PRs don't get repo secrets, so skip there
+    # rather than fail on missing credentials; the "skip" step below also
+    # no-ops gracefully if a same-repo run has no key configured yet.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     permissions:
       contents: read
     env:
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v6
@@ -61,8 +63,8 @@ jobs:
       - name: Check required secrets are configured
         id: preflight
         run: |
-          if [ -z "$ANTHROPIC_API_KEY" ]; then
-            echo "ANTHROPIC_API_KEY secret not set -- skipping E2E (needs a real, billed provider key; see README Prerequisites)."
+          if [ -z "$OPENCODE_API_KEY" ]; then
+            echo "OPENCODE_API_KEY secret not set -- skipping E2E (needs a free OpenCode Zen key; see README Prerequisites)."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"

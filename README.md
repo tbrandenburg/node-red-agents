@@ -138,11 +138,14 @@ in GitHub's checks UI):
 - **Format + Lint** -- `make format` + `make lint`.
 - **Unit + Integration** -- `make test`. This is the required merge gate.
 - **E2E** -- `make test-e2e`. Installs the `opencode` CLI and shells out
-  to it and to the runner's preinstalled, preauthenticated `gh` CLI.
-  Needs an `ANTHROPIC_API_KEY` repository secret; skips (rather than
-  fails) on forked PRs, which don't get repo secrets, or if the secret
-  isn't configured yet. The `agent` smoke flow uses the `direct` runtime,
-  so `srt` ([Anthropic's sandbox-runtime](https://github.com/anthropic-experimental/sandbox-runtime))
+  to it and to the runner's preinstalled, preauthenticated `gh` CLI. The
+  `agent` smoke flow pins `opencode/big-pickle`, a free
+  [OpenCode Zen](https://opencode.ai/docs/zen) model, so this job only
+  needs a (free-tier) `OPENCODE_API_KEY` repository secret -- not a
+  billed provider key. Skips (rather than fails) on forked PRs, which
+  don't get repo secrets, or if the secret isn't configured yet. The
+  `agent` node's `direct` runtime is used, so `srt`
+  ([Anthropic's sandbox-runtime](https://github.com/anthropic-experimental/sandbox-runtime))
   isn't needed in CI even though the `agent` node supports it.
 
 ## Releasing

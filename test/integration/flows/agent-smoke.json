@@ -32,6 +32,8 @@
     "invocation": "prompt",
     "prompt": "payload",
     "promptType": "msg",
+    "model": "opencode/big-pickle",
+    "modelType": "str",
     "timeout": 60000,
     "timeoutType": "num",
     "wires": [["smoke-agent-debug"], []],

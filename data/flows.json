@@ -24,6 +24,14 @@
         "env": []
     },
     {
+        "id": "advanced-chat-tab",
+        "type": "tab",
+        "label": "Advanced Chat",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
         "id": "arw-subflow",
         "type": "subflow",
         "name": "Agent Repo Workflow (clone + run agent against a prompt)",
@@ -417,8 +425,58 @@
         "id": "0e80a349b55dd9e2",
         "type": "auto_layout_config",
         "name": "AutoLayout",
-        "algorithm": "dagre_longest_path",
+        "algorithm": "dagre_lr",
         "settings": "{\"dagre_lr\":{\"rankdir\":\"LR\",\"marginx\":20,\"marginy\":20,\"nodesep\":30,\"ranksep\":50},\"dagre_longest_path\":{\"rankdir\":\"LR\",\"marginx\":2,\"marginy\":2,\"ranker\":\"longest-path\",\"nodesep\":2,\"ranksep\":2},\"elkjs_mr_tree\":{\"algorithm\":\"mrtree\",\"childAreaHeight\":4500,\"childAreaWidth\":4500,\"org.eclipse.elk.direction\":\"RIGHT\"},\"elkjs_layered_upwards\":{\"algorithm\":\"org.eclipse.elk.layered\",\"elk.direction\":\"UP\",\"cycleBreaking.strategy\":\"INTERACTIVE\",\"layering.strategy\":\"INTERACTIVE\",\"crossingMinimization.semiInteractive\":true,\"separateConnectedComponents\":true,\"nodePlacement.strategy\":\"NETWORK_SIMPLEX\",\"spacing.nodeNode\":70,\"spacing.nodeNodeBetweenLayers\":25,\"spacing.edgeNode\":25,\"spacing.edgeNodeBetweenLayers\":20,\"spacing.edgeEdge\":20,\"spacing.edgeEdgeBetweenLayers\":15,\"elk.hierarchyHandling\":\"INCLUDE_CHILDREN\",\"elk.layered.spacing.edgeNodeBetweenLayers\":40,\"elk.layered.nodePlacement.bk.fixedAlignment\":\"BALANCED\",\"layering.layerConstraint\":\"FIRST\"},\"elkjs_layered_downwards\":{\"algorithm\":\"org.eclipse.elk.layered\",\"elk.direction\":\"DOWN\",\"cycleBreaking.strategy\":\"INTERACTIVE\",\"layering.strategy\":\"INTERACTIVE\",\"crossingMinimization.semiInteractive\":true,\"separateConnectedComponents\":true,\"nodePlacement.strategy\":\"NETWORK_SIMPLEX\",\"spacing.nodeNode\":70,\"spacing.nodeNodeBetweenLayers\":25,\"spacing.edgeNode\":25,\"spacing.edgeNodeBetweenLayers\":20,\"spacing.edgeEdge\":20,\"spacing.edgeEdgeBetweenLayers\":15},\"elkjs_box\":{\"algorithm\":\"org.eclipse.elk.box\",\"org.eclipse.elk.spacing.nodeNode\":20},\"pull_request_2267\":{}}"
+    },
+    {
+        "id": "adc-page",
+        "type": "ui-page",
+        "name": "Advanced Chat",
+        "ui": "7cde684526b81393",
+        "path": "/advanced-chat",
+        "icon": "chat",
+        "layout": "grid",
+        "theme": "d0f5c6c8434eeb19",
+        "breakpoints": [
+            {
+                "name": "Default",
+                "px": "0",
+                "cols": "3"
+            },
+            {
+                "name": "Tablet",
+                "px": "576",
+                "cols": "6"
+            },
+            {
+                "name": "Small Desktop",
+                "px": "768",
+                "cols": "9"
+            },
+            {
+                "name": "Desktop",
+                "px": "1024",
+                "cols": "12"
+            }
+        ],
+        "order": 4,
+        "className": "",
+        "visible": "true",
+        "disabled": "false"
+    },
+    {
+        "id": "adc-group",
+        "type": "ui-group",
+        "name": "Advanced Chat",
+        "page": "adc-page",
+        "width": 6,
+        "height": 1,
+        "order": 1,
+        "showTitle": true,
+        "className": "",
+        "visible": "true",
+        "disabled": "false",
+        "groupType": "default"
     },
     {
         "id": "arw-repo-gate",
@@ -689,7 +747,7 @@
         "id": "dff7d659d3ccd337",
         "type": "inject",
         "z": "5dbe97e09f66bb83",
-        "name": "",
+        "name": "Prompt",
         "props": [
             {
                 "p": "topic",
@@ -702,7 +760,7 @@
         "onceDelay": 0.1,
         "topic": "Reply with exactly one word: the capital of France",
         "x": 290,
-        "y": 160,
+        "y": 100,
         "wires": [
             [
                 "luna-duplicate-x2"
@@ -882,7 +940,7 @@
         "type": "ui-table",
         "z": "5dbe97e09f66bb83",
         "group": "63dfe00d6f464dd2",
-        "name": "",
+        "name": "Log",
         "label": "",
         "order": 3,
         "width": 0,
@@ -929,8 +987,8 @@
         "icon": "",
         "iconPosition": "left",
         "iconInnerPosition": "inside",
-        "x": 440,
-        "y": 700,
+        "x": 420,
+        "y": 580,
         "wires": [
             [
                 "202fe24eeae2566e"
@@ -973,8 +1031,8 @@
         ],
         "srtStrictAllowlist": true,
         "srtAdvancedJson": "",
-        "x": 770,
-        "y": 660,
+        "x": 750,
+        "y": 500,
         "wires": [
             [
                 "9579bdca162a13ff"
@@ -1004,8 +1062,8 @@
         "className": "",
         "value": "payload",
         "valueType": "msg",
-        "x": 1040,
-        "y": 620,
+        "x": 1060,
+        "y": 400,
         "wires": []
     },
     {
@@ -1029,8 +1087,8 @@
         "mobileBreakpointType": "defaults",
         "action": "append",
         "className": "",
-        "x": 1030,
-        "y": 700,
+        "x": 1270,
+        "y": 580,
         "wires": [
             []
         ]
@@ -1052,8 +1110,8 @@
         "topic": "",
         "payload": "Hello!",
         "payloadType": "str",
-        "x": 450,
-        "y": 560,
+        "x": 430,
+        "y": 400,
         "wires": [
             [
                 "202fe24eeae2566e"
@@ -1305,8 +1363,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 1030,
-        "y": 780,
+        "x": 1080,
+        "y": 580,
         "wires": [
             [
                 "54336b7deb36eb02"
@@ -4570,64 +4628,6 @@
         ]
     },
     {
-        "id": "advanced-chat-tab",
-        "type": "tab",
-        "label": "Advanced Chat",
-        "disabled": false,
-        "info": "",
-        "env": []
-    },
-    {
-        "id": "adc-page",
-        "type": "ui-page",
-        "name": "Advanced Chat",
-        "ui": "7cde684526b81393",
-        "path": "/advanced-chat",
-        "icon": "chat",
-        "layout": "grid",
-        "theme": "d0f5c6c8434eeb19",
-        "breakpoints": [
-            {
-                "name": "Default",
-                "px": "0",
-                "cols": "3"
-            },
-            {
-                "name": "Tablet",
-                "px": "576",
-                "cols": "6"
-            },
-            {
-                "name": "Small Desktop",
-                "px": "768",
-                "cols": "9"
-            },
-            {
-                "name": "Desktop",
-                "px": "1024",
-                "cols": "12"
-            }
-        ],
-        "order": 4,
-        "className": "",
-        "visible": "true",
-        "disabled": "false"
-    },
-    {
-        "id": "adc-group",
-        "type": "ui-group",
-        "name": "Advanced Chat",
-        "page": "adc-page",
-        "width": 6,
-        "height": 1,
-        "order": 1,
-        "showTitle": true,
-        "className": "",
-        "visible": "true",
-        "disabled": "false",
-        "groupType": "default"
-    },
-    {
         "id": "adc-header",
         "type": "ui-template",
         "z": "advanced-chat-tab",
@@ -5009,8 +5009,8 @@
         "id": "adc-chat",
         "type": "ui-chat",
         "z": "advanced-chat-tab",
-        "group": "adc-group",
         "name": "Chat",
+        "group": "adc-group",
         "order": 4,
         "width": 0,
         "height": 0,

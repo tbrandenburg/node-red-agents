@@ -1,10 +1,5 @@
 # node-red-agents
 
-**Node-RED nodes for agentic workflows** — drop coding agents (OpenCode,
-`pi`) and GitHub CLI operations straight into a flow, wire them up like
-any other node, and orchestrate them with Node-RED's visual, event-driven
-programming model.
-
 [![License: MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](./LICENSE)
 [![Node.js >=22](https://img.shields.io/badge/node-%3E%3D22-339933?logo=node.js&logoColor=white)](.nvmrc)
 [![Node-RED >=4.0.0](https://img.shields.io/badge/node--red-%3E%3D4.0.0-8f0000?logo=nodered&logoColor=white)](https://nodered.org)
@@ -12,6 +7,11 @@ programming model.
 [![Tests](https://github.com/tbrandenburg/node-red-agents/actions/workflows/tests.yml/badge.svg)](https://github.com/tbrandenburg/node-red-agents/actions/workflows/tests.yml)
 
 <img width="1345" height="625" alt="image" src="https://github.com/user-attachments/assets/ca44c0f8-383d-431d-96aa-8c3a5815c166" />
+
+**Node-RED nodes for agentic workflows** — drop coding agents (OpenCode,
+`pi`) and GitHub CLI operations straight into a flow, wire them up like
+any other node, and orchestrate them with Node-RED's visual, event-driven
+programming model.
 
 This repository *is* the source and development home of that npm
 package (`packages/node-red-agents`) — plus a runnable Node-RED instance

@@ -1,5 +1,7 @@
 # node-red-agents
 
+<img width="1345" height="625" alt="image" src="https://github.com/user-attachments/assets/ca44c0f8-383d-431d-96aa-8c3a5815c166" />
+
 **Node-RED nodes for agentic workflows** — drop coding agents (OpenCode,
 `pi`) and GitHub CLI operations straight into a flow, wire them up like
 any other node, and orchestrate them with Node-RED's visual, event-driven

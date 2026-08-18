@@ -48,7 +48,23 @@ commands (`make help`).
   `packages/node-red-agents/package.json`'s version, commits, and tags
   `node-red-agents@<version>`. Refuses to run on a dirty tree or if
   `make test` fails.
-- `make publish` verifies the tree is clean,
+- **Primary path:** `git push --follow-tags` after `make release` triggers
+  `.github/workflows/publish.yml`, which publishes
+  `@tbrandenburg/node-red-agents` to npm via
+  [OIDC trusted publishing](https://docs.npmjs.com/trusted-publishers) --
+  no `NPM_TOKEN` secret exists or is needed. The workflow re-verifies the
+  tag matches `package.json`'s version and that
+  `packages/node-red-agents/` at HEAD matches what the tag pointed at (same
+  tree-content check as `make publish` below), runs `make test`, then
+  `npm publish --access public` and `gh release create ... --generate-notes`
+  (skipped if the release already exists). The npmjs.com package has a
+  Trusted Publisher registered for `tbrandenburg/node-red-agents` /
+  `publish.yml` / `npm publish` -- the workflow filename must keep matching
+  that exactly. `workflow_dispatch` (default `dry_run: true`) and any PR
+  touching `publish.yml` (harness-only: checkout, test, `npm pack
+  --dry-run`, no npm auth or release) exist to validate the workflow
+  without publishing for real.
+- **Manual/local fallback:** `make publish` verifies the tree is clean,
   `packages/node-red-agents/` at HEAD matches what the version's tag
   pointed at (a tree-content check, not a literal HEAD == tag-commit
   check -- unrelated commits after tagging don't block a release), and
@@ -58,9 +74,9 @@ commands (`make help`).
   creates the matching GitHub Release via `gh release create
   ... --generate-notes` (skips cleanly if `gh` isn't available/authed or
   the release already exists) -- so a plain git tag from `make release`
-  is not yet "released" until `make publish` actually runs. Use
-  `PUBLISH_DRY_RUN=1 make publish` to rehearse every precondition
-  without publishing or creating a release.
+  is not yet "released" until `make publish` (or the CI workflow) actually
+  runs. Use `PUBLISH_DRY_RUN=1 make publish` to rehearse every
+  precondition without publishing or creating a release.
 
 ## Custom nodes
 

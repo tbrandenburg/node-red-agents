@@ -358,6 +358,10 @@
                 <dd>This node instance's own Node-RED id, so a flow with
                     several agent-server nodes can tell which one produced a
                     given message.</dd>
+                <dt>serverName <span class="property-type">string</span></dt>
+                <dd>This node instance's configured Name, if any (undefined
+                    when the node has no Name set -- not a fallback to
+                    serverId).</dd>
             </dl>
         </li>
         <li>Lifecycle events
@@ -369,6 +373,8 @@
                     (busy) / <code>tracked</code> (total) daemon counts.</dd>
                 <dt>serverId <span class="property-type">string</span></dt>
                 <dd>This node instance's own Node-RED id (see Result output).</dd>
+                <dt>serverName <span class="property-type">string</span></dt>
+                <dd>This node instance's configured Name, if any (see Result output).</dd>
             </dl>
         </li>
     </ol>

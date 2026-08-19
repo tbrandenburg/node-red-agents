@@ -464,6 +464,18 @@ module.exports = function (RED) {
         return;
       }
 
+      // Optional per-message override of the deploy-time Max instances
+      // field, applied before spawnNewInstance()'s guard clause reads it
+      // -- no redeploy needed. 0 stays "unlimited" (same as the
+      // constructor's semantics above); negative/non-numeric values are
+      // ignored. Lowering the limit below the current registry size
+      // never evicts already-spawned daemons -- it only blocks *future*
+      // spawns until the count naturally drops back under the new cap.
+      if (msg.maxInstances !== undefined) {
+        const n = Number(msg.maxInstances);
+        if (Number.isFinite(n) && n >= 0) node.maxInstances = Math.floor(n);
+      }
+
       // msg.operation can override the configured default for this one
       // trigger. This matters because each node instance's registry is
       // private (per-node-instance scoping, same as the `agent` node's

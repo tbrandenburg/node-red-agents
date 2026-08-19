@@ -194,7 +194,7 @@
         <label for="node-input-maxInstances"><i class="fa fa-tasks"></i> Max instances</label>
         <input type="text" id="node-input-maxInstances" placeholder="5" style="width:80px">
         <i class="fa fa-info-circle" style="color:#888; cursor:help; margin-left:4px;"
-           title="Maximum number of daemons this node may have spawned at once. A new no-session-id trigger errors immediately once reached (no queueing). 0 = unlimited."></i>
+           title="Maximum number of daemons this node may have spawned at once. A new no-session-id trigger errors immediately once reached (no queueing). 0 = unlimited. Overridable at runtime via msg.maxInstances."></i>
     </div>
     <div class="form-row agent-server-row-spawn">
         <label for="node-input-startupTimeoutMs"><i class="fa fa-clock-o"></i> Startup timeout</label>
@@ -340,6 +340,12 @@
        configured Operation for a single trigger -- e.g. to ask a message-sending node
        instance for its own current status, without needing a second node pointed at
        nothing.</p>
+    <p>Set <code>msg.maxInstances</code> to override the Max instances field at
+       runtime, without a redeploy -- 0 keeps meaning "unlimited", and
+       negative/non-numeric values are ignored. Lowering it below the current
+       number of tracked daemons never kills any of them; it only blocks
+       <em>future</em> spawns until the count naturally drops back under the
+       new cap.</p>
     <h3>Outputs</h3>
     <ol class="node-ports">
         <li>Result

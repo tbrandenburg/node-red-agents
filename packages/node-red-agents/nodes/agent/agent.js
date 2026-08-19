@@ -342,6 +342,15 @@ module.exports = function (RED) {
         return;
       }
 
+      // Optional per-message override of the deploy-time Concurrency
+      // field, applied before this message is submitted so a raised
+      // bound can immediately start any items already queued from
+      // earlier messages. Invalid values (non-numeric/non-positive)
+      // are ignored -- see ExecutionScheduler.setConcurrency.
+      if (msg.concurrency !== undefined) {
+        node.scheduler.setConcurrency(Number(msg.concurrency));
+      }
+
       let resolved;
       try {
         resolved = {

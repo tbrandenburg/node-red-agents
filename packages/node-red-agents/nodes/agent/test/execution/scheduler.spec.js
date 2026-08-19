@@ -261,3 +261,86 @@ test("cancel() returns null for an unknown executionId", () => {
   scheduler.submit({ executionId: "A" });
   assert.equal(scheduler.cancel("does-not-exist"), null);
 });
+
+test("setConcurrency() raises the bound and immediately drains eligible queued items", () => {
+  const started = [];
+  const pending = new Map();
+  const scheduler = new ExecutionScheduler({
+    concurrency: 1,
+    onStart: (item) => {
+      started.push(item.executionId);
+      const d = deferred();
+      pending.set(item.executionId, d);
+      return d.promise;
+    },
+  });
+
+  scheduler.submit({ executionId: "A" });
+  scheduler.submit({ executionId: "B" });
+  scheduler.submit({ executionId: "C" });
+  assert.deepEqual(started, ["A"]);
+  assert.equal(scheduler.queuedCount, 2);
+
+  scheduler.setConcurrency(3);
+  assert.equal(scheduler.concurrency, 3);
+  assert.deepEqual(
+    started,
+    ["A", "B", "C"],
+    "raising the bound must start queued items right away",
+  );
+  assert.equal(scheduler.activeCount, 3);
+  assert.equal(scheduler.queuedCount, 0);
+
+  pending.get("A").resolve();
+  pending.get("B").resolve();
+  pending.get("C").resolve();
+});
+
+test("setConcurrency() lowering the bound never cancels already-active items, only affects future scheduling", () => {
+  const started = [];
+  const pending = new Map();
+  const scheduler = new ExecutionScheduler({
+    concurrency: 3,
+    onStart: (item) => {
+      started.push(item.executionId);
+      const d = deferred();
+      pending.set(item.executionId, d);
+      return d.promise;
+    },
+  });
+
+  scheduler.submit({ executionId: "A" });
+  scheduler.submit({ executionId: "B" });
+  scheduler.submit({ executionId: "C" });
+  assert.equal(scheduler.activeCount, 3);
+
+  scheduler.setConcurrency(1);
+  assert.equal(scheduler.activeCount, 3, "already-active items must not be cancelled");
+
+  scheduler.submit({ executionId: "D" });
+  assert.equal(scheduler.queuedCount, 1, "new submissions now respect the lowered bound");
+  assert.deepEqual(started, ["A", "B", "C"]);
+
+  pending.get("A").resolve();
+  pending.get("B").resolve();
+  pending.get("C").resolve();
+});
+
+test("setConcurrency() ignores invalid values (non-finite, zero, negative) instead of changing the bound", () => {
+  const scheduler = new ExecutionScheduler({ concurrency: 2, onStart: () => Promise.resolve() });
+
+  scheduler.setConcurrency(0);
+  assert.equal(scheduler.concurrency, 2);
+
+  scheduler.setConcurrency(-1);
+  assert.equal(scheduler.concurrency, 2);
+
+  scheduler.setConcurrency(NaN);
+  assert.equal(scheduler.concurrency, 2);
+
+  scheduler.setConcurrency(undefined);
+  assert.equal(scheduler.concurrency, 2);
+
+  scheduler.setConcurrency(4.7);
+  assert.equal(scheduler.concurrency, 4, "valid values are floored, same as the constructor");
+});

@@ -65,3 +65,64 @@ test("a minimal inject -> agent -> output flow runs the (faked) opencode CLI and
   assert.equal(received.agentExecution.status, "completed");
   assert.equal(received.agentExecution.exitCode, 0);
 });
+
+test("msg.concurrency overrides the deploy-time Concurrency field at runtime, without a redeploy", async () => {
+  const flow = [
+    {
+      id: "n1",
+      type: "agent",
+      name: "agent",
+      agent: "opencode",
+      runtime: "direct",
+      invocation: "prompt",
+      prompt: "payload",
+      promptType: "msg",
+      concurrency: 1,
+      wires: [["n2"], []],
+    },
+    { id: "n2", type: "helper" },
+  ];
+  await helper.load(agentNode, flow);
+  const n1 = helper.getNode("n1");
+  const n2 = helper.getNode("n2");
+
+  assert.equal(n1.scheduler.concurrency, 1, "deploy-time default before any override");
+
+  const received = await new Promise((resolve, reject) => {
+    n2.on("input", resolve);
+    n1.receive({ payload: "say hello", concurrency: 3 });
+    setTimeout(() => reject(new Error("timed out waiting for agent node output")), 5000).unref();
+  });
+
+  assert.equal(received.payload, "hello from fake opencode");
+  assert.equal(n1.scheduler.concurrency, 3, "msg.concurrency raised the bound live");
+});
+
+test("msg.concurrency with an invalid value (non-numeric/non-positive) is ignored, leaving the bound unchanged", async () => {
+  const flow = [
+    {
+      id: "n1",
+      type: "agent",
+      name: "agent",
+      agent: "opencode",
+      runtime: "direct",
+      invocation: "prompt",
+      prompt: "payload",
+      promptType: "msg",
+      concurrency: 2,
+      wires: [["n2"], []],
+    },
+    { id: "n2", type: "helper" },
+  ];
+  await helper.load(agentNode, flow);
+  const n1 = helper.getNode("n1");
+  const n2 = helper.getNode("n2");
+
+  await new Promise((resolve, reject) => {
+    n2.on("input", resolve);
+    n1.receive({ payload: "say hello", concurrency: -5 });
+    setTimeout(() => reject(new Error("timed out waiting for agent node output")), 5000).unref();
+  });
+
+  assert.equal(n1.scheduler.concurrency, 2, "invalid override must not change the bound");
+});

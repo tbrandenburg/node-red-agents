@@ -475,6 +475,12 @@
             the id of the execution to kill, as returned by an earlier run in
             <code>msg.agentExecution.id</code> or an Events message's
             <code>executionId</code>.</dd>
+        <dt class="optional">concurrency <span class="property-type">number</span></dt>
+        <dd>Overrides the Concurrency field at runtime, applied before this
+            message is submitted -- no redeploy needed. Raising it starts any
+            already-queued messages immediately; lowering it only affects
+            future scheduling (already-running executions are never
+            cancelled). Non-numeric/non-positive values are ignored.</dd>
     </dl>
     <h3>Outputs</h3>
     <ol class="node-ports">
@@ -509,7 +515,9 @@
        complete in a different order than the messages arrived; ordering is
        not guaranteed above concurrency 1. On redeploy/removal, queued
        messages are cancelled (a <code>cancelled</code> event plus a Node-RED
-       error) and any still-running agent processes are terminated.</p>
+       error) and any still-running agent processes are terminated. Send
+       <code>msg.concurrency</code> to change the bound at runtime without a
+       redeploy -- see Inputs below.</p>
     <p><b>Terminating a specific execution on demand</b>: send a message with
        <code>msg.operation = "terminate"</code> and <code>msg.executionId</code>
        set to the id to kill (from a prior run's <code>msg.agentExecution.id</code>

@@ -27,6 +27,20 @@ class ExecutionScheduler {
     return this.active.size;
   }
 
+  // Runtime override of the concurrency bound (e.g. from a per-message
+  // msg.concurrency), as opposed to the fixed value passed into the
+  // constructor. Invalid input (non-finite/non-positive) is ignored
+  // rather than falling back to 1 -- an in-flight bound should never be
+  // silently reset by a bad message. Raising the bound immediately
+  // drains eligible queued items via _advance(); lowering it only
+  // affects future scheduling -- already-active items are never
+  // cancelled by this call.
+  setConcurrency(concurrency) {
+    if (!Number.isFinite(concurrency) || concurrency <= 0) return;
+    this.concurrency = Math.floor(concurrency);
+    this._advance();
+  }
+
   get queuedCount() {
     return this.queue.length;
   }

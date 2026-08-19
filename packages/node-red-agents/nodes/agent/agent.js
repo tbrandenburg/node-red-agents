@@ -163,6 +163,7 @@ module.exports = function (RED) {
         payload,
         agent: node.agent,
         runtime: node.runtime,
+        agentId: node.id,
         executionId,
         active: node.scheduler.activeCount,
         queued: node.scheduler.queuedCount,
@@ -214,6 +215,7 @@ module.exports = function (RED) {
             payload: result.payload,
             agent: node.agent,
             runtime: node.runtime,
+            agentId: node.id,
             // Top-level, in addition to agentExecution.sessionID
             // below: matches the agent-server node's convention
             // so this output can be fed straight back into the
@@ -303,6 +305,7 @@ module.exports = function (RED) {
         send([
           Object.assign({}, msg, {
             payload: { executionId, terminated: true, status: "cancelled" },
+            agentId: node.id,
           }),
           null,
         ]);
@@ -320,6 +323,7 @@ module.exports = function (RED) {
           send([
             Object.assign({}, msg, {
               payload: { executionId, terminated: true, status: "terminating" },
+              agentId: node.id,
             }),
             null,
           ]);

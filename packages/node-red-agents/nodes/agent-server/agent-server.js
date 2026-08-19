@@ -105,6 +105,7 @@ module.exports = function (RED) {
           topic: msg && msg.topic,
           payload: { type },
           sessionID,
+          serverId: node.id,
           active: summary.busy,
           tracked: summary.total,
           timestamp: Date.now(),
@@ -236,6 +237,7 @@ module.exports = function (RED) {
         const resultMsg = Object.assign({}, msg, {
           payload: extractText(response),
           sessionID,
+          serverId: node.id,
           agentServer: {
             sessionID,
             host: record && record.host,
@@ -330,7 +332,7 @@ module.exports = function (RED) {
       if (!sessionID) {
         // Aggregate across every daemon this node instance is
         // tracking -- purely local, no network calls.
-        send([Object.assign({}, msg, { payload: node.registry.summary() }), null]);
+        send([Object.assign({}, msg, { payload: node.registry.summary(), serverId: node.id }), null]);
         done();
         return;
       }
@@ -355,6 +357,7 @@ module.exports = function (RED) {
             startedAt: record.startedAt,
             lastUsed: record.lastUsed,
           },
+          serverId: node.id,
         }),
         null,
       ]);
@@ -387,7 +390,7 @@ module.exports = function (RED) {
         .then(() => {
           node.registry.setBusy(sessionID, false);
           updateStatus();
-          send([Object.assign({}, msg, { payload: true, sessionID }), null]);
+          send([Object.assign({}, msg, { payload: true, sessionID, serverId: node.id }), null]);
           done();
         })
         .catch((err) => done(new Error(`agent-server: abort failed: ${err.message}`)));
@@ -416,7 +419,7 @@ module.exports = function (RED) {
         ...authOptions(),
       })
         .then((history) => {
-          send([Object.assign({}, msg, { payload: history, sessionID }), null]);
+          send([Object.assign({}, msg, { payload: history, sessionID, serverId: node.id }), null]);
           done();
         })
         .catch((err) => done(new Error(`agent-server: history fetch failed: ${err.message}`)));
@@ -450,7 +453,7 @@ module.exports = function (RED) {
         .then(() => {
           emitEvent(sessionID, "terminated", msg);
           updateStatus();
-          send([Object.assign({}, msg, { payload: true, sessionID }), null]);
+          send([Object.assign({}, msg, { payload: true, sessionID, serverId: node.id }), null]);
           done();
         })
         .catch((err) => done(new Error(`agent-server: terminate failed: ${err.message}`)));

@@ -64,6 +64,7 @@ test("a minimal inject -> agent -> output flow runs the (faked) opencode CLI and
   assert.equal(received.sessionID, "fake-session-id");
   assert.equal(received.agentExecution.status, "completed");
   assert.equal(received.agentExecution.exitCode, 0);
+  assert.equal(received.agentId, n1.id, "result msg is stamped with this node instance's id");
 });
 
 test("msg.concurrency overrides the deploy-time Concurrency field at runtime, without a redeploy", async () => {

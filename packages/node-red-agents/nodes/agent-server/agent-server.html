@@ -354,6 +354,10 @@
                 <dd>Operation-dependent: assistant reply text (message), a status object, etc.</dd>
                 <dt>sessionID <span class="property-type">string</span></dt>
                 <dd>Echoed back so a later trigger can reuse the same daemon/session.</dd>
+                <dt>serverId <span class="property-type">string</span></dt>
+                <dd>This node instance's own Node-RED id, so a flow with
+                    several agent-server nodes can tell which one produced a
+                    given message.</dd>
             </dl>
         </li>
         <li>Lifecycle events
@@ -363,6 +367,8 @@
                     <code>failed</code> / <code>closed</code>, each with <code>sessionID</code>,
                     <code>timestamp</code>, and this node instance's live <code>active</code>
                     (busy) / <code>tracked</code> (total) daemon counts.</dd>
+                <dt>serverId <span class="property-type">string</span></dt>
+                <dd>This node instance's own Node-RED id (see Result output).</dd>
             </dl>
         </li>
     </ol>

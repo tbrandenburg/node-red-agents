@@ -494,6 +494,10 @@
                     conversation on the next message.</dd>
                 <dt>agentExecution <span class="property-type">object</span></dt>
                 <dd>id, status, exitCode, signal, timedOut, durationMs, sessionID.</dd>
+                <dt>agentId <span class="property-type">string</span></dt>
+                <dd>This node instance's own Node-RED id, so a flow with
+                    several agent nodes can tell which one produced a
+                    given message.</dd>
             </dl>
         </li>
         <li>Events
@@ -504,6 +508,8 @@
                 <dt>executionId <span class="property-type">string</span></dt>
                 <dd>Correlates events (and the eventual result) belonging to
                     the same execution when several run concurrently.</dd>
+                <dt>agentId <span class="property-type">string</span></dt>
+                <dd>This node instance's own Node-RED id (see Result output).</dd>
             </dl>
         </li>
     </ol>

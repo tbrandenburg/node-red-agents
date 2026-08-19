@@ -44,6 +44,7 @@ test("a minimal inject -> agent-server(status) -> output flow returns a real reg
   });
 
   assert.deepEqual(received.payload, { total: 0, busy: 0, idle: 0, sessions: [] });
+  assert.equal(received.serverId, n1.id, "status reply is stamped with this node instance's id");
 });
 
 // msg.maxInstances end-to-end tests below spawn real (fake) daemon
@@ -89,6 +90,7 @@ test("msg.maxInstances raises the deploy-time Max instances cap at runtime, unbl
 
   const first = await send(n1, { payload: "hello" });
   assert.equal(first.payload, "hello from fake session");
+  assert.equal(first.serverId, n1.id, "message reply is stamped with this node instance's id");
   assert.equal(n1.registry.size(), 1);
 
   // At the cap (1/1) -- a second no-sessionID trigger without raising the

@@ -332,7 +332,10 @@ module.exports = function (RED) {
       if (!sessionID) {
         // Aggregate across every daemon this node instance is
         // tracking -- purely local, no network calls.
-        send([Object.assign({}, msg, { payload: node.registry.summary(), serverId: node.id }), null]);
+        send([
+          Object.assign({}, msg, { payload: node.registry.summary(), serverId: node.id }),
+          null,
+        ]);
         done();
         return;
       }

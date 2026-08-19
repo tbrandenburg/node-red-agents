@@ -283,7 +283,11 @@ test("setConcurrency() raises the bound and immediately drains eligible queued i
 
   scheduler.setConcurrency(3);
   assert.equal(scheduler.concurrency, 3);
-  assert.deepEqual(started, ["A", "B", "C"], "raising the bound must start queued items right away");
+  assert.deepEqual(
+    started,
+    ["A", "B", "C"],
+    "raising the bound must start queued items right away",
+  );
   assert.equal(scheduler.activeCount, 3);
   assert.equal(scheduler.queuedCount, 0);
 

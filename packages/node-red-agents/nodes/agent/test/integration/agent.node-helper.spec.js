@@ -65,6 +65,7 @@ test("a minimal inject -> agent -> output flow runs the (faked) opencode CLI and
   assert.equal(received.agentExecution.status, "completed");
   assert.equal(received.agentExecution.exitCode, 0);
   assert.equal(received.agentId, n1.id, "result msg is stamped with this node instance's id");
+  assert.equal(received.agentName, "agent", "result msg is stamped with the configured Name");
 });
 
 test("msg.concurrency overrides the deploy-time Concurrency field at runtime, without a redeploy", async () => {
@@ -104,7 +105,6 @@ test("msg.concurrency with an invalid value (non-numeric/non-positive) is ignore
     {
       id: "n1",
       type: "agent",
-      name: "agent",
       agent: "opencode",
       runtime: "direct",
       invocation: "prompt",
@@ -119,11 +119,16 @@ test("msg.concurrency with an invalid value (non-numeric/non-positive) is ignore
   const n1 = helper.getNode("n1");
   const n2 = helper.getNode("n2");
 
-  await new Promise((resolve, reject) => {
+  const received = await new Promise((resolve, reject) => {
     n2.on("input", resolve);
     n1.receive({ payload: "say hello", concurrency: -5 });
     setTimeout(() => reject(new Error("timed out waiting for agent node output")), 5000).unref();
   });
 
   assert.equal(n1.scheduler.concurrency, 2, "invalid override must not change the bound");
+  assert.equal(
+    received.agentName,
+    undefined,
+    "no fallback -- an unnamed node's agentName stays undefined",
+  );
 });

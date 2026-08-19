@@ -498,6 +498,10 @@
                 <dd>This node instance's own Node-RED id, so a flow with
                     several agent nodes can tell which one produced a
                     given message.</dd>
+                <dt>agentName <span class="property-type">string</span></dt>
+                <dd>This node instance's configured Name, if any (undefined
+                    when the node has no Name set -- not a fallback to
+                    agentId).</dd>
             </dl>
         </li>
         <li>Events
@@ -510,6 +514,8 @@
                     the same execution when several run concurrently.</dd>
                 <dt>agentId <span class="property-type">string</span></dt>
                 <dd>This node instance's own Node-RED id (see Result output).</dd>
+                <dt>agentName <span class="property-type">string</span></dt>
+                <dd>This node instance's configured Name, if any (see Result output).</dd>
             </dl>
         </li>
     </ol>

@@ -5571,7 +5571,8 @@
                 "adt-test-debug-events",
                 "adt-test-capture-execution-id",
                 "adt-capture-execid-issue-investigate",
-                "adt-flatten-trace"
+                "adt-flatten-trace",
+                "adt-pixelagents-map-events"
             ],
             [
                 "adt-test-debug-log"
@@ -6964,7 +6965,8 @@
             [
                 "adt-capture-execid-issue-fix",
                 "adt-flatten-trace",
-                "tmp-debug-adt-issue-fix-instance"
+                "tmp-debug-adt-issue-fix-instance",
+                "adt-pixelagents-map-events"
             ],
             [
                 "adt-log-debug"
@@ -6985,7 +6987,8 @@
             [
                 "adt-capture-execid-pr-review",
                 "adt-flatten-trace",
-                "tmp-debug-adt-pr-review-instance"
+                "tmp-debug-adt-pr-review-instance",
+                "adt-pixelagents-map-events"
             ],
             [
                 "adt-log-debug"
@@ -7006,7 +7009,8 @@
             [
                 "adt-capture-execid-action-investigate",
                 "adt-flatten-trace",
-                "tmp-debug-adt-action-investigate-instance"
+                "tmp-debug-adt-action-investigate-instance",
+                "adt-pixelagents-map-events"
             ],
             [
                 "adt-log-debug"
@@ -8490,5 +8494,202 @@
                 "adt-action-investigate-instance"
             ]
         ]
+    },
+    {
+        "id": "adt-pixelagents-load-token-inject",
+        "type": "inject",
+        "z": "adt-tab",
+        "name": "PixelAgents: load token",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.2,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 1900,
+        "y": 1000,
+        "wires": [
+            [
+                "adt-pixelagents-read-serverjson"
+            ]
+        ]
+    },
+    {
+        "id": "adt-pixelagents-read-serverjson",
+        "type": "exec",
+        "z": "adt-tab",
+        "command": "cat ~/.pixel-agents/server.json",
+        "addpay": false,
+        "append": "",
+        "useSpawn": "false",
+        "timer": "",
+        "winHide": false,
+        "oldrc": false,
+        "name": "cat ~/.pixel-agents/server.json",
+        "x": 2150,
+        "y": 1000,
+        "wires": [
+            [
+                "adt-pixelagents-set-global"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "adt-pixelagents-set-global",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "set global.pixelAgents (with dev fallback)",
+        "func": "// Real pixel-agents (standalone or VS Code) writes ~/.pixel-agents/server.json\n// with {port, pid, authToken} once it has started -- see server/API.md \"Discovery\n// & auth\". POST /api/hooks/:providerId always requires this Bearer token, even\n// in standalone mode (server/src/httpServer.ts bearerAuth has no embedded-only\n// bypass, unlike the /ws route).\nlet cfg = null;\ntry {\n    const parsed = JSON.parse(msg.payload || \"\");\n    if (parsed && parsed.port && parsed.authToken) {\n        cfg = { baseUrl: \"http://127.0.0.1:\" + parsed.port, authToken: parsed.authToken };\n    }\n} catch (err) {\n    // no real server.json found/parseable -- fall through to dev fallback below\n}\nif (!cfg) {\n    // Dev/demo fallback -- matches scripts/mock-pixelagents-server.js's default\n    // token, so this flow works against the mock server (node scripts/mock-pixelagents-server.js)\n    // with zero configuration when the real pixel-agents CLI isn't installed/running.\n    cfg = {\n        baseUrl: env.get(\"PIXELAGENTS_BASE_URL\") || \"http://127.0.0.1:3100\",\n        authToken: env.get(\"PIXELAGENTS_TOKEN\") || \"mock-token-for-dev\",\n    };\n    node.warn(\"adt: ~/.pixel-agents/server.json not found/parseable, using dev fallback (\" + cfg.baseUrl + \")\");\n}\nglobal.set(\"pixelAgents\", cfg);\nnode.status({ fill: \"green\", shape: \"dot\", text: cfg.baseUrl });\nreturn null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 2400,
+        "y": 1000,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "finalize": "",
+        "func": "// Normalizes the Agent node's output-2 lifecycle envelope (msg.payload =\n// {type, sessionID, data}, from either the opencode or pi adapter -- see\n// packages/node-red-agents/nodes/agent/lib/agents/{opencode,pi}.js TYPE_MAP)\n// into zero or more pixel-agents `web` hook-provider event bodies\n// (POST /api/hooks/web). One pixel-agents \"agent\" = one ADT agent-node\n// execution, keyed by executionId (present on every output-2 envelope msg,\n// including the terminal completed/failed/timeout event -- see agent.js\n// onSettled -> emitEvent(..., item.finalStatus, ...)).\nconst p = msg.payload || {};\nconst sessionId = \"adt-\" + msg.executionId;\nconst events = [];\n\nfunction toolStart(toolId, toolName, status) {\n    events.push({ hook_event_name: \"toolStart\", session_id: sessionId, tool_id: toolId, tool_name: toolName, status: status });\n}\nfunction toolEnd(toolId) {\n    events.push({ hook_event_name: \"toolEnd\", session_id: sessionId, tool_id: toolId });\n}\n\nif (p.type === \"running\") {\n    // First lifecycle event for this execution (onStatus('running')) --\n    // spawn the character. cwd isn't in this envelope (lifecycleEnvelope()\n    // in agent.js doesn't carry it), so folderName falls back server-side.\n    events.push({ hook_event_name: \"sessionStart\", session_id: sessionId, cwd: msg.cwd });\n    toolStart(sessionId + \"-spawn\", \"Task\", msg.agentName ? (\"Working: \" + msg.agentName) : \"Working\");\n    toolEnd(sessionId + \"-spawn\");\n} else if (p.type === \"tool\") {\n    const raw = p.data || {};\n    if (raw.type === \"tool_execution_start\") {\n        // pi: real start/end pair, correlated by toolCallId.\n        toolStart(raw.toolCallId, raw.toolName);\n    } else if (raw.type === \"tool_execution_end\") {\n        toolEnd(raw.toolCallId);\n    } else if (raw.type === \"tool_execution_update\") {\n        // pi: intermediate progress -- no pixel-agents equivalent, drop.\n    } else if (raw.type === \"tool_use\") {\n        // opencode: single already-completed event (verified empirically --\n        // opencode never streams a separate boundary), synthesize an\n        // immediate start+end pair.\n        const part = raw.part || {};\n        const toolId = part.callID || (sessionId + \"-\" + msg._msgid);\n        toolStart(toolId, part.tool || \"tool\");\n        toolEnd(toolId);\n    }\n} else if (p.type === \"agent\") {\n    // Finished text/reasoning chunk (both adapters only surface the *_end\n    // variant, per lib/agents/pi.js's explicit *_start/*_delta skip) --\n    // show a brief \"Thinking\" pulse.\n    const toolId = sessionId + \"-think-\" + msg._msgid;\n    toolStart(toolId, \"Thinking\");\n    toolEnd(toolId);\n} else if (p.type === \"completed\" || p.type === \"failed\" || p.type === \"timeout\") {\n    // Terminal lifecycle event (onSettled -> emitEvent(..., finalStatus, ...))\n    // -- close the turn and despawn the character.\n    events.push({ hook_event_name: \"turnEnd\", session_id: sessionId, awaiting_input: false });\n    events.push({ hook_event_name: \"sessionEnd\", session_id: sessionId, reason: p.type });\n}\n// \"started\" (opencode step_start, fires once per LLM turn), \"queued\",\n// \"progress\", \"cancelled\"/\"terminating\" (sent on output 1, different msg\n// shape, out of scope here) carry no pixel-agents-visible state change from\n// this branch -- dropped.\n\nif (events.length === 0) return null;\nmsg.payload = events;\nreturn msg;",
+        "id": "adt-pixelagents-map-events",
+        "initialize": "",
+        "libs": [],
+        "name": "PixelAgents: map agent events",
+        "noerr": 0,
+        "outputs": 1,
+        "timeout": 0,
+        "type": "function",
+        "wires": [
+            [
+                "adt-pixelagents-split"
+            ]
+        ],
+        "x": 1960,
+        "y": 1100,
+        "z": "adt-tab"
+    },
+    {
+        "addname": "",
+        "arraySplt": 1,
+        "arraySpltType": "len",
+        "id": "adt-pixelagents-split",
+        "name": "one hook event per msg",
+        "splt": "\\n",
+        "spltType": "str",
+        "stream": false,
+        "type": "split",
+        "wires": [
+            [
+                "adt-pixelagents-build-request"
+            ]
+        ],
+        "x": 2160,
+        "y": 1100,
+        "z": "adt-tab"
+    },
+    {
+        "finalize": "",
+        "func": "const cfg = global.get(\"pixelAgents\") || { baseUrl: \"http://127.0.0.1:3100\", authToken: \"\" };\nmsg.url = cfg.baseUrl + \"/api/hooks/web\";\nmsg.headers = { \"content-type\": \"application/json\", \"authorization\": \"Bearer \" + cfg.authToken };\n// msg.payload is already one hook-event body object (from the split node);\n// the http request node serializes an object payload to JSON automatically.\n// Method is fixed to POST on the node itself (setting msg.method too would\n// just trigger Node-RED's \"cannot override set node properties\" warning).\nreturn msg;",
+        "id": "adt-pixelagents-build-request",
+        "initialize": "",
+        "libs": [],
+        "name": "build POST /api/hooks/web request",
+        "noerr": 0,
+        "outputs": 1,
+        "timeout": 0,
+        "type": "function",
+        "wires": [
+            [
+                "adt-pixelagents-http"
+            ]
+        ],
+        "x": 2380,
+        "y": 1100,
+        "z": "adt-tab"
+    },
+    {
+        "authType": "",
+        "id": "adt-pixelagents-http",
+        "insecureHTTPParser": false,
+        "method": "POST",
+        "name": "POST pixel-agents web hook (fire-and-forget)",
+        "paytoqs": "ignore",
+        "persist": false,
+        "proxy": "",
+        "ret": "txt",
+        "senderr": true,
+        "type": "http request",
+        "url": "",
+        "wires": [
+            [
+                "adt-pixelagents-debug"
+            ]
+        ],
+        "x": 2620,
+        "y": 1100,
+        "z": "adt-tab"
+    },
+    {
+        "active": true,
+        "complete": "true",
+        "console": false,
+        "id": "adt-pixelagents-debug",
+        "name": "PixelAgents: response (dev only)",
+        "statusType": "auto",
+        "statusVal": "",
+        "targetType": "full",
+        "tosidebar": true,
+        "tostatus": false,
+        "type": "debug",
+        "x": 2890,
+        "y": 1100,
+        "z": "adt-tab"
+    },
+    {
+        "id": "adt-pixelagents-catch",
+        "name": "pixel-agents unreachable",
+        "scope": [
+            "adt-pixelagents-http"
+        ],
+        "type": "catch",
+        "uncaught": false,
+        "wires": [
+            [
+                "adt-pixelagents-catch-fn"
+            ]
+        ],
+        "x": 2620,
+        "y": 1160,
+        "z": "adt-tab"
+    },
+    {
+        "finalize": "",
+        "func": "// pixel-agents down/unreachable is expected and must never affect the real\n// ADT pipeline (worktree/agent/gh flows) -- log once at debug level and drop.\nnode.debug(\"adt: pixel-agents notify failed (best-effort, ignored): \" + (msg.error && msg.error.message));\nreturn null;",
+        "id": "adt-pixelagents-catch-fn",
+        "initialize": "",
+        "libs": [],
+        "name": "log + drop",
+        "noerr": 0,
+        "outputs": 1,
+        "timeout": 0,
+        "type": "function",
+        "wires": [
+            []
+        ],
+        "x": 2620,
+        "y": 1220,
+        "z": "adt-tab"
     }
 ]

@@ -636,17 +636,47 @@ comments, `gh pr view 11 --json comments` → 0 comments, `git ls-remote
   pre-existing edge case was also surfaced during this verification and is
   called out separately below since it predates and is unrelated to the
   counter itself.
-- **Pre-existing edge case found during counter verification (not fixed, out
-  of scope for the counter change)**: `adt-stop-fn`'s sweep only resets a
-  task's phase if it already has a live `executionId` (`if (t.executionId)`).
-  A task that was dispatched (`phase = 'in_progress'`) but whose agent failed
-  before its output-2 `running` event ever arrived (so the
-  running-event-sync function in §6 never got to backfill `executionId`) is
-  invisible to the sweep and stays `in_progress` forever, even across
-  repeated Stops -- observed live when three Actions runs hit the same
-  network-allowlist rejection immediately on start. This is a latent bug in
-  the existing Stop implementation, unrelated to and not introduced by the
-  "Active workflows" counter (which faithfully reports whatever
-  `global.adt_tasks` says); flagged here for a future fix rather than
-  silently worked around.
+- **Pre-existing edge case found during counter verification -- FIXED
+  (2026-08-20)**: `adt-stop-fn`'s sweep used to reset a task's phase only if
+  it already had a live `executionId` (`if (t.executionId)`). A task that was
+  dispatched (`phase = 'in_progress'`) but whose agent failed before its
+  output-2 `running` event ever arrived (so the running-event-sync function
+  in §6 never got to backfill `executionId`) was invisible to the sweep and
+  stayed `in_progress` forever, even across repeated Stops -- observed live
+  when three Actions runs hit the same network-allowlist rejection
+  immediately on start. Fixed by restructuring the per-task check to key on
+  `t.phase === 'in_progress'` first, resetting the phase (and clearing
+  `executionId`) unconditionally whenever that's true, and only
+  additionally building and pushing the `{operation:'terminate',
+  executionId}` message when `t.executionId` is truthy -- so a task with no
+  `executionId` yet is still reset (no terminate needed, nothing to
+  terminate), while a task with a live `executionId` still gets both the
+  reset and the terminate message, exactly as before. Verified live:
+  (a) two synthetic `action` tasks were seeded directly into
+  `global.adt_tasks` via a temporary inject+function (removed after the
+  test) -- one `in_progress` with no `executionId` (reproducing the exact
+  stuck case) and one `in_progress` with a synthetic `executionId`; (b) a
+  temporary inject wired straight to `adt-stop-fn` fired the sweep; (c) a
+  `Test: dump state` inject confirmed both tasks came back `not_started` with
+  `executionId` cleared -- the previously-stuck task is no longer stuck; (d)
+  the pre-existing working case was also confirmed unbroken in the same run:
+  the task that had a live `executionId` produced a
+  `{operation:'terminate', executionId:'tmp-synthetic-exec-1'}` message on
+  the `action` output, tapped via a temporary debug node; (e) end-to-end with
+  real agents: Start was fired (via the dashboard button) against
+  `github.com/tbrandenburg/node-red-agents` with `github-copilot/gpt-5.6-luna`,
+  dispatching a real issue-investigate run and three real Actions-investigate
+  runs; Stop was fired while the issue run was still genuinely in flight, and
+  the Node-RED log showed the real `agent` node respond
+  `{terminated:true, status:'terminating'}` followed by `task finished`,
+  after which `global.adt_tasks` showed the task back at `not_started` with
+  no `executionId` -- the same real-agent terminate path M4 originally
+  verified, now exercised through the fixed sweep. All temporary
+  inject/function/debug nodes used for steps (a)-(d) were removed from
+  `demo/flows.json` afterward; the only change left in the file is
+  `adt-stop-fn`'s `func` field. `check-flows.js`, `make lint`, and
+  `make test` (136/136 passing) stayed green before and after the fix, and
+  the final read-only audit (`gh issue view 1 --json comments` -> empty,
+  `git branch -r` on the base clone -> no `adt/*` branches) confirmed no
+  remote mutation.
 

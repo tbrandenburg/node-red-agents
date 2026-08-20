@@ -84,6 +84,11 @@ coverage/
 .node_repl_history
 .eslintcache
 
+# --- Playwright MCP scratch output (screenshots/snapshots/console logs
+# from manual verification runs; see AGENTS.md's note on saving screenshots
+# repo-relative for inline chat rendering) -- never source of truth ------
+.playwright-mcp/
+
 # --- Shell / editor / agent tooling stubs (sandbox/container env, not
 # project content) -----------------------------------------------------
 .bash_profile

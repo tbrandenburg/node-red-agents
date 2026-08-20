@@ -113,6 +113,34 @@ No browser needed; the same API the editor UI uses is directly callable:
 - `POST /inject/<nodeId>` - fire an inject node.
 - `POST /nodes {"module": "<path-or-npm-name>"}` - install/link a node package.
 
+## Editing large flow files without loading the whole thing (nr-mcp)
+
+`demo/flows.json` (and `data/flows.json`) hold every tab in one JSON array
+-- 300+ nodes as of the Agentic Development Team tab. Hand-editing that via
+`Read`/`Edit`/`Write` means holding the entire file in context for even a
+one-field change, and risks touching unrelated nodes. `opencode.jsonc` (repo
+root) configures the `nr-mcp` MCP server
+(https://github.com/Texan-NXTassist/nr-mcp) for exactly this: it reads/writes
+one tab or node at a time via the same Admin API endpoints listed above (`GET`
+`/flows` once, `POST /flows` with the `rev` field for optimistic locking --
+never `PUT /flow/:id`, which silently reorders tabs), so a single-tab fetch of
+even the biggest tab here is ~30% of the full file's bytes and shrinks further
+for any smaller tab.
+
+- Points at `http://localhost:1881` (the `make demo` instance) by default --
+  change `NR_URL` in `opencode.jsonc` if editing `data/flows.json` against
+  `make dev`/`make start` (port 1880) instead.
+- Requires `uv`/`uvx` on `PATH`. Uses `uvx --with "mcp==1.9.4" nr-mcp` --
+  the plain `uvx nr-mcp` invocation fails with `ModuleNotFoundError: No
+  module named 'mcp.server.fastmcp'` because the latest `mcp` package
+  resolved by `uvx` removed that import path; pinning `mcp==1.9.4` (verified
+  working) fixes it without touching nr-mcp's own code.
+- No Node-RED auth is configured in `demo/settings.js`/`data/settings.js`,
+  so no `NR_USER`/`NR_PASS`/`NR_TOKEN` is needed for local dev.
+- The Node-RED instance must actually be running (`make demo` or
+  `make dev`/`make start`) for the MCP server's tool calls to succeed --
+  it's a thin client over the Admin API, not a standalone flow parser.
+
 ## Observing live results (debug/status) without a browser
 
 By default, debug nodes only show output in the editor's browser sidebar

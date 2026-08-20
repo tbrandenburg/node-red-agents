@@ -1,0 +1,30 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  // MCP server for editing Node-RED flows without loading the whole
+  // demo/flows.json (300+ nodes) into context on every change. Backed by
+  // nr-mcp (https://github.com/Texan-NXTassist/nr-mcp), which reads/writes
+  // single tabs/nodes via the Node-RED Admin API (GET/POST /flows with the
+  // `rev` field for optimistic locking) rather than requiring the whole
+  // file to be read and rewritten by hand.
+  //
+  // `mcp==1.9.4` is pinned because the `mcp` package's default (latest)
+  // resolution removes `mcp.server.fastmcp`, which nr-mcp 1.2.2 still
+  // imports directly -- `uvx nr-mcp` alone fails with
+  // `ModuleNotFoundError: No module named 'mcp.server.fastmcp'`.
+  // Verified working: `uvx --with "mcp==1.9.4" nr-mcp` starts cleanly.
+  //
+  // Points at the demo instance (`make demo`, port 1881) by default, since
+  // that's where flow changes are iterated on and verified. No auth is
+  // configured in demo/settings.js or data/settings.js, so no
+  // NR_USER/NR_PASS/NR_TOKEN is needed for local dev.
+  "mcp": {
+    "nr-mcp": {
+      "type": "local",
+      "command": ["uvx", "--with", "mcp==1.9.4", "nr-mcp"],
+      "environment": {
+        "NR_URL": "http://localhost:1881",
+      },
+      "enabled": true,
+    },
+  },
+}

@@ -5489,7 +5489,9 @@
                 "adt-handle-agent-result"
             ],
             []
-        ]
+        ],
+        "agentName": "agentName",
+        "agentNameType": "msg"
     },
     {
         "id": "adt-handle-agent-result",
@@ -5635,7 +5637,7 @@
         "y": 160,
         "wires": [
             [
-                "adt-test-issue-investigate-instance"
+                "adt-set-agentname-issue-investigate"
             ]
         ]
     },
@@ -5896,7 +5898,7 @@
         "y": 260,
         "wires": [
             [
-                "adt-test-issue-investigate-instance"
+                "adt-set-agentname-issue-investigate"
             ]
         ]
     },
@@ -6816,7 +6818,7 @@
         "y": 700,
         "wires": [
             [
-                "adt-test-issue-investigate-instance"
+                "adt-set-agentname-issue-investigate"
             ]
         ]
     },
@@ -6856,7 +6858,7 @@
         "y": 1000,
         "wires": [
             [
-                "adt-issue-fix-instance"
+                "adt-set-agentname-issue-fix"
             ]
         ]
     },
@@ -6896,7 +6898,7 @@
         "y": 760,
         "wires": [
             [
-                "adt-pr-review-instance"
+                "adt-set-agentname-pr-review"
             ]
         ]
     },
@@ -6936,7 +6938,7 @@
         "y": 820,
         "wires": [
             [
-                "adt-action-investigate-instance"
+                "adt-set-agentname-action-investigate"
             ]
         ]
     },
@@ -8370,6 +8372,114 @@
         "wires": [
             [
                 "tmp-set-running-fn"
+            ]
+        ]
+    },
+    {
+        "id": "adt-set-agentname-issue-investigate",
+        "type": "change",
+        "z": "adt-tab",
+        "name": "Set agentName: Sven",
+        "rules": [
+            {
+                "t": "set",
+                "p": "agentName",
+                "pt": "msg",
+                "to": "Sven",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 900,
+        "y": 160,
+        "wires": [
+            [
+                "adt-test-issue-investigate-instance"
+            ]
+        ]
+    },
+    {
+        "id": "adt-set-agentname-issue-fix",
+        "type": "change",
+        "z": "adt-tab",
+        "name": "Set agentName: Frieda",
+        "rules": [
+            {
+                "t": "set",
+                "p": "agentName",
+                "pt": "msg",
+                "to": "Frieda",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1120,
+        "y": 1000,
+        "wires": [
+            [
+                "adt-issue-fix-instance"
+            ]
+        ]
+    },
+    {
+        "id": "adt-set-agentname-pr-review",
+        "type": "change",
+        "z": "adt-tab",
+        "name": "Set agentName: Stellan",
+        "rules": [
+            {
+                "t": "set",
+                "p": "agentName",
+                "pt": "msg",
+                "to": "Stellan",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1120,
+        "y": 760,
+        "wires": [
+            [
+                "adt-pr-review-instance"
+            ]
+        ]
+    },
+    {
+        "id": "adt-set-agentname-action-investigate",
+        "type": "change",
+        "z": "adt-tab",
+        "name": "Set agentName: Axel",
+        "rules": [
+            {
+                "t": "set",
+                "p": "agentName",
+                "pt": "msg",
+                "to": "Axel",
+                "tot": "str"
+            }
+        ],
+        "action": "",
+        "property": "",
+        "from": "",
+        "to": "",
+        "reg": false,
+        "x": 1120,
+        "y": 820,
+        "wires": [
+            [
+                "adt-action-investigate-instance"
             ]
         ]
     }

@@ -38,7 +38,12 @@ mkdir -p "$WORKSPACE_DIR"
 
 # Serialize base-clone creation/fetch across concurrent invocations for the
 # same repo; different repos use different lock files and never contend.
-exec {lock_fd}>"$LOCK_FILE"
+# Use a fixed fd (200) rather than bash's `{varname}` auto-assigned fd
+# syntax, which requires bash >= 4.1 and isn't supported by the bash 3.2
+# that macOS ships as /bin/bash (Apple has not updated it since 2007 due
+# to bash 4+'s GPLv3 license).
+lock_fd=200
+eval "exec $lock_fd>\"$LOCK_FILE\""
 flock "$lock_fd"
 
 if [ ! -d "$BASE_DIR/.git" ]; then

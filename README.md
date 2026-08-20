@@ -269,6 +269,12 @@ trade-off, not a per-repo setting. Machines without this AppArmor feature
 (older Ubuntu, other distros, or ones where it's already relaxed) are
 unaffected and need no action.
 
+## Troubleshooting: macOS `scripts/ensure-worktree.sh` fails with "flock: command not found"
+
+macOS doesn't ship the `flock(1)` command (it's a Linux/util-linux tool),
+so ADT worktree setup fails unless it's installed, e.g.
+`brew install util-linux` and add its `bin` dir to `PATH`.
+
 ## For AI agents / automated workflows
 
 See [`AGENTS.md`](./AGENTS.md) for how to round-trip develop against a

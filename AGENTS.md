@@ -118,8 +118,8 @@ No browser needed; the same API the editor UI uses is directly callable:
 `demo/flows.json` (and `data/flows.json`) hold every tab in one JSON array
 -- 300+ nodes as of the Agentic Development Team tab. Hand-editing that via
 `Read`/`Edit`/`Write` means holding the entire file in context for even a
-one-field change, and risks touching unrelated nodes. `opencode.jsonc` (repo
-root) configures the `nr-mcp` MCP server
+one-field change, and risks touching unrelated nodes. `.opencode/opencode.jsonc`
+configures the `nr-mcp` MCP server
 (https://github.com/Texan-NXTassist/nr-mcp) for exactly this: it reads/writes
 one tab or node at a time via the same Admin API endpoints listed above (`GET`
 `/flows` once, `POST /flows` with the `rev` field for optimistic locking --

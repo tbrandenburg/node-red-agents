@@ -78,11 +78,7 @@ test("msg.serverName overrides the configured Name (serverName/serverNameType se
     ).unref();
   });
 
-  assert.equal(
-    received.serverName,
-    "dynamic-name",
-    "msg.serverName wins over the configured Name",
-  );
+  assert.equal(received.serverName, "dynamic-name", "msg.serverName wins over the configured Name");
 });
 
 test("serverName/serverNameType set to msg falls back to the configured Name when msg.serverName is absent", async () => {

@@ -6031,7 +6031,7 @@
     {
         "id": "adt-ui-group-trace",
         "type": "ui-group",
-        "name": "Agent Events",
+        "name": "Stats and Logs",
         "page": "adt-ui-page",
         "width": 12,
         "height": 1,
@@ -6229,7 +6229,7 @@
         "group": "adt-ui-group-trace",
         "name": "Agent Events",
         "label": "",
-        "order": 1,
+        "order": 2,
         "width": 0,
         "height": 0,
         "maxrows": "20",
@@ -6272,6 +6272,49 @@
         "y": 920,
         "wires": [
             []
+        ]
+    },
+    {
+        "id": "adt-active-workflows-text",
+        "type": "ui-text",
+        "z": "adt-tab",
+        "group": "adt-ui-group-trace",
+        "order": 1,
+        "width": 0,
+        "height": 0,
+        "name": "Active workflows",
+        "label": "Active workflows",
+        "format": "{{msg.payload}}",
+        "layout": "row-spread",
+        "style": false,
+        "font": "",
+        "fontSize": 16,
+        "wrapText": false,
+        "className": "",
+        "value": "payload",
+        "valueType": "msg",
+        "x": 1600,
+        "y": 860,
+        "wires": []
+    },
+    {
+        "id": "adt-compute-active-count",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Compute active workflow count",
+        "func": "const tasks = global.get('adt_tasks') || { issue: {}, pr: {}, action: {} };\nconst kinds = ['issue', 'pr', 'action'];\nlet count = 0;\nfor (const kind of kinds) {\n    const byId = tasks[kind] || {};\n    for (const id of Object.keys(byId)) {\n        if (byId[id].phase === 'in_progress') count++;\n    }\n}\nmsg.payload = 'Active workflows: ' + count;\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1400,
+        "y": 860,
+        "wires": [
+            [
+                "adt-active-workflows-text"
+            ]
         ]
     },
     {
@@ -6539,7 +6582,8 @@
         "y": 380,
         "wires": [
             [
-                "adt-render-issues"
+                "adt-render-issues",
+                "adt-compute-active-count"
             ]
         ]
     },
@@ -6559,7 +6603,8 @@
         "y": 440,
         "wires": [
             [
-                "adt-render-prs"
+                "adt-render-prs",
+                "adt-compute-active-count"
             ]
         ]
     },
@@ -6579,7 +6624,8 @@
         "y": 500,
         "wires": [
             [
-                "adt-render-actions"
+                "adt-render-actions",
+                "adt-compute-active-count"
             ]
         ]
     },
@@ -6686,7 +6732,8 @@
         "y": 700,
         "wires": [
             [
-                "adt-read-investigate-issue"
+                "adt-read-investigate-issue",
+                "adt-compute-active-count"
             ]
         ]
     },
@@ -6706,7 +6753,8 @@
         "y": 760,
         "wires": [
             [
-                "adt-read-review-pr"
+                "adt-read-review-pr",
+                "adt-compute-active-count"
             ]
         ]
     },
@@ -6726,7 +6774,8 @@
         "y": 820,
         "wires": [
             [
-                "adt-read-investigate-action"
+                "adt-read-investigate-action",
+                "adt-compute-active-count"
             ]
         ]
     },
@@ -7078,7 +7127,8 @@
         "y": 880,
         "wires": [
             [
-                "adt-read-fix-issue"
+                "adt-read-fix-issue",
+                "adt-compute-active-count"
             ]
         ]
     },
@@ -7097,7 +7147,9 @@
         "x": 1400,
         "y": 1000,
         "wires": [
-            []
+            [
+                "adt-compute-active-count"
+            ]
         ]
     },
     {
@@ -7115,7 +7167,9 @@
         "x": 1400,
         "y": 760,
         "wires": [
-            []
+            [
+                "adt-compute-active-count"
+            ]
         ]
     },
     {
@@ -7133,7 +7187,9 @@
         "x": 1400,
         "y": 820,
         "wires": [
-            []
+            [
+                "adt-compute-active-count"
+            ]
         ]
     },
     {
@@ -7924,7 +7980,8 @@
             [
                 "adt-render-issues",
                 "adt-render-prs",
-                "adt-render-actions"
+                "adt-render-actions",
+                "adt-compute-active-count"
             ]
         ]
     },

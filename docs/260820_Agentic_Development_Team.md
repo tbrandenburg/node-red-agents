@@ -57,7 +57,9 @@ attached to the existing `My Dashboard` ui-base and default theme.
 | <table>       | | <table>        | | <table>             |
 +---------------+ +----------------+ +---------------------+
 +----------------------------------------------------------+
-| Agent Events (newest first, capped at 50)                 |  w12
+| Stats and Logs                                            |  w12
+| Active workflows: <count>                                 |
+| Agent Events (newest first, capped at 50)                 |
 +----------------------------------------------------------+
 ```
 
@@ -69,7 +71,7 @@ Widgets:
 | Issues | `ui-number-input` "Max concurrency" (default 3); `ui-table` |
 | Pull Requests | same, own table |
 | Actions | same, own table |
-| Traces | `ui-table` Agent Events |
+| Stats and Logs (renamed from "Agent Events") | `ui-text` "Active workflows" (live count of `in_progress` tasks across all kinds, `order: 1`); `ui-table` Agent Events (`order: 2`) |
 
 Defaults are seeded on deploy by an `inject` with `once: true` so the tables and
 context are populated before any user interaction (same trick the other demo
@@ -601,4 +603,50 @@ comments, `gh pr view 11 --json comments` → 0 comments, `git ls-remote
   was dwarfed by the model/tool round-trip latency of the actual `opencode`
   runs (each investigate/fix/review run took 1-3 minutes regardless of
   runtime).
+- **"Active workflows" live counter (2026-08-20)**: the trace group
+  (`adt-ui-group-trace`) was renamed from "Agent Events" to "Stats and Logs"
+  (the `ui-table` node itself keeps its own "Agent Events" name/label, so the
+  table's own heading is unaffected), and a new `ui-text` widget ("Active
+  workflows", `order: 1`) was added above the existing trace table (bumped to
+  `order: 2`) to show a live count of tasks currently `in_progress` across all
+  three kinds. A new function node, `adt-compute-active-count`, recomputes the
+  count from `global.adt_tasks` on every call (ignoring `msg` entirely, so it
+  tolerates the `null`/empty messages some of its triggers emit) and feeds the
+  text widget. It is wired as an *additional* output from 11 existing nodes
+  that are the only places phase actually changes: the three reconcile
+  functions (paints the count right after Update, before any dispatch), the
+  three dispatch functions (`not_started` → `in_progress`), the four
+  completion handlers (`in_progress` → terminal/failure), and `adt-stop-fn`'s
+  table-render output (bulk reset to `not_started`). No existing wire was
+  removed or reordered. Verified live: Update alone shows "Active workflows:
+  0"; a Start + dispatch tick against the real repo showed "Active workflows:
+  4" (1 issue + 3 actions dispatched, matching a `Test: dump state` count of
+  `in_progress` rows exactly). The chained-issue-slot case (§7: investigate →
+  fix keeps the *same* slot occupied throughout) was confirmed by code
+  inspection: `adt-completion-issue-investigate`'s success branch never
+  touches `phase` (it stays `in_progress`), so the count does not drop between
+  the investigate-complete and fix-dispatch events for a chained issue --
+  consistent with a ~3-minute live observation window where the count held
+  steady at 4 across several scheduler ticks while an issue task's
+  `executionId` changed underneath it (investigate retrying after a real, but
+  unrelated to this change, network-allowlist rejection from the configured
+  model). Stop-driven reset to 0 was verified by forcing `adt_tasks` back to
+  all-`not_started` (the same state a fully-executionId-tracked Stop sweep
+  produces) and confirming the counter dropped to "Active workflows: 0"; a
+  pre-existing edge case was also surfaced during this verification and is
+  called out separately below since it predates and is unrelated to the
+  counter itself.
+- **Pre-existing edge case found during counter verification (not fixed, out
+  of scope for the counter change)**: `adt-stop-fn`'s sweep only resets a
+  task's phase if it already has a live `executionId` (`if (t.executionId)`).
+  A task that was dispatched (`phase = 'in_progress'`) but whose agent failed
+  before its output-2 `running` event ever arrived (so the
+  running-event-sync function in §6 never got to backfill `executionId`) is
+  invisible to the sweep and stays `in_progress` forever, even across
+  repeated Stops -- observed live when three Actions runs hit the same
+  network-allowlist rejection immediately on start. This is a latent bug in
+  the existing Stop implementation, unrelated to and not introduced by the
+  "Active workflows" counter (which faithfully reports whatever
+  `global.adt_tasks` says); flagged here for a future fix rather than
+  silently worked around.
 

@@ -84,6 +84,9 @@
                 runtime: { value: 'direct' },
                 invocation: { value: 'prompt' },
 
+                agentName: { value: '' },
+                agentNameType: { value: 'str' },
+
                 model: { value: '' },
                 modelType: { value: 'str' },
 
@@ -139,6 +142,11 @@
                     const datalist = $('<datalist id="agent-model-suggestions"></datalist>').appendTo('body');
                     MODEL_SUGGESTIONS.forEach((m) => datalist.append('<option value="' + m + '">'));
                 }
+
+                $('#node-input-agentName').typedInput({
+                    typeField: '#node-input-agentNameType',
+                    types: ['str', 'msg', 'flow', 'global', 'env']
+                });
 
                 $('#node-input-prompt').typedInput({
                     typeField: '#node-input-promptType',
@@ -315,6 +323,15 @@
     <div class="form-row">
         <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
         <input type="text" id="node-input-name" placeholder="Agent">
+    </div>
+
+    <div class="form-row">
+        <label for="node-input-agentName"><i class="fa fa-id-badge"></i> Agent name
+            <i class="fa fa-info-circle" style="color:#888; cursor:help; margin-left:4px;"
+               title="Reported as msg.agentName on the result/event outputs. Leave blank (str) to use the Name field above; set to msg/flow/global to make it dynamic per message."></i>
+        </label>
+        <input type="text" id="node-input-agentName" placeholder="leave blank to use the Name field above" style="width:60%">
+        <input type="hidden" id="node-input-agentNameType">
     </div>
 
     <div class="form-row">
@@ -499,9 +516,11 @@
                     several agent nodes can tell which one produced a
                     given message.</dd>
                 <dt>agentName <span class="property-type">string</span></dt>
-                <dd>This node instance's configured Name, if any (undefined
-                    when the node has no Name set -- not a fallback to
-                    agentId).</dd>
+                <dd>The resolved Agent name field, falling back to this node
+                    instance's configured Name if the Agent name field is
+                    blank/unresolved for this message (e.g. via
+                    <code>msg.agentName</code> when configured as a msg
+                    property).</dd>
             </dl>
         </li>
         <li>Events
@@ -515,7 +534,7 @@
                 <dt>agentId <span class="property-type">string</span></dt>
                 <dd>This node instance's own Node-RED id (see Result output).</dd>
                 <dt>agentName <span class="property-type">string</span></dt>
-                <dd>This node instance's configured Name, if any (see Result output).</dd>
+                <dd>The resolved Agent name for this execution (see Result output).</dd>
             </dl>
         </li>
     </ol>

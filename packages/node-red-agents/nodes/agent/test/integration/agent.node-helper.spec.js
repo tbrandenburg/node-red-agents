@@ -132,3 +132,68 @@ test("msg.concurrency with an invalid value (non-numeric/non-positive) is ignore
     "no fallback -- an unnamed node's agentName stays undefined",
   );
 });
+
+test("msg.agentName overrides the configured Name (agentName/agentNameType set to msg)", async () => {
+  const flow = [
+    {
+      id: "n1",
+      type: "agent",
+      name: "static-name",
+      agent: "opencode",
+      runtime: "direct",
+      invocation: "prompt",
+      prompt: "payload",
+      promptType: "msg",
+      agentName: "agentName",
+      agentNameType: "msg",
+      wires: [["n2"], []],
+    },
+    { id: "n2", type: "helper" },
+  ];
+  await helper.load(agentNode, flow);
+  const n1 = helper.getNode("n1");
+  const n2 = helper.getNode("n2");
+
+  const received = await new Promise((resolve, reject) => {
+    n2.on("input", resolve);
+    n1.receive({ payload: "say hello", agentName: "dynamic-name" });
+    setTimeout(() => reject(new Error("timed out waiting for agent node output")), 5000).unref();
+  });
+
+  assert.equal(received.agentName, "dynamic-name", "msg.agentName wins over the configured Name");
+});
+
+test("agentName/agentNameType set to msg falls back to the configured Name when msg.agentName is absent", async () => {
+  const flow = [
+    {
+      id: "n1",
+      type: "agent",
+      name: "static-name",
+      agent: "opencode",
+      runtime: "direct",
+      invocation: "prompt",
+      prompt: "payload",
+      promptType: "msg",
+      agentName: "agentName",
+      agentNameType: "msg",
+      wires: [["n2"], []],
+    },
+    { id: "n2", type: "helper" },
+  ];
+  await helper.load(agentNode, flow);
+  const n1 = helper.getNode("n1");
+  const n2 = helper.getNode("n2");
+
+  const received = await new Promise((resolve, reject) => {
+    n2.on("input", resolve);
+    n1.receive({ payload: "say hello" });
+    setTimeout(() => reject(new Error("timed out waiting for agent node output")), 5000).unref();
+  });
+
+  assert.equal(
+    received.agentName,
+    "static-name",
+    "blank/unresolved typed-input falls back to the node's Name",
+  );
+});
+

@@ -45,6 +45,14 @@ module.exports = function (RED) {
     node.runtime = config.runtime || "direct";
     node.invocation = config.invocation || "prompt";
 
+    // Typed-input override of the agentName reported on outgoing/event
+    // messages (see lifecycleEnvelope below). Same typed-input pattern as
+    // every other overridable field: blank/unresolved falls back to
+    // node.name, so existing flows relying on the (previously static)
+    // node.name value keep working unchanged.
+    node.agentName = config.agentName !== undefined ? config.agentName : "";
+    node.agentNameType = config.agentNameType || "str";
+
     node.model = config.model || "";
     node.modelType = config.modelType || "str";
 
@@ -150,13 +158,22 @@ module.exports = function (RED) {
       }
     }
 
+    // Per-message resolution of the reported agentName: the typed-input
+    // agentName/agentNameType field (e.g. msg.agentName) if configured and
+    // present, else node.name -- same fallback behavior a blank/unset
+    // typed-input field has always had for every other field.
+    function resolveAgentName(msg) {
+      const v = resolveTyped(node.agentName, node.agentNameType, msg, node.name);
+      return v === undefined || v === null || v === "" ? node.name : String(v).trim();
+    }
+
     // Common envelope for every message on output 2 (the lifecycle/event
     // stream): correlation (topic, executionId), live scheduler counts
     // (so a widget bound to this stream always has the current
     // active/queued numbers, no separate polling needed) and a
     // timestamp (so external aggregation/history doesn't have to rely
     // on message-arrival time).
-    function lifecycleEnvelope(msg, executionId, payload) {
+    function lifecycleEnvelope(msg, executionId, payload, agentName) {
       return {
         _msgid: msg._msgid,
         topic: msg.topic,
@@ -164,7 +181,7 @@ module.exports = function (RED) {
         agent: node.agent,
         runtime: node.runtime,
         agentId: node.id,
-        agentName: node.name,
+        agentName,
         executionId,
         active: node.scheduler.activeCount,
         queued: node.scheduler.queuedCount,
@@ -172,8 +189,8 @@ module.exports = function (RED) {
       };
     }
 
-    function emitEvent(send, msg, executionId, type) {
-      send([null, lifecycleEnvelope(msg, executionId, { type })]);
+    function emitEvent(send, msg, executionId, type, agentName) {
+      send([null, lifecycleEnvelope(msg, executionId, { type }, agentName)]);
     }
 
     // The actual work for one execution. Only ever invoked by the
@@ -190,11 +207,11 @@ module.exports = function (RED) {
         resolved,
         executionId,
         onEvent: (event) => {
-          send([null, lifecycleEnvelope(msg, executionId, event)]);
+          send([null, lifecycleEnvelope(msg, executionId, event, resolved.agentName)]);
         },
         onStatus: (status) => {
           if (status === "running") {
-            emitEvent(send, msg, executionId, "running");
+            emitEvent(send, msg, executionId, "running", resolved.agentName);
           } else {
             // Terminal (completed/failed/timeout): stash rather
             // than emit immediately -- the scheduler hasn't
@@ -217,7 +234,7 @@ module.exports = function (RED) {
             agent: node.agent,
             runtime: node.runtime,
             agentId: node.id,
-            agentName: node.name,
+            agentName: resolved.agentName,
             // Top-level, in addition to agentExecution.sessionID
             // below: matches the agent-server node's convention
             // so this output can be fed straight back into the
@@ -265,13 +282,22 @@ module.exports = function (RED) {
     node.scheduler = new ExecutionScheduler({
       concurrency: node.concurrency,
       onStart: startExecution,
-      onQueued: (item) => emitEvent(item.send, item.msg, item.executionId, "queued"),
+      onQueued: (item) =>
+        emitEvent(item.send, item.msg, item.executionId, "queued", item.resolved.agentName),
       // Runs after this item is removed from `active` and any newly-
       // eligible queued item has already been started, so the terminal
       // event's active/queued counts are accurate (see the onStatus
       // comment in startExecution for why it's deferred to here).
       onSettled: (item) => {
-        if (item.finalStatus) emitEvent(item.send, item.msg, item.executionId, item.finalStatus);
+        if (item.finalStatus) {
+          emitEvent(
+            item.send,
+            item.msg,
+            item.executionId,
+            item.finalStatus,
+            item.resolved.agentName,
+          );
+        }
         updateStatus();
       },
     });
@@ -291,6 +317,7 @@ module.exports = function (RED) {
         return;
       }
 
+      const agentName = resolveAgentName(msg);
       const result = node.scheduler.cancel(executionId);
       if (!result) {
         done(new Error(`agent: unknown or already-finished executionId "${executionId}"`));
@@ -299,7 +326,13 @@ module.exports = function (RED) {
 
       if (result.status === "queued") {
         const queuedItem = result.item;
-        emitEvent(queuedItem.send, queuedItem.msg, executionId, "cancelled");
+        emitEvent(
+          queuedItem.send,
+          queuedItem.msg,
+          executionId,
+          "cancelled",
+          queuedItem.resolved ? queuedItem.resolved.agentName : agentName,
+        );
         queuedItem.done(
           new Error("agent: execution cancelled before it started (terminate requested)"),
         );
@@ -308,7 +341,7 @@ module.exports = function (RED) {
           Object.assign({}, msg, {
             payload: { executionId, terminated: true, status: "cancelled" },
             agentId: node.id,
-            agentName: node.name,
+            agentName,
           }),
           null,
         ]);
@@ -327,7 +360,7 @@ module.exports = function (RED) {
             Object.assign({}, msg, {
               payload: { executionId, terminated: true, status: "terminating" },
               agentId: node.id,
-              agentName: node.name,
+              agentName,
             }),
             null,
           ]);
@@ -362,6 +395,7 @@ module.exports = function (RED) {
       let resolved;
       try {
         resolved = {
+          agentName: resolveAgentName(msg),
           invocation: node.invocation,
           prompt:
             node.invocation === "prompt"

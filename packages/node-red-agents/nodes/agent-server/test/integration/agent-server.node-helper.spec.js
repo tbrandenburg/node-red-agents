@@ -52,6 +52,72 @@ test("a minimal inject -> agent-server(status) -> output flow returns a real reg
   );
 });
 
+test("msg.serverName overrides the configured Name (serverName/serverNameType set to msg)", async () => {
+  const flow = [
+    {
+      id: "n1",
+      type: "agent-server",
+      name: "static-name",
+      operation: "status",
+      serverName: "serverName",
+      serverNameType: "msg",
+      wires: [["n2"]],
+    },
+    { id: "n2", type: "helper" },
+  ];
+  await helper.load(agentServerNode, flow);
+  const n1 = helper.getNode("n1");
+  const n2 = helper.getNode("n2");
+
+  const received = await new Promise((resolve, reject) => {
+    n2.on("input", resolve);
+    n1.receive({ payload: "go", serverName: "dynamic-name" });
+    setTimeout(
+      () => reject(new Error("timed out waiting for agent-server node output")),
+      5000,
+    ).unref();
+  });
+
+  assert.equal(
+    received.serverName,
+    "dynamic-name",
+    "msg.serverName wins over the configured Name",
+  );
+});
+
+test("serverName/serverNameType set to msg falls back to the configured Name when msg.serverName is absent", async () => {
+  const flow = [
+    {
+      id: "n1",
+      type: "agent-server",
+      name: "static-name",
+      operation: "status",
+      serverName: "serverName",
+      serverNameType: "msg",
+      wires: [["n2"]],
+    },
+    { id: "n2", type: "helper" },
+  ];
+  await helper.load(agentServerNode, flow);
+  const n1 = helper.getNode("n1");
+  const n2 = helper.getNode("n2");
+
+  const received = await new Promise((resolve, reject) => {
+    n2.on("input", resolve);
+    n1.receive({ payload: "go" });
+    setTimeout(
+      () => reject(new Error("timed out waiting for agent-server node output")),
+      5000,
+    ).unref();
+  });
+
+  assert.equal(
+    received.serverName,
+    "static-name",
+    "blank/unresolved typed-input falls back to the node's Name",
+  );
+});
+
 // msg.maxInstances end-to-end tests below spawn real (fake) daemon
 // processes via FIXTURE (see fixtures/fake-opencode.js), which now also
 // serves POST /session and POST /session/:id/message -- enough for

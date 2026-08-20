@@ -21,6 +21,12 @@ module.exports = function (RED) {
 
     node.operation = config.operation || "message";
 
+    // Typed-input override of the serverName reported on outgoing/event
+    // messages (see emitEvent below). Same typed-input pattern as every
+    // other overridable field: blank/unresolved falls back to node.name.
+    node.serverName = config.serverName !== undefined ? config.serverName : "";
+    node.serverNameType = config.serverNameType || "str";
+
     node.sessionIdProp = config.sessionIdProp !== undefined ? config.sessionIdProp : "sessionID";
     node.sessionIdPropType = config.sessionIdPropType || "msg";
 
@@ -106,7 +112,7 @@ module.exports = function (RED) {
           payload: { type },
           sessionID,
           serverId: node.id,
-          serverName: node.name,
+          serverName: resolveServerName(msg),
           active: summary.busy,
           tracked: summary.total,
           timestamp: Date.now(),
@@ -122,6 +128,16 @@ module.exports = function (RED) {
       } catch (err) {
         throw new Error(`invalid ${type} property "${prop}": ${err.message}`);
       }
+    }
+
+    // Per-message resolution of the reported serverName: the typed-input
+    // serverName/serverNameType field (e.g. msg.serverName) if configured
+    // and present, else node.name -- same fallback every other typed-input
+    // field has when blank/unresolved. Tolerates a missing msg (emitEvent
+    // is sometimes called without one, e.g. from spawnNewInstance's own
+    // internal bookkeeping) by resolving against an empty object.
+    function resolveServerName(msg) {
+      return resolveTyped(node.serverName, node.serverNameType, msg || {}, node.name);
     }
 
     function authOptions() {
@@ -239,7 +255,7 @@ module.exports = function (RED) {
           payload: extractText(response),
           sessionID,
           serverId: node.id,
-          serverName: node.name,
+          serverName: resolveServerName(msg),
           agentServer: {
             sessionID,
             host: record && record.host,
@@ -338,7 +354,7 @@ module.exports = function (RED) {
           Object.assign({}, msg, {
             payload: node.registry.summary(),
             serverId: node.id,
-            serverName: node.name,
+            serverName: resolveServerName(msg),
           }),
           null,
         ]);
@@ -367,7 +383,7 @@ module.exports = function (RED) {
             lastUsed: record.lastUsed,
           },
           serverId: node.id,
-          serverName: node.name,
+          serverName: resolveServerName(msg),
         }),
         null,
       ]);
@@ -405,7 +421,7 @@ module.exports = function (RED) {
               payload: true,
               sessionID,
               serverId: node.id,
-              serverName: node.name,
+              serverName: resolveServerName(msg),
             }),
             null,
           ]);
@@ -442,7 +458,7 @@ module.exports = function (RED) {
               payload: history,
               sessionID,
               serverId: node.id,
-              serverName: node.name,
+              serverName: resolveServerName(msg),
             }),
             null,
           ]);
@@ -484,7 +500,7 @@ module.exports = function (RED) {
               payload: true,
               sessionID,
               serverId: node.id,
-              serverName: node.name,
+              serverName: resolveServerName(msg),
             }),
             null,
           ]);

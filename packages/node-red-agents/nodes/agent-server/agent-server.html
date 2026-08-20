@@ -18,6 +18,9 @@
             defaults: {
                 name: { value: '' },
 
+                serverName: { value: '' },
+                serverNameType: { value: 'str' },
+
                 operation: { value: 'message' },
 
                 hostname: { value: '127.0.0.1' },
@@ -69,6 +72,10 @@
                 });
                 $('#node-input-model').typedInput({
                     typeField: '#node-input-modelType',
+                    types: ['str', 'msg', 'flow', 'global', 'env']
+                });
+                $('#node-input-serverName').typedInput({
+                    typeField: '#node-input-serverNameType',
                     types: ['str', 'msg', 'flow', 'global', 'env']
                 });
 
@@ -139,6 +146,15 @@
     <div class="form-row">
         <label for="node-input-name"><i class="fa fa-tag"></i> Name</label>
         <input type="text" id="node-input-name" placeholder="Agent Server">
+    </div>
+
+    <div class="form-row">
+        <label for="node-input-serverName"><i class="fa fa-id-badge"></i> Server name
+            <i class="fa fa-info-circle" style="color:#888; cursor:help; margin-left:4px;"
+               title="Reported as msg.serverName on the result/event outputs. Leave blank (str) to use the Name field above; set to msg/flow/global to make it dynamic per message."></i>
+        </label>
+        <input type="text" id="node-input-serverName" placeholder="leave blank to use the Name field above" style="width:60%">
+        <input type="hidden" id="node-input-serverNameType">
     </div>
 
     <div class="form-row">
@@ -359,9 +375,11 @@
                     several agent-server nodes can tell which one produced a
                     given message.</dd>
                 <dt>serverName <span class="property-type">string</span></dt>
-                <dd>This node instance's configured Name, if any (undefined
-                    when the node has no Name set -- not a fallback to
-                    serverId).</dd>
+                <dd>The resolved Server name field, falling back to this node
+                    instance's configured Name if the Server name field is
+                    blank/unresolved for this message (e.g. via
+                    <code>msg.serverName</code> when configured as a msg
+                    property).</dd>
             </dl>
         </li>
         <li>Lifecycle events
@@ -374,7 +392,7 @@
                 <dt>serverId <span class="property-type">string</span></dt>
                 <dd>This node instance's own Node-RED id (see Result output).</dd>
                 <dt>serverName <span class="property-type">string</span></dt>
-                <dd>This node instance's configured Name, if any (see Result output).</dd>
+                <dd>The resolved Server name for this event (see Result output).</dd>
             </dl>
         </li>
     </ol>

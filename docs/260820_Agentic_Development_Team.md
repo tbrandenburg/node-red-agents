@@ -676,7 +676,46 @@ comments, `gh pr view 11 --json comments` → 0 comments, `git ls-remote
   `demo/flows.json` afterward; the only change left in the file is
   `adt-stop-fn`'s `func` field. `check-flows.js`, `make lint`, and
   `make test` (136/136 passing) stayed green before and after the fix, and
-  the final read-only audit (`gh issue view 1 --json comments` -> empty,
-  `git branch -r` on the base clone -> no `adt/*` branches) confirmed no
-  remote mutation.
+   the final read-only audit (`gh issue view 1 --json comments` -> empty,
+   `git branch -r` on the base clone -> no `adt/*` branches) confirmed no
+   remote mutation.
+ - **Default model + missing PR coverage found via user review (2026-08-20)**:
+   an earlier "prove it works" pass was flawed on two counts, both caught by
+   direct user review of the screenshots rather than trusting the report:
+   (1) the repo had zero open PRs at the time, so the Pull Requests group had
+   never actually dispatched a real agent -- the PR Review sub-workflow was
+   unverified in practice; (2) the Model dropdown had no value selected in
+   that run, so `adt_ctx.model` fell back to `adt-init-fn`'s default
+   (`opencode/big-pickle`), whose API lives on `opencode.ai` -- a domain not
+   in `adt-run-agent`'s SRT allowlist -- so every dispatched agent failed
+   within seconds with `Forbidden: Connection blocked by network allowlist`,
+   which is *why* the screenshot showed no visible activity. Fixed both: (a)
+   added `opencode.ai` to `adt-run-agent`'s `srtAllowedDomains` (now
+   `api.githubcopilot.com`, `api.github.com`, `opencode.ai`), verified
+   standalone first with a direct `srt -s <settings> -- curl
+   https://opencode.ai/zen/v1/chat/completions` (404, not 403 -- reachable,
+   not blocked) before touching the flow; (b) changed `adt-model-dropdown`'s
+   `payload` default from `github-copilot/gpt-5.6-luna` to
+   `opencode/big-pickle`, aligning the widget's configured default with
+   `adt-init-fn`'s actual runtime default (Dashboard 2.0's `ui-dropdown` does
+   not visually pre-select this value on page load without an explicit
+   startup message to the widget -- a pre-existing, unfixed cosmetic gap
+   shared with Issue Control Center's model dropdown -- but the underlying
+   `global.adt_ctx.model` used for real dispatch is correct regardless of
+   what the widget displays). Re-verified end-to-end with a **second** real,
+   throwaway PR (`#13`, closed afterward, `#12` from the first attempt was
+   already closed) and, this time, deliberately *without* touching the Model
+   dropdown: Update + Start dispatched real agents against Issue #1, PR #13,
+   and 3 Actions runs simultaneously (5 concurrent `executionId`s observed
+   live); the PR Review run completed successfully end-to-end using the real
+   default model through the newly-allowed domain, producing an actual review
+   verdict and transitioning PR #13 to `reviewed`; zero
+   `blocked-by-allowlist` errors appeared anywhere in the trace this run
+   (searched explicitly); Stop dropped active-workflow count to 0 and reset
+   the Issue/Actions rows. Final read-only audit repeated and clean (0
+   comments on the issue and PR, no `adt/*` branches on the remote). Only
+   `demo/flows.json` changed (2 fields: the SRT domain list and the dropdown
+   default); `check-flows.js`, `make lint`, and `make test` (137/137,
+   0 skipped -- SRT sandboxing works in this environment) stayed green
+   before and after.
 

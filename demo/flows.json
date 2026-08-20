@@ -5472,7 +5472,8 @@
         "srtSettingsPath": "/tmp/opencode/adt-srt-settings.json",
         "srtAllowedDomains": [
             "api.githubcopilot.com",
-            "api.github.com"
+            "api.github.com",
+            "opencode.ai"
         ],
         "srtAllowedWriteDirs": [
             ".",
@@ -7700,7 +7701,7 @@
                 "type": "str"
             }
         ],
-        "payload": "github-copilot/gpt-5.6-luna",
+        "payload": "opencode/big-pickle",
         "topic": "topic",
         "topicType": "msg",
         "className": "",

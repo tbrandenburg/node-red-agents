@@ -7,7 +7,14 @@ const globals = require("globals");
 
 module.exports = [
   {
-    ignores: ["**/node_modules/**", "data/**", "demo/**", "docs/**", "**/coverage/**"],
+    ignores: [
+      "**/node_modules/**",
+      "data/**",
+      "demo/**",
+      "docs/**",
+      "**/coverage/**",
+      "workspace/**",
+    ],
   },
   js.configs.recommended,
   nodePlugin.configs["flat/recommended-script"],

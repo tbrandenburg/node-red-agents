@@ -85,8 +85,11 @@ instance. `make help` lists all targets.
 Want to see the nodes in action without touching your own dev flows?
 `make demo` runs a separate instance (its own userDir, `demo/`, own port
 `1881`) seeded with `demo/flows.json` — a showcase of `agent`,
-`agent-server`, and `gh` in real dashboard flows. `make demo-stop` stops
-it. It never reads or writes `data/flows.json`.
+`agent-server`, and `gh` in real dashboard flows, including an
+**Agentic Development Team** tab (`/dashboard/adt`) that keeps up to 3
+agents each busy on a repo's open issues, PRs, and Actions runs on a
+30s schedule (see `docs/260820_Agentic_Development_Team.md`). `make
+demo-stop` stops it. It never reads or writes `data/flows.json`.
 
 ## Project layout
 

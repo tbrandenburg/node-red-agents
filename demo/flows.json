@@ -5246,5 +5246,3073 @@
                 "adc-response-debug"
             ]
         ]
+    },
+    {
+        "id": "adt-task-subflow",
+        "type": "subflow",
+        "name": "ADT Task (ensure worktree + run agent against a prompt)",
+        "info": "M3 scope: the reusable per-task pipeline for the Agentic Development Team. Given a context and a prompt template, ensures an isolated git worktree exists (scripts/ensure-worktree.sh), gates on adt_running (global context -- see deviation note below) immediately before the agent node so a Stop is never raced past, renders the prompt, and runs the agent.\n\nInput msg:\n- msg.context = {host, owner, repo, model, kind, itemId, taskKey, phase}\n- msg.promptTemplate = string with {{field}} placeholders\n- msg.operation = \"terminate\" (+ msg.executionId) bypasses setup and goes straight to the agent node's terminate handling (M4 wires the caller side of this; M3 only builds the structural branch so it doesn't crash deploy).\n\nOutputs:\n1. completion {context, status, payload}\n2. raw agent events (agent node's 2nd output, verbatim)\n3. log/error rows (worktree failures, gate drops, prompt-render problems, agent errors)\n\nDEVIATION FROM PLAN: the gate uses global.get('adt_running')/global.set, not flow.get/flow.set as the plan's prose literally says -- a subflow instance gets its own flow context, separate from the tab it's placed on, so flow.adt_running set by a tab-level inject is never visible inside the subflow. global context is required for this cross-boundary flag to work at all.",
+        "category": "",
+        "in": [
+            {
+                "x": 40,
+                "y": 40,
+                "wires": [
+                    {
+                        "id": "adt-operation-router"
+                    }
+                ]
+            }
+        ],
+        "out": [
+            {
+                "x": 2100,
+                "y": 100,
+                "wires": [
+                    {
+                        "id": "adt-handle-agent-result",
+                        "port": 0
+                    }
+                ]
+            },
+            {
+                "x": 2100,
+                "y": 160,
+                "wires": [
+                    {
+                        "id": "adt-run-agent",
+                        "port": 1
+                    }
+                ]
+            },
+            {
+                "x": 2100,
+                "y": 220,
+                "wires": [
+                    {
+                        "id": "adt-build-worktree-args",
+                        "port": 1
+                    },
+                    {
+                        "id": "adt-handle-worktree-result",
+                        "port": 1
+                    },
+                    {
+                        "id": "adt-gate",
+                        "port": 1
+                    },
+                    {
+                        "id": "adt-handle-agent-result",
+                        "port": 1
+                    },
+                    {
+                        "id": "adt-handle-agent-error",
+                        "port": 0
+                    }
+                ]
+            }
+        ],
+        "env": []
+    },
+    {
+        "id": "adt-operation-router",
+        "type": "function",
+        "z": "adt-task-subflow",
+        "name": "Route by operation",
+        "func": "if (msg.operation === 'terminate') {\n    return [msg, null];\n}\nreturn [null, msg];\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 200,
+        "y": 100,
+        "wires": [
+            [
+                "adt-run-agent"
+            ],
+            [
+                "adt-build-worktree-args"
+            ]
+        ]
+    },
+    {
+        "id": "adt-build-worktree-args",
+        "type": "function",
+        "z": "adt-task-subflow",
+        "name": "Build worktree args",
+        "func": "const context = msg.context || {};\nconst SAFE = /^[A-Za-z0-9._-]+$/;\nif (!SAFE.test(context.host) || !SAFE.test(context.owner) ||\n    !SAFE.test(context.repo) || !SAFE.test(context.taskKey)) {\n    node.error('adt: refusing unsafe host/owner/repo/taskKey: ' +\n        context.host + '/' + context.owner + '/' + context.repo +\n        '/' + context.taskKey, msg);\n    return [null, {\n        payload: {\n            timestamp: new Date().toISOString(),\n            context: context,\n            type: 'error',\n            message: 'refusing unsafe host/owner/repo/taskKey -- see runtime log'\n        }\n    }];\n}\nmsg.payload = context.host + ' ' + context.owner + ' ' + context.repo +\n    ' ' + context.taskKey;\nreturn [msg, null];\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 460,
+        "y": 80,
+        "wires": [
+            [
+                "adt-ensure-worktree-exec"
+            ],
+            []
+        ]
+    },
+    {
+        "id": "adt-ensure-worktree-exec",
+        "type": "exec",
+        "z": "adt-task-subflow",
+        "command": "bash scripts/ensure-worktree.sh",
+        "addpay": true,
+        "append": "",
+        "useSpawn": "false",
+        "timer": "120",
+        "winHide": false,
+        "oldrc": "false",
+        "name": "ensure isolated worktree",
+        "x": 700,
+        "y": 80,
+        "wires": [
+            [
+                "adt-handle-worktree-result"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "adt-handle-worktree-result",
+        "type": "function",
+        "z": "adt-task-subflow",
+        "name": "Handle worktree result",
+        "func": "const rc = msg.rc || { code: 0 };\nif (rc.code !== 0) {\n    return [null, {\n        payload: {\n            timestamp: new Date().toISOString(),\n            context: msg.context,\n            type: 'error',\n            message: 'ensure-worktree failed (exit ' + rc.code + '): ' +\n                (rc.message || msg.payload || '')\n        }\n    }];\n}\n\nconst text = String(msg.payload || '');\nconst dirMatch = text.match(/REPO_DIR=(.+)/);\nconst branchMatch = text.match(/DEFAULT_BRANCH=(.+)/);\nmsg.cwd = dirMatch ? dirMatch[1].trim() : undefined;\nmsg.context.defaultBranch = branchMatch ? branchMatch[1].trim() : 'main';\n\nif (!msg.cwd) {\n    return [null, {\n        payload: {\n            timestamp: new Date().toISOString(),\n            context: msg.context,\n            type: 'error',\n            message: 'ensure-worktree script did not report a workspace directory'\n        }\n    }];\n}\n\nreturn [msg, null];\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 950,
+        "y": 80,
+        "wires": [
+            [
+                "adt-gate"
+            ],
+            []
+        ]
+    },
+    {
+        "id": "adt-gate",
+        "type": "function",
+        "z": "adt-task-subflow",
+        "name": "GATE: schedule still running?",
+        "func": "if (global.get('adt_running') !== true) {\n    node.warn('adt: gate dropped dispatch for ' +\n        (msg.context && msg.context.taskKey) + ' -- schedule not running');\n    return [null, {\n        payload: {\n            timestamp: new Date().toISOString(),\n            context: msg.context,\n            type: 'info',\n            message: 'gate dropped dispatch: schedule not running'\n        }\n    }];\n}\nreturn [msg, null];\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1180,
+        "y": 80,
+        "wires": [
+            [
+                "adt-render-prompt-template"
+            ],
+            []
+        ]
+    },
+    {
+        "id": "adt-render-prompt-template",
+        "type": "function",
+        "z": "adt-task-subflow",
+        "name": "Render prompt template",
+        "func": "const context = msg.context || {};\nconst vars = Object.assign({}, context, {\n    repoSlug: context.owner + '/' + context.repo,\n    issueNumber: context.itemId,\n    prNumber: context.itemId,\n    runId: context.itemId\n});\nmsg.payload = String(msg.promptTemplate || '').replace(/\\{\\{(\\w+)\\}\\}/g, function (match, key) {\n    if (Object.prototype.hasOwnProperty.call(vars, key) && vars[key] !== undefined) {\n        return vars[key];\n    }\n    node.warn('adt: unresolved prompt placeholder {{' + key + '}}');\n    return match;\n});\nmsg.model = context.model;\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1420,
+        "y": 80,
+        "wires": [
+            [
+                "adt-run-agent"
+            ]
+        ]
+    },
+    {
+        "id": "adt-run-agent",
+        "type": "agent",
+        "z": "adt-task-subflow",
+        "name": "Run Agent",
+        "agent": "opencode",
+        "runtime": "srt",
+        "invocation": "prompt",
+        "model": "model",
+        "modelType": "msg",
+        "prompt": "payload",
+        "promptType": "msg",
+        "sessionIdProp": "adt_unused_session_id",
+        "sessionIdPropType": "msg",
+        "invocationName": "",
+        "invocationNameType": "str",
+        "arguments": "payload",
+        "argumentsType": "msg",
+        "cwd": "cwd",
+        "cwdType": "msg",
+        "auto": true,
+        "concurrency": 3,
+        "timeout": 1800,
+        "timeoutType": "num",
+        "mcpServers": [],
+        "srtBinary": "",
+        "srtSettingsMode": "inline",
+        "srtSettingsPath": "/tmp/opencode/adt-srt-settings.json",
+        "srtAllowedDomains": [
+            "api.githubcopilot.com",
+            "api.github.com"
+        ],
+        "srtAllowedWriteDirs": [
+            ".",
+            "/tmp",
+            "~/.local/share/opencode"
+        ],
+        "srtStrictAllowlist": true,
+        "srtAdvancedJson": "",
+        "x": 1680,
+        "y": 80,
+        "wires": [
+            [
+                "adt-handle-agent-result"
+            ],
+            []
+        ]
+    },
+    {
+        "id": "adt-handle-agent-result",
+        "type": "function",
+        "z": "adt-task-subflow",
+        "name": "Handle agent result",
+        "func": "const context = msg.context;\nconst exec = msg.agentExecution || {};\nconst completion = {\n    context: context,\n    status: exec.status || 'unknown',\n    payload: msg.payload\n};\nconst logRow = {\n    payload: {\n        timestamp: new Date().toISOString(),\n        context: context,\n        type: exec.status === 'completed' ? 'success' : 'error',\n        message: (context && context.taskKey || 'task') + ' finished: ' + exec.status\n    }\n};\nreturn [completion, logRow];\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1920,
+        "y": 80,
+        "wires": [
+            [],
+            []
+        ]
+    },
+    {
+        "id": "adt-agent-error-catch",
+        "type": "catch",
+        "z": "adt-task-subflow",
+        "name": "agent error",
+        "scope": [
+            "adt-run-agent"
+        ],
+        "uncaught": false,
+        "x": 1680,
+        "y": 200,
+        "wires": [
+            [
+                "adt-handle-agent-error"
+            ]
+        ]
+    },
+    {
+        "id": "adt-handle-agent-error",
+        "type": "function",
+        "z": "adt-task-subflow",
+        "name": "format agent error",
+        "func": "msg.payload = {\n    timestamp: new Date().toISOString(),\n    context: msg.context,\n    type: 'error',\n    message: (msg.error && msg.error.message) ? msg.error.message : 'Unknown agent error'\n};\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1920,
+        "y": 200,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adt-tab",
+        "type": "tab",
+        "label": "Agentic Development Team",
+        "disabled": false,
+        "info": "Continuously watches a GitHub repository and keeps up to 3 agents per category (Issues, Pull Requests, Actions) busy via adt-task-subflow. Read-only against the remote -- see docs/260820_Agentic_Development_Team.md. Repo Settings group drives Host/Owner/Repository/Model + Update/Start/Stop; Start/Stop toggle the 30s scheduler. Test: injects/debug nodes are kept intentionally (same convention as Issue Control Center) for future debugging.",
+        "env": []
+    },
+    {
+        "id": "adt-test-issue-investigate-instance",
+        "type": "subflow:adt-task-subflow",
+        "z": "adt-tab",
+        "name": "Issue Investigate (test)",
+        "x": 700,
+        "y": 160,
+        "wires": [
+            [
+                "adt-test-debug-completion",
+                "adt-completion-issue-investigate"
+            ],
+            [
+                "adt-test-debug-events",
+                "adt-test-capture-execution-id",
+                "adt-capture-execid-issue-investigate",
+                "adt-flatten-trace"
+            ],
+            [
+                "adt-test-debug-log"
+            ]
+        ]
+    },
+    {
+        "id": "adt-test-capture-execution-id",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "capture latest executionId (running)",
+        "func": "if (msg.payload && msg.payload.type === 'running' && msg.executionId) {\n    global.set('adt_test_last_execution_id', msg.executionId);\n}\nreturn null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 990,
+        "y": 160,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adt-test-terminate-inject",
+        "type": "inject",
+        "z": "adt-tab",
+        "name": "Test: terminate",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 150,
+        "y": 160,
+        "wires": [
+            [
+                "adt-test-build-terminate"
+            ]
+        ]
+    },
+    {
+        "id": "adt-test-build-terminate",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Build terminate msg",
+        "func": "msg.operation = 'terminate';\nmsg.executionId = global.get('adt_test_last_execution_id');\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 160,
+        "wires": [
+            [
+                "adt-test-issue-investigate-instance"
+            ]
+        ]
+    },
+    {
+        "id": "adt-test-start-inject",
+        "type": "inject",
+        "z": "adt-tab",
+        "name": "Test: start",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 130,
+        "y": 60,
+        "wires": [
+            [
+                "adt-test-start-fn"
+            ]
+        ]
+    },
+    {
+        "id": "adt-test-start-fn",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "set adt_running = true",
+        "func": "global.set('adt_running', true);\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 340,
+        "y": 60,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adt-test-stop-inject",
+        "type": "inject",
+        "z": "adt-tab",
+        "name": "Test: stop",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 130,
+        "y": 110,
+        "wires": [
+            [
+                "adt-test-stop-fn"
+            ]
+        ]
+    },
+    {
+        "id": "adt-test-stop-fn",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "set adt_running = false",
+        "func": "global.set('adt_running', false);\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 340,
+        "y": 110,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adt-test-inject",
+        "type": "inject",
+        "z": "adt-tab",
+        "name": "Test: issue #1 investigate",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 140,
+        "y": 200,
+        "wires": [
+            [
+                "adt-test-set-context"
+            ]
+        ]
+    },
+    {
+        "id": "adt-test-set-context",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Set context: issue #1 (m3test)",
+        "func": "msg.context = {\n    host: 'github.com',\n    owner: 'tbrandenburg',\n    repo: 'node-red-agents',\n    model: 'opencode/big-pickle',\n    kind: 'issue',\n    itemId: 1,\n    taskKey: 'issue-1-m3test',\n    phase: 'investigate'\n};\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 200,
+        "wires": [
+            [
+                "adt-test-read-prompt"
+            ]
+        ]
+    },
+    {
+        "id": "adt-test-inject-retry",
+        "type": "inject",
+        "z": "adt-tab",
+        "name": "Test: issue #1 investigate (retry, stopped)",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 170,
+        "y": 260,
+        "wires": [
+            [
+                "adt-test-set-context-retry"
+            ]
+        ]
+    },
+    {
+        "id": "adt-test-set-context-retry",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Set context: issue #1 (m3test-2)",
+        "func": "msg.context = {\n    host: 'github.com',\n    owner: 'tbrandenburg',\n    repo: 'node-red-agents',\n    model: 'opencode/big-pickle',\n    kind: 'issue',\n    itemId: 1,\n    taskKey: 'issue-1-m3test-2',\n    phase: 'investigate'\n};\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 420,
+        "y": 260,
+        "wires": [
+            [
+                "adt-test-read-prompt"
+            ]
+        ]
+    },
+    {
+        "id": "adt-test-inject-m4",
+        "type": "inject",
+        "z": "adt-tab",
+        "name": "Test: issue #1 investigate (m4test)",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 170,
+        "y": 300,
+        "wires": [
+            [
+                "adt-test-set-context-m4"
+            ]
+        ]
+    },
+    {
+        "id": "adt-test-set-context-m4",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Set context: issue #1 (m4test)",
+        "func": "msg.context = {\n    host: 'github.com',\n    owner: 'tbrandenburg',\n    repo: 'node-red-agents',\n    model: 'opencode/big-pickle',\n    kind: 'issue',\n    itemId: 1,\n    taskKey: 'issue-1-m4test',\n    phase: 'investigate'\n};\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 420,
+        "y": 300,
+        "wires": [
+            [
+                "adt-test-read-prompt"
+            ]
+        ]
+    },
+    {
+        "id": "adt-test-read-prompt",
+        "type": "file in",
+        "z": "adt-tab",
+        "name": "Read investigate-issue.md",
+        "filename": "prompts/read-only/investigate-issue.md",
+        "filenameType": "str",
+        "format": "utf8",
+        "chunk": false,
+        "sendError": false,
+        "encoding": "none",
+        "allProps": false,
+        "x": 660,
+        "y": 230,
+        "wires": [
+            [
+                "adt-test-stash-prompt"
+            ]
+        ]
+    },
+    {
+        "id": "adt-test-stash-prompt",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Stash as promptTemplate",
+        "func": "msg.promptTemplate = msg.payload;\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 700,
+        "y": 260,
+        "wires": [
+            [
+                "adt-test-issue-investigate-instance"
+            ]
+        ]
+    },
+    {
+        "id": "adt-test-debug-completion",
+        "type": "debug",
+        "z": "adt-tab",
+        "name": "ADT out1: completion",
+        "active": true,
+        "tosidebar": true,
+        "console": true,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 970,
+        "y": 120,
+        "wires": []
+    },
+    {
+        "id": "adt-test-debug-events",
+        "type": "debug",
+        "z": "adt-tab",
+        "name": "ADT out2: agent events",
+        "active": true,
+        "tosidebar": true,
+        "console": true,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 980,
+        "y": 160,
+        "wires": []
+    },
+    {
+        "id": "adt-test-debug-log",
+        "type": "debug",
+        "z": "adt-tab",
+        "name": "ADT out3: log/error",
+        "active": true,
+        "tosidebar": true,
+        "console": true,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 970,
+        "y": 200,
+        "wires": []
+    },
+    {
+        "id": "adt-ui-page",
+        "type": "ui-page",
+        "name": "Agentic Development Team",
+        "ui": "7cde684526b81393",
+        "path": "/adt",
+        "icon": "smart_toy",
+        "layout": "grid",
+        "theme": "d0f5c6c8434eeb19",
+        "breakpoints": [
+            {
+                "name": "Default",
+                "px": "0",
+                "cols": "3"
+            },
+            {
+                "name": "Tablet",
+                "px": "576",
+                "cols": "6"
+            },
+            {
+                "name": "Small Desktop",
+                "px": "768",
+                "cols": "9"
+            },
+            {
+                "name": "Desktop",
+                "px": "1024",
+                "cols": "12"
+            }
+        ],
+        "order": 5,
+        "className": "",
+        "visible": "true",
+        "disabled": "false"
+    },
+    {
+        "id": "adt-ui-group-issues",
+        "type": "ui-group",
+        "name": "Issues",
+        "page": "adt-ui-page",
+        "width": 4,
+        "height": 1,
+        "order": 2,
+        "showTitle": true,
+        "className": "",
+        "visible": "true",
+        "disabled": "false",
+        "groupType": "default"
+    },
+    {
+        "id": "adt-ui-group-prs",
+        "type": "ui-group",
+        "name": "Pull Requests",
+        "page": "adt-ui-page",
+        "width": 4,
+        "height": 1,
+        "order": 3,
+        "showTitle": true,
+        "className": "",
+        "visible": "true",
+        "disabled": "false",
+        "groupType": "default"
+    },
+    {
+        "id": "adt-ui-group-actions",
+        "type": "ui-group",
+        "name": "Actions",
+        "page": "adt-ui-page",
+        "width": 4,
+        "height": 1,
+        "order": 4,
+        "showTitle": true,
+        "className": "",
+        "visible": "true",
+        "disabled": "false",
+        "groupType": "default"
+    },
+    {
+        "id": "adt-ui-group-trace",
+        "type": "ui-group",
+        "name": "Agent Events",
+        "page": "adt-ui-page",
+        "width": 12,
+        "height": 1,
+        "order": 5,
+        "showTitle": true,
+        "className": "",
+        "visible": "true",
+        "disabled": "false",
+        "groupType": "default"
+    },
+    {
+        "id": "adt-table-issues",
+        "type": "ui-table",
+        "z": "adt-tab",
+        "group": "adt-ui-group-issues",
+        "name": "Issues",
+        "label": "",
+        "order": 2,
+        "width": 0,
+        "height": 0,
+        "maxrows": "20",
+        "passthru": false,
+        "autocols": false,
+        "showSearch": true,
+        "deselect": true,
+        "selectionType": "none",
+        "columns": [
+            {
+                "title": "State",
+                "key": "state",
+                "keyType": "key",
+                "type": "text",
+                "width": "",
+                "align": "start"
+            },
+            {
+                "title": "Number",
+                "key": "number",
+                "keyType": "key",
+                "type": "text",
+                "width": "",
+                "align": "start"
+            },
+            {
+                "title": "Title",
+                "key": "title",
+                "keyType": "key",
+                "type": "text",
+                "width": "",
+                "align": "start"
+            },
+            {
+                "title": "Agent",
+                "key": "agent",
+                "keyType": "key",
+                "type": "text",
+                "width": "",
+                "align": "start"
+            }
+        ],
+        "mobileBreakpoint": "sm",
+        "mobileBreakpointType": "defaults",
+        "action": "replace",
+        "className": "",
+        "x": 1600,
+        "y": 40,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adt-table-prs",
+        "type": "ui-table",
+        "z": "adt-tab",
+        "group": "adt-ui-group-prs",
+        "name": "Pull Requests",
+        "label": "",
+        "order": 2,
+        "width": 0,
+        "height": 0,
+        "maxrows": "20",
+        "passthru": false,
+        "autocols": false,
+        "showSearch": true,
+        "deselect": true,
+        "selectionType": "none",
+        "columns": [
+            {
+                "title": "State",
+                "key": "state",
+                "keyType": "key",
+                "type": "text",
+                "width": "",
+                "align": "start"
+            },
+            {
+                "title": "Number",
+                "key": "number",
+                "keyType": "key",
+                "type": "text",
+                "width": "",
+                "align": "start"
+            },
+            {
+                "title": "Title",
+                "key": "title",
+                "keyType": "key",
+                "type": "text",
+                "width": "",
+                "align": "start"
+            },
+            {
+                "title": "Agent",
+                "key": "agent",
+                "keyType": "key",
+                "type": "text",
+                "width": "",
+                "align": "start"
+            }
+        ],
+        "mobileBreakpoint": "sm",
+        "mobileBreakpointType": "defaults",
+        "action": "replace",
+        "className": "",
+        "x": 1600,
+        "y": 340,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adt-table-actions",
+        "type": "ui-table",
+        "z": "adt-tab",
+        "group": "adt-ui-group-actions",
+        "name": "Actions",
+        "label": "",
+        "order": 2,
+        "width": 0,
+        "height": 0,
+        "maxrows": "20",
+        "passthru": false,
+        "autocols": false,
+        "showSearch": true,
+        "deselect": true,
+        "selectionType": "none",
+        "columns": [
+            {
+                "title": "State",
+                "key": "state",
+                "keyType": "key",
+                "type": "text",
+                "width": "",
+                "align": "start"
+            },
+            {
+                "title": "Number",
+                "key": "number",
+                "keyType": "key",
+                "type": "text",
+                "width": "",
+                "align": "start"
+            },
+            {
+                "title": "Title",
+                "key": "title",
+                "keyType": "key",
+                "type": "text",
+                "width": "",
+                "align": "start"
+            },
+            {
+                "title": "Agent",
+                "key": "agent",
+                "keyType": "key",
+                "type": "text",
+                "width": "",
+                "align": "start"
+            }
+        ],
+        "mobileBreakpoint": "sm",
+        "mobileBreakpointType": "defaults",
+        "action": "replace",
+        "className": "",
+        "x": 1600,
+        "y": 640,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adt-table-trace",
+        "type": "ui-table",
+        "z": "adt-tab",
+        "group": "adt-ui-group-trace",
+        "name": "Agent Events",
+        "label": "",
+        "order": 1,
+        "width": 0,
+        "height": 0,
+        "maxrows": "20",
+        "passthru": false,
+        "autocols": false,
+        "showSearch": true,
+        "deselect": true,
+        "selectionType": "none",
+        "columns": [
+            {
+                "title": "Timestamp",
+                "key": "timestamp",
+                "keyType": "key",
+                "type": "text",
+                "width": "",
+                "align": "start"
+            },
+            {
+                "title": "Kind",
+                "key": "kind",
+                "keyType": "key",
+                "type": "text",
+                "width": "",
+                "align": "start"
+            },
+            {
+                "title": "Message",
+                "key": "message",
+                "keyType": "key",
+                "type": "text",
+                "width": "",
+                "align": "start"
+            }
+        ],
+        "mobileBreakpoint": "sm",
+        "mobileBreakpointType": "defaults",
+        "action": "replace",
+        "className": "",
+        "x": 1600,
+        "y": 920,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adt-init-inject",
+        "type": "inject",
+        "z": "adt-tab",
+        "name": "ADT: init state (once)",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": true,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 130,
+        "y": 20,
+        "wires": [
+            [
+                "adt-init-fn"
+            ]
+        ]
+    },
+    {
+        "id": "adt-init-fn",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "seed global adt_* defaults",
+        "func": "if (!global.get('adt_tasks')) {\n    global.set('adt_tasks', { issue: {}, pr: {}, action: {} });\n}\nif (!global.get('adt_max')) {\n    global.set('adt_max', { issue: 3, pr: 3, action: 3 });\n}\nif (global.get('adt_running') === undefined) {\n    global.set('adt_running', false);\n}\nif (!global.get('adt_ctx')) {\n    global.set('adt_ctx', {\n        host: 'github.com',\n        owner: 'tbrandenburg',\n        repo: 'node-red-agents',\n        model: 'opencode/big-pickle'\n    });\n}\nif (!global.get('adt_trace')) {\n    global.set('adt_trace', []);\n}\nreturn null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 20,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adt-test-update-inject",
+        "type": "inject",
+        "z": "adt-tab",
+        "name": "Test: Update",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 130,
+        "y": 440,
+        "wires": [
+            [
+                "adt-build-gh-issues-list",
+                "adt-build-gh-prs-list",
+                "adt-build-gh-actions-list"
+            ]
+        ]
+    },
+    {
+        "id": "adt-build-gh-issues-list",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Build gh issue list request",
+        "func": "const ctx = global.get('adt_ctx') || {};\nmsg.gh = {\n    command: 'issue',\n    args: ['list', '--state', 'open', '--limit', '20', '--json', 'number,title,state'],\n    repo: ctx.owner + '/' + ctx.repo,\n    host: ctx.host\n};\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 380,
+        "wires": [
+            [
+                "adt-gh-issues-list"
+            ]
+        ]
+    },
+    {
+        "id": "adt-gh-issues-list",
+        "type": "gh",
+        "z": "adt-tab",
+        "name": "gh issue list",
+        "command": "",
+        "commandType": "str",
+        "args": "",
+        "argsType": "str",
+        "repo": "",
+        "repoType": "str",
+        "host": "",
+        "timeoutMs": 60000,
+        "x": 620,
+        "y": 380,
+        "wires": [
+            [
+                "adt-reconcile-issues"
+            ]
+        ]
+    },
+    {
+        "id": "adt-build-gh-prs-list",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Build gh pr list request",
+        "func": "const ctx = global.get('adt_ctx') || {};\nmsg.gh = {\n    command: 'pr',\n    args: ['list', '--state', 'open', '--limit', '20', '--json', 'number,title,state'],\n    repo: ctx.owner + '/' + ctx.repo,\n    host: ctx.host\n};\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 440,
+        "wires": [
+            [
+                "adt-gh-prs-list"
+            ]
+        ]
+    },
+    {
+        "id": "adt-gh-prs-list",
+        "type": "gh",
+        "z": "adt-tab",
+        "name": "gh pr list",
+        "command": "",
+        "commandType": "str",
+        "args": "",
+        "argsType": "str",
+        "repo": "",
+        "repoType": "str",
+        "host": "",
+        "timeoutMs": 60000,
+        "x": 620,
+        "y": 440,
+        "wires": [
+            [
+                "adt-reconcile-prs"
+            ]
+        ]
+    },
+    {
+        "id": "adt-build-gh-actions-list",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Build gh run list request",
+        "func": "const ctx = global.get('adt_ctx') || {};\nmsg.gh = {\n    command: 'run',\n    args: ['list', '--limit', '20', '--json', 'databaseId,name,status,conclusion'],\n    repo: ctx.owner + '/' + ctx.repo,\n    host: ctx.host\n};\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 500,
+        "wires": [
+            [
+                "adt-gh-actions-list"
+            ]
+        ]
+    },
+    {
+        "id": "adt-gh-actions-list",
+        "type": "gh",
+        "z": "adt-tab",
+        "name": "gh run list",
+        "command": "",
+        "commandType": "str",
+        "args": "",
+        "argsType": "str",
+        "repo": "",
+        "repoType": "str",
+        "host": "",
+        "timeoutMs": 60000,
+        "x": 620,
+        "y": 500,
+        "wires": [
+            [
+                "adt-reconcile-actions"
+            ]
+        ]
+    },
+    {
+        "id": "adt-gh-catch",
+        "type": "catch",
+        "z": "adt-tab",
+        "name": "gh list error",
+        "scope": [
+            "adt-gh-issues-list",
+            "adt-gh-prs-list",
+            "adt-gh-actions-list"
+        ],
+        "uncaught": false,
+        "x": 620,
+        "y": 560,
+        "wires": [
+            [
+                "adt-gh-error-fn"
+            ]
+        ]
+    },
+    {
+        "id": "adt-gh-error-fn",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "format gh error",
+        "func": "msg.payload = {\n    timestamp: new Date().toISOString(),\n    kind: 'gh',\n    message: (msg.error && msg.error.message) ? msg.error.message : 'Unknown gh error'\n};\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 860,
+        "y": 560,
+        "wires": [
+            [
+                "adt-gh-error-debug"
+            ]
+        ]
+    },
+    {
+        "id": "adt-gh-error-debug",
+        "type": "debug",
+        "z": "adt-tab",
+        "name": "ADT gh list error",
+        "active": true,
+        "tosidebar": true,
+        "console": true,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1100,
+        "y": 560,
+        "wires": []
+    },
+    {
+        "id": "adt-reconcile-issues",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Reconcile issues",
+        "func": "const tasks = global.get('adt_tasks') || { issue: {}, pr: {}, action: {} };\nconst bucket = tasks.issue || {};\nconst seen = {};\n(msg.payload || []).forEach(function (item) {\n    const id = String(item.number);\n    seen[id] = true;\n    const existing = bucket[id];\n    bucket[id] = {\n        id: id,\n        title: item.title,\n        phase: existing ? existing.phase : 'not_started',\n        executionId: existing ? existing.executionId : undefined,\n        updatedAt: new Date().toISOString()\n    };\n});\nObject.keys(bucket).forEach(function (id) {\n    if (!seen[id] && bucket[id].phase !== 'closed') {\n        bucket[id].phase = 'closed';\n        bucket[id].executionId = undefined;\n    }\n});\ntasks.issue = bucket;\nglobal.set('adt_tasks', tasks);\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 880,
+        "y": 380,
+        "wires": [
+            [
+                "adt-render-issues"
+            ]
+        ]
+    },
+    {
+        "id": "adt-reconcile-prs",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Reconcile PRs",
+        "func": "const tasks = global.get('adt_tasks') || { issue: {}, pr: {}, action: {} };\nconst bucket = tasks.pr || {};\nconst seen = {};\n(msg.payload || []).forEach(function (item) {\n    const id = String(item.number);\n    seen[id] = true;\n    const existing = bucket[id];\n    bucket[id] = {\n        id: id,\n        title: item.title,\n        phase: existing ? existing.phase : 'not_started',\n        executionId: existing ? existing.executionId : undefined,\n        updatedAt: new Date().toISOString()\n    };\n});\nObject.keys(bucket).forEach(function (id) {\n    if (!seen[id] && bucket[id].phase !== 'closed') {\n        bucket[id].phase = 'closed';\n        bucket[id].executionId = undefined;\n    }\n});\ntasks.pr = bucket;\nglobal.set('adt_tasks', tasks);\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 880,
+        "y": 440,
+        "wires": [
+            [
+                "adt-render-prs"
+            ]
+        ]
+    },
+    {
+        "id": "adt-reconcile-actions",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Reconcile actions",
+        "func": "const tasks = global.get('adt_tasks') || { issue: {}, pr: {}, action: {} };\nconst bucket = tasks.action || {};\n(msg.payload || []).forEach(function (item) {\n    const id = String(item.databaseId);\n    const existing = bucket[id];\n    bucket[id] = {\n        id: id,\n        title: item.name,\n        workflowName: item.name,\n        conclusion: item.conclusion,\n        phase: existing ? existing.phase : 'not_started',\n        executionId: existing ? existing.executionId : undefined,\n        updatedAt: new Date().toISOString()\n    };\n});\n// No 'closed' phase for actions: every run stays eligible for investigation\n// regardless of conclusion (green = continuous-improvement, red = failure\n// analysis), and a run dropping off the --limit 20 window is simply not\n// re-touched until it reappears.\ntasks.action = bucket;\nglobal.set('adt_tasks', tasks);\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 880,
+        "y": 500,
+        "wires": [
+            [
+                "adt-render-actions"
+            ]
+        ]
+    },
+    {
+        "id": "adt-render-issues",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Render issues table",
+        "func": "const emoji = { not_started: '\\u2b1c', in_progress: '\\u23f3', fixed: '\\ud83d\\udd27', closed: '\\ud83d\\udd12' };\nconst tasks = (global.get('adt_tasks') || {}).issue || {};\nmsg.payload = Object.keys(tasks)\n    .sort(function (a, b) { return Number(a) - Number(b); })\n    .map(function (id) {\n        const t = tasks[id];\n        return {\n            state: emoji[t.phase] || t.phase,\n            number: t.id,\n            title: t.title,\n            agent: t.phase === 'in_progress' ? (t.executionId || '') : ''\n        };\n    });\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1140,
+        "y": 380,
+        "wires": [
+            [
+                "adt-table-issues"
+            ]
+        ]
+    },
+    {
+        "id": "adt-render-prs",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Render PRs table",
+        "func": "const emoji = { not_started: '\\u2b1c', in_progress: '\\u23f3', reviewed: '\\ud83d\\udc40', closed: '\\ud83d\\udd12' };\nconst tasks = (global.get('adt_tasks') || {}).pr || {};\nmsg.payload = Object.keys(tasks)\n    .sort(function (a, b) { return Number(a) - Number(b); })\n    .map(function (id) {\n        const t = tasks[id];\n        return {\n            state: emoji[t.phase] || t.phase,\n            number: t.id,\n            title: t.title,\n            agent: t.phase === 'in_progress' ? (t.executionId || '') : ''\n        };\n    });\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1140,
+        "y": 440,
+        "wires": [
+            [
+                "adt-table-prs"
+            ]
+        ]
+    },
+    {
+        "id": "adt-render-actions",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Render actions table",
+        "func": "const emoji = { not_started: '\\u2b1c', in_progress: '\\u23f3', investigated: '\\ud83d\\udd0d' };\nconst tasks = (global.get('adt_tasks') || {}).action || {};\nmsg.payload = Object.keys(tasks)\n    .sort(function (a, b) { return Number(b) - Number(a); })\n    .map(function (id) {\n        const t = tasks[id];\n        return {\n            state: emoji[t.phase] || t.phase,\n            number: t.id,\n            title: t.workflowName + ' (' + t.conclusion + ')',\n            agent: t.phase === 'in_progress' ? (t.executionId || '') : ''\n        };\n    });\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1140,
+        "y": 500,
+        "wires": [
+            [
+                "adt-table-actions"
+            ]
+        ]
+    },
+    {
+        "id": "adt-test-dispatch-tick-inject",
+        "type": "inject",
+        "z": "adt-tab",
+        "name": "Test: dispatch tick",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 130,
+        "y": 700,
+        "wires": [
+            [
+                "adt-dispatch-issues",
+                "adt-dispatch-prs",
+                "adt-dispatch-actions"
+            ]
+        ]
+    },
+    {
+        "id": "adt-dispatch-issues",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Dispatch issues",
+        "func": "const tasks = global.get('adt_tasks') || { issue: {}, pr: {}, action: {} };\nconst max = (global.get('adt_max') || {}).issue || 0;\nconst ctx = global.get('adt_ctx') || {};\nconst bucket = tasks.issue || {};\nlet inProgress = Object.keys(bucket).filter(function (id) { return bucket[id].phase === 'in_progress'; }).length;\nconst out = [];\nObject.keys(bucket).sort(function (a, b) { return Number(a) - Number(b); }).forEach(function (id) {\n    if (inProgress >= max) return;\n    const t = bucket[id];\n    if (t.phase !== 'not_started') return;\n    t.phase = 'in_progress';\n    t.updatedAt = new Date().toISOString();\n    inProgress++;\n    out.push({\n        context: {\n            host: ctx.host, owner: ctx.owner, repo: ctx.repo, model: ctx.model,\n            kind: 'issue', itemId: id, taskKey: 'issue-' + id, phase: 'investigate'\n        }\n    });\n});\ntasks.issue = bucket;\nglobal.set('adt_tasks', tasks);\nreturn [out];",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 700,
+        "wires": [
+            [
+                "adt-read-investigate-issue"
+            ]
+        ]
+    },
+    {
+        "id": "adt-dispatch-prs",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Dispatch PRs",
+        "func": "const tasks = global.get('adt_tasks') || { issue: {}, pr: {}, action: {} };\nconst max = (global.get('adt_max') || {}).pr || 0;\nconst ctx = global.get('adt_ctx') || {};\nconst bucket = tasks.pr || {};\nlet inProgress = Object.keys(bucket).filter(function (id) { return bucket[id].phase === 'in_progress'; }).length;\nconst out = [];\nObject.keys(bucket).sort(function (a, b) { return Number(a) - Number(b); }).forEach(function (id) {\n    if (inProgress >= max) return;\n    const t = bucket[id];\n    if (t.phase !== 'not_started') return;\n    t.phase = 'in_progress';\n    t.updatedAt = new Date().toISOString();\n    inProgress++;\n    out.push({\n        context: {\n            host: ctx.host, owner: ctx.owner, repo: ctx.repo, model: ctx.model,\n            kind: 'pr', itemId: id, taskKey: 'pr-' + id, phase: 'review'\n        }\n    });\n});\ntasks.pr = bucket;\nglobal.set('adt_tasks', tasks);\nreturn [out];",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 760,
+        "wires": [
+            [
+                "adt-read-review-pr"
+            ]
+        ]
+    },
+    {
+        "id": "adt-dispatch-actions",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Dispatch actions",
+        "func": "const tasks = global.get('adt_tasks') || { issue: {}, pr: {}, action: {} };\nconst max = (global.get('adt_max') || {}).action || 0;\nconst ctx = global.get('adt_ctx') || {};\nconst bucket = tasks.action || {};\nlet inProgress = Object.keys(bucket).filter(function (id) { return bucket[id].phase === 'in_progress'; }).length;\nconst out = [];\nObject.keys(bucket).sort(function (a, b) { return Number(b) - Number(a); }).forEach(function (id) {\n    if (inProgress >= max) return;\n    const t = bucket[id];\n    if (t.phase !== 'not_started') return;\n    t.phase = 'in_progress';\n    t.updatedAt = new Date().toISOString();\n    inProgress++;\n    out.push({\n        context: {\n            host: ctx.host, owner: ctx.owner, repo: ctx.repo, model: ctx.model,\n            kind: 'action', itemId: id, taskKey: 'run-' + id, phase: 'investigate',\n            workflowName: t.workflowName, conclusion: t.conclusion\n        }\n    });\n});\ntasks.action = bucket;\nglobal.set('adt_tasks', tasks);\nreturn [out];",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 820,
+        "wires": [
+            [
+                "adt-read-investigate-action"
+            ]
+        ]
+    },
+    {
+        "id": "adt-read-investigate-issue",
+        "type": "file in",
+        "z": "adt-tab",
+        "name": "Read investigate-issue.md",
+        "filename": "prompts/read-only/investigate-issue.md",
+        "filenameType": "str",
+        "format": "utf8",
+        "chunk": false,
+        "sendError": false,
+        "encoding": "none",
+        "allProps": false,
+        "x": 660,
+        "y": 700,
+        "wires": [
+            [
+                "adt-stash-investigate-issue"
+            ]
+        ]
+    },
+    {
+        "id": "adt-stash-investigate-issue",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Stash as promptTemplate",
+        "func": "msg.promptTemplate = msg.payload;\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 900,
+        "y": 700,
+        "wires": [
+            [
+                "adt-test-issue-investigate-instance"
+            ]
+        ]
+    },
+    {
+        "id": "adt-read-fix-issue",
+        "type": "file in",
+        "z": "adt-tab",
+        "name": "Read fix-issue.md",
+        "filename": "prompts/read-only/fix-issue.md",
+        "filenameType": "str",
+        "format": "utf8",
+        "chunk": false,
+        "sendError": false,
+        "encoding": "none",
+        "allProps": false,
+        "x": 660,
+        "y": 1000,
+        "wires": [
+            [
+                "adt-stash-fix-issue"
+            ]
+        ]
+    },
+    {
+        "id": "adt-stash-fix-issue",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Stash as promptTemplate",
+        "func": "msg.promptTemplate = msg.payload;\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 900,
+        "y": 1000,
+        "wires": [
+            [
+                "adt-issue-fix-instance"
+            ]
+        ]
+    },
+    {
+        "id": "adt-read-review-pr",
+        "type": "file in",
+        "z": "adt-tab",
+        "name": "Read review-pr.md",
+        "filename": "prompts/read-only/review-pr.md",
+        "filenameType": "str",
+        "format": "utf8",
+        "chunk": false,
+        "sendError": false,
+        "encoding": "none",
+        "allProps": false,
+        "x": 660,
+        "y": 760,
+        "wires": [
+            [
+                "adt-stash-review-pr"
+            ]
+        ]
+    },
+    {
+        "id": "adt-stash-review-pr",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Stash as promptTemplate",
+        "func": "msg.promptTemplate = msg.payload;\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 900,
+        "y": 760,
+        "wires": [
+            [
+                "adt-pr-review-instance"
+            ]
+        ]
+    },
+    {
+        "id": "adt-read-investigate-action",
+        "type": "file in",
+        "z": "adt-tab",
+        "name": "Read investigate-action.md",
+        "filename": "prompts/read-only/investigate-action.md",
+        "filenameType": "str",
+        "format": "utf8",
+        "chunk": false,
+        "sendError": false,
+        "encoding": "none",
+        "allProps": false,
+        "x": 660,
+        "y": 820,
+        "wires": [
+            [
+                "adt-stash-investigate-action"
+            ]
+        ]
+    },
+    {
+        "id": "adt-stash-investigate-action",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Stash as promptTemplate",
+        "func": "msg.promptTemplate = msg.payload;\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 900,
+        "y": 820,
+        "wires": [
+            [
+                "adt-action-investigate-instance"
+            ]
+        ]
+    },
+    {
+        "id": "adt-issue-fix-instance",
+        "type": "subflow:adt-task-subflow",
+        "z": "adt-tab",
+        "name": "Issue Fix",
+        "x": 1140,
+        "y": 1000,
+        "wires": [
+            [
+                "adt-completion-issue-fix"
+            ],
+            [
+                "adt-capture-execid-issue-fix",
+                "adt-flatten-trace",
+                "tmp-debug-adt-issue-fix-instance"
+            ],
+            [
+                "adt-log-debug"
+            ]
+        ]
+    },
+    {
+        "id": "adt-pr-review-instance",
+        "type": "subflow:adt-task-subflow",
+        "z": "adt-tab",
+        "name": "PR Review",
+        "x": 1140,
+        "y": 760,
+        "wires": [
+            [
+                "adt-completion-pr-review"
+            ],
+            [
+                "adt-capture-execid-pr-review",
+                "adt-flatten-trace",
+                "tmp-debug-adt-pr-review-instance"
+            ],
+            [
+                "adt-log-debug"
+            ]
+        ]
+    },
+    {
+        "id": "adt-action-investigate-instance",
+        "type": "subflow:adt-task-subflow",
+        "z": "adt-tab",
+        "name": "Action Investigate",
+        "x": 1140,
+        "y": 820,
+        "wires": [
+            [
+                "adt-completion-action-investigate"
+            ],
+            [
+                "adt-capture-execid-action-investigate",
+                "adt-flatten-trace",
+                "tmp-debug-adt-action-investigate-instance"
+            ],
+            [
+                "adt-log-debug"
+            ]
+        ]
+    },
+    {
+        "id": "adt-log-debug",
+        "type": "debug",
+        "z": "adt-tab",
+        "name": "ADT log/error (all kinds)",
+        "active": true,
+        "tosidebar": true,
+        "console": true,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1400,
+        "y": 1060,
+        "wires": []
+    },
+    {
+        "id": "adt-capture-execid-issue-investigate",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "capture executionId (issue investigate)",
+        "func": "if (msg.payload && msg.payload.type === 'running' && msg.executionId) {\n    const kind = 'issue';\n    const tasks = global.get('adt_tasks') || {};\n    const bucket = tasks[kind] || {};\n    const candidate = Object.keys(bucket)\n        .map(function (id) { return bucket[id]; })\n        .filter(function (t) { return t.phase === 'in_progress' && !t.executionId; })\n        .sort(function (a, b) { return new Date(a.updatedAt) - new Date(b.updatedAt); })[0];\n    if (candidate) {\n        candidate.executionId = msg.executionId;\n        tasks[kind] = bucket;\n        global.set('adt_tasks', tasks);\n    }\n}\nreturn null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1400,
+        "y": 700,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adt-capture-execid-issue-fix",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "capture executionId (issue fix)",
+        "func": "if (msg.payload && msg.payload.type === 'running' && msg.executionId) {\n    const kind = 'issue';\n    const tasks = global.get('adt_tasks') || {};\n    const bucket = tasks[kind] || {};\n    const candidate = Object.keys(bucket)\n        .map(function (id) { return bucket[id]; })\n        .filter(function (t) { return t.phase === 'in_progress' && !t.executionId; })\n        .sort(function (a, b) { return new Date(a.updatedAt) - new Date(b.updatedAt); })[0];\n    if (candidate) {\n        candidate.executionId = msg.executionId;\n        tasks[kind] = bucket;\n        global.set('adt_tasks', tasks);\n    }\n}\nreturn null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1400,
+        "y": 1000,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adt-capture-execid-pr-review",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "capture executionId (pr review)",
+        "func": "if (msg.payload && msg.payload.type === 'running' && msg.executionId) {\n    const kind = 'pr';\n    const tasks = global.get('adt_tasks') || {};\n    const bucket = tasks[kind] || {};\n    const candidate = Object.keys(bucket)\n        .map(function (id) { return bucket[id]; })\n        .filter(function (t) { return t.phase === 'in_progress' && !t.executionId; })\n        .sort(function (a, b) { return new Date(a.updatedAt) - new Date(b.updatedAt); })[0];\n    if (candidate) {\n        candidate.executionId = msg.executionId;\n        tasks[kind] = bucket;\n        global.set('adt_tasks', tasks);\n    }\n}\nreturn null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1400,
+        "y": 760,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adt-capture-execid-action-investigate",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "capture executionId (action investigate)",
+        "func": "if (msg.payload && msg.payload.type === 'running' && msg.executionId) {\n    const kind = 'action';\n    const tasks = global.get('adt_tasks') || {};\n    const bucket = tasks[kind] || {};\n    const candidate = Object.keys(bucket)\n        .map(function (id) { return bucket[id]; })\n        .filter(function (t) { return t.phase === 'in_progress' && !t.executionId; })\n        .sort(function (a, b) { return new Date(a.updatedAt) - new Date(b.updatedAt); })[0];\n    if (candidate) {\n        candidate.executionId = msg.executionId;\n        tasks[kind] = bucket;\n        global.set('adt_tasks', tasks);\n    }\n}\nreturn null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1400,
+        "y": 820,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adt-flatten-trace",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Flatten for trace table",
+        "func": "const event = msg.payload || {};\nconst rawMessage = event.type + (event.data !== undefined ? ': ' + JSON.stringify(event.data) : '');\nconst row = {\n    timestamp: new Date(msg.timestamp || Date.now()).toISOString(),\n    kind: msg.agentName || msg.agentId || '',\n    message: (rawMessage.length > 500 ? rawMessage.slice(0, 500) + '\\u2026' : rawMessage)\n};\nlet rows = global.get('adt_trace') || [];\nrows.unshift(row);\nif (rows.length > 50) rows = rows.slice(0, 50);\nglobal.set('adt_trace', rows);\nmsg.payload = rows;\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1400,
+        "y": 920,
+        "wires": [
+            [
+                "adt-table-trace"
+            ]
+        ]
+    },
+    {
+        "id": "adt-completion-issue-investigate",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Completion: issue investigate",
+        "func": "const ctx = msg.context || {};\nconst tasks = global.get('adt_tasks') || { issue: {}, pr: {}, action: {} };\nconst bucket = tasks.issue || {};\nconst t = bucket[String(ctx.itemId)];\nif (!t) return null;\nif (msg.status === 'completed') {\n    // Success: chain straight into the fix phase, keeping the SAME\n    // concurrency slot occupied the whole time (no free/re-acquire in\n    // between) -- per plan §8/§10.\n    t.updatedAt = new Date().toISOString();\n    tasks.issue = bucket;\n    global.set('adt_tasks', tasks);\n            return {\n        context: {\n            host: ctx.host, owner: ctx.owner, repo: ctx.repo, model: ctx.model,\n            kind: 'issue', itemId: ctx.itemId, taskKey: 'issue-' + ctx.itemId + '-fix', phase: 'fix'\n        }\n    };\n}\n// Failure: free the slot. Chosen policy (documented in M5 report): reset to\n// not_started so the next dispatch tick retries it, rather than leaving it\n// permanently stuck in a pseudo-terminal error state.\nt.phase = 'not_started';\nt.executionId = undefined;\ntasks.issue = bucket;\nglobal.set('adt_tasks', tasks);\nreturn null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1140,
+        "y": 880,
+        "wires": [
+            [
+                "adt-read-fix-issue"
+            ]
+        ]
+    },
+    {
+        "id": "adt-completion-issue-fix",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Completion: issue fix",
+        "func": "const ctx = msg.context || {};\nconst tasks = global.get('adt_tasks') || { issue: {}, pr: {}, action: {} };\nconst bucket = tasks.issue || {};\nconst t = bucket[String(ctx.itemId)];\nif (!t) return null;\nt.phase = (msg.status === 'completed') ? 'fixed' : 'not_started';\nt.executionId = undefined;\ntasks.issue = bucket;\nglobal.set('adt_tasks', tasks);\nreturn null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1400,
+        "y": 1000,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adt-completion-pr-review",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Completion: pr review",
+        "func": "const ctx = msg.context || {};\nconst tasks = global.get('adt_tasks') || { issue: {}, pr: {}, action: {} };\nconst bucket = tasks.pr || {};\nconst t = bucket[String(ctx.itemId)];\nif (!t) return null;\nt.phase = (msg.status === 'completed') ? 'reviewed' : 'not_started';\nt.executionId = undefined;\ntasks.pr = bucket;\nglobal.set('adt_tasks', tasks);\nreturn null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1400,
+        "y": 760,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adt-completion-action-investigate",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "Completion: action investigate",
+        "func": "const ctx = msg.context || {};\nconst tasks = global.get('adt_tasks') || { issue: {}, pr: {}, action: {} };\nconst bucket = tasks.action || {};\nconst t = bucket[String(ctx.itemId)];\nif (!t) return null;\n// A successful run is a terminal 'investigated' result regardless of the\n// runs conclusion (green or red) -- both are informative. A failed or\n// terminated run (e.g. Stop) frees the slot back to not_started instead,\n// so the next Start retries it against the same idempotent taskKey.\nt.phase = (msg.status === 'completed') ? 'investigated' : 'not_started';\nt.executionId = undefined;\ntasks.action = bucket;\nglobal.set('adt_tasks', tasks);\nreturn null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1400,
+        "y": 820,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adt-test-dump-state-inject",
+        "type": "inject",
+        "z": "adt-tab",
+        "name": "Test: dump state",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 130,
+        "y": 900,
+        "wires": [
+            [
+                "adt-test-dump-state-fn"
+            ]
+        ]
+    },
+    {
+        "id": "adt-test-dump-state-fn",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "read adt_tasks/adt_max",
+        "func": "msg.payload = {\n    adt_running: global.get('adt_running'),\n    adt_max: global.get('adt_max'),\n    adt_tasks: global.get('adt_tasks'),\n    adt_trace_length: (global.get('adt_trace') || []).length\n};\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 900,
+        "wires": [
+            [
+                "adt-test-dump-state-debug"
+            ]
+        ]
+    },
+    {
+        "id": "adt-test-dump-state-debug",
+        "type": "debug",
+        "z": "adt-tab",
+        "name": "ADT state dump",
+        "active": true,
+        "tosidebar": true,
+        "console": true,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 660,
+        "y": 900,
+        "wires": []
+    },
+    {
+        "id": "adt-tmp-lower-max",
+        "type": "inject",
+        "z": "adt-tab",
+        "name": "TMP: lower action max to 1",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 130,
+        "y": 960,
+        "wires": [
+            [
+                "adt-tmp-lower-max-fn"
+            ]
+        ]
+    },
+    {
+        "id": "adt-tmp-lower-max-fn",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "set adt_max.action=1",
+        "func": "const m = global.get('adt_max') || {}; m.action = 1; global.set('adt_max', m); return null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 960,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adt-test-lower-issue-max",
+        "type": "inject",
+        "z": "adt-tab",
+        "name": "Test: lower issue max to 1",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 150,
+        "y": 1000,
+        "wires": [
+            [
+                "adt-test-lower-issue-max-fn"
+            ]
+        ]
+    },
+    {
+        "id": "adt-test-lower-issue-max-fn",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "set adt_max.issue = 1",
+        "func": "const m = global.get('adt_max') || {};\nm.issue = 1;\nglobal.set('adt_max', m);\nreturn null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 420,
+        "y": 1000,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adt-ui-group-settings",
+        "type": "ui-group",
+        "name": "Repo Settings",
+        "page": "adt-ui-page",
+        "width": 12,
+        "height": 1,
+        "order": 1,
+        "showTitle": true,
+        "className": "",
+        "visible": "true",
+        "disabled": "false",
+        "groupType": "default"
+    },
+    {
+        "id": "adt-host-input",
+        "type": "ui-text-input",
+        "z": "adt-tab",
+        "group": "adt-ui-group-settings",
+        "name": "Host",
+        "label": "Host (e.g. github.com)",
+        "order": 1,
+        "width": 0,
+        "height": 0,
+        "topic": "topic",
+        "topicType": "msg",
+        "mode": "text",
+        "tooltip": "",
+        "delay": 300,
+        "passthru": true,
+        "sendOnDelay": false,
+        "sendOnBlur": true,
+        "sendOnEnter": true,
+        "className": "",
+        "clearable": false,
+        "sendOnClear": false,
+        "icon": "",
+        "iconPosition": "left",
+        "iconInnerPosition": "inside",
+        "x": 200,
+        "y": -260,
+        "wires": [
+            [
+                "adt-store-host"
+            ]
+        ]
+    },
+    {
+        "id": "adt-owner-input",
+        "type": "ui-text-input",
+        "z": "adt-tab",
+        "group": "adt-ui-group-settings",
+        "name": "Owner",
+        "label": "Owner (e.g. octocat)",
+        "order": 2,
+        "width": 0,
+        "height": 0,
+        "topic": "topic",
+        "topicType": "msg",
+        "mode": "text",
+        "tooltip": "",
+        "delay": 300,
+        "passthru": true,
+        "sendOnDelay": false,
+        "sendOnBlur": true,
+        "sendOnEnter": true,
+        "className": "",
+        "clearable": false,
+        "sendOnClear": false,
+        "icon": "",
+        "iconPosition": "left",
+        "iconInnerPosition": "inside",
+        "x": 200,
+        "y": -220,
+        "wires": [
+            [
+                "adt-store-owner"
+            ]
+        ]
+    },
+    {
+        "id": "adt-repo-input",
+        "type": "ui-text-input",
+        "z": "adt-tab",
+        "group": "adt-ui-group-settings",
+        "name": "Repository",
+        "label": "Repository (e.g. hello-world)",
+        "order": 3,
+        "width": 0,
+        "height": 0,
+        "topic": "topic",
+        "topicType": "msg",
+        "mode": "text",
+        "tooltip": "",
+        "delay": 300,
+        "passthru": true,
+        "sendOnDelay": false,
+        "sendOnBlur": true,
+        "sendOnEnter": true,
+        "className": "",
+        "clearable": false,
+        "sendOnClear": false,
+        "icon": "",
+        "iconPosition": "left",
+        "iconInnerPosition": "inside",
+        "x": 200,
+        "y": -180,
+        "wires": [
+            [
+                "adt-store-repo"
+            ]
+        ]
+    },
+    {
+        "id": "adt-model-dropdown",
+        "type": "ui-dropdown",
+        "z": "adt-tab",
+        "group": "adt-ui-group-settings",
+        "name": "Model",
+        "label": "Model",
+        "tooltip": "",
+        "order": 4,
+        "width": 0,
+        "height": 0,
+        "passthru": false,
+        "multiple": false,
+        "chips": false,
+        "clearable": false,
+        "options": [
+            {
+                "value": "opencode/big-pickle",
+                "label": "opencode/big-pickle",
+                "type": "str"
+            },
+            {
+                "value": "opencode/deepseek-v4-flash-free",
+                "label": "opencode/deepseek-v4-flash-free",
+                "type": "str"
+            },
+            {
+                "value": "opencode/hy3-free",
+                "label": "opencode/hy3-free",
+                "type": "str"
+            },
+            {
+                "value": "opencode/laguna-s-2.1-free",
+                "label": "opencode/laguna-s-2.1-free",
+                "type": "str"
+            },
+            {
+                "value": "opencode/mimo-v2.5-free",
+                "label": "opencode/mimo-v2.5-free",
+                "type": "str"
+            },
+            {
+                "value": "opencode/nemotron-3-ultra-free",
+                "label": "opencode/nemotron-3-ultra-free",
+                "type": "str"
+            },
+            {
+                "value": "opencode/nemotron-3.5-lightning-free",
+                "label": "opencode/nemotron-3.5-lightning-free",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/claude-haiku-4.5",
+                "label": "github-copilot/claude-haiku-4.5",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/claude-opus-4.5",
+                "label": "github-copilot/claude-opus-4.5",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/claude-opus-4.6",
+                "label": "github-copilot/claude-opus-4.6",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/claude-opus-4.6-fast",
+                "label": "github-copilot/claude-opus-4.6-fast",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/claude-opus-4.7",
+                "label": "github-copilot/claude-opus-4.7",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/claude-opus-4.7-fast",
+                "label": "github-copilot/claude-opus-4.7-fast",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/claude-opus-4.8",
+                "label": "github-copilot/claude-opus-4.8",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/claude-opus-4.8-fast",
+                "label": "github-copilot/claude-opus-4.8-fast",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/claude-opus-5",
+                "label": "github-copilot/claude-opus-5",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/claude-sonnet-4.5",
+                "label": "github-copilot/claude-sonnet-4.5",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/claude-sonnet-4.6",
+                "label": "github-copilot/claude-sonnet-4.6",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/claude-sonnet-5",
+                "label": "github-copilot/claude-sonnet-5",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/gemini-3.5-flash",
+                "label": "github-copilot/gemini-3.5-flash",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/gemini-3.6-flash",
+                "label": "github-copilot/gemini-3.6-flash",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/gpt-5-mini",
+                "label": "github-copilot/gpt-5-mini",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/gpt-5.3-codex",
+                "label": "github-copilot/gpt-5.3-codex",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/gpt-5.4",
+                "label": "github-copilot/gpt-5.4",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/gpt-5.4-mini",
+                "label": "github-copilot/gpt-5.4-mini",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/gpt-5.5",
+                "label": "github-copilot/gpt-5.5",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/gpt-5.6-luna",
+                "label": "github-copilot/gpt-5.6-luna",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/gpt-5.6-sol",
+                "label": "github-copilot/gpt-5.6-sol",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/gpt-5.6-terra",
+                "label": "github-copilot/gpt-5.6-terra",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/kimi-k2.7-code",
+                "label": "github-copilot/kimi-k2.7-code",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/kimi-k3",
+                "label": "github-copilot/kimi-k3",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/mai-code-1-flash-picker",
+                "label": "github-copilot/mai-code-1-flash-picker",
+                "type": "str"
+            },
+            {
+                "value": "github-copilot/mai-code-1.1-flash",
+                "label": "github-copilot/mai-code-1.1-flash",
+                "type": "str"
+            },
+            {
+                "value": "openai/gpt-5.3-codex-spark",
+                "label": "openai/gpt-5.3-codex-spark",
+                "type": "str"
+            },
+            {
+                "value": "openai/gpt-5.4",
+                "label": "openai/gpt-5.4",
+                "type": "str"
+            },
+            {
+                "value": "openai/gpt-5.4-fast",
+                "label": "openai/gpt-5.4-fast",
+                "type": "str"
+            },
+            {
+                "value": "openai/gpt-5.4-mini",
+                "label": "openai/gpt-5.4-mini",
+                "type": "str"
+            },
+            {
+                "value": "openai/gpt-5.4-mini-fast",
+                "label": "openai/gpt-5.4-mini-fast",
+                "type": "str"
+            },
+            {
+                "value": "openai/gpt-5.5",
+                "label": "openai/gpt-5.5",
+                "type": "str"
+            },
+            {
+                "value": "openai/gpt-5.5-fast",
+                "label": "openai/gpt-5.5-fast",
+                "type": "str"
+            },
+            {
+                "value": "openai/gpt-5.6-luna",
+                "label": "openai/gpt-5.6-luna",
+                "type": "str"
+            },
+            {
+                "value": "openai/gpt-5.6-luna-fast",
+                "label": "openai/gpt-5.6-luna-fast",
+                "type": "str"
+            },
+            {
+                "value": "openai/gpt-5.6-sol",
+                "label": "openai/gpt-5.6-sol",
+                "type": "str"
+            },
+            {
+                "value": "openai/gpt-5.6-sol-fast",
+                "label": "openai/gpt-5.6-sol-fast",
+                "type": "str"
+            },
+            {
+                "value": "openai/gpt-5.6-terra",
+                "label": "openai/gpt-5.6-terra",
+                "type": "str"
+            },
+            {
+                "value": "openai/gpt-5.6-terra-fast",
+                "label": "openai/gpt-5.6-terra-fast",
+                "type": "str"
+            }
+        ],
+        "payload": "github-copilot/gpt-5.6-luna",
+        "topic": "topic",
+        "topicType": "msg",
+        "className": "",
+        "typeIsComboBox": true,
+        "msgTrigger": "onChange",
+        "x": 200,
+        "y": -140,
+        "wires": [
+            [
+                "adt-store-model"
+            ]
+        ]
+    },
+    {
+        "id": "adt-update-btn",
+        "type": "ui-button",
+        "z": "adt-tab",
+        "group": "adt-ui-group-settings",
+        "name": "Update",
+        "label": "Update",
+        "order": 5,
+        "width": 0,
+        "height": 0,
+        "emulateClick": false,
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
+        "payload": "",
+        "payloadType": "str",
+        "topic": "topic",
+        "topicType": "msg",
+        "buttonColor": "",
+        "textColor": "",
+        "iconColor": "",
+        "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
+        "x": 200,
+        "y": -100,
+        "wires": [
+            [
+                "adt-build-gh-issues-list",
+                "adt-build-gh-prs-list",
+                "adt-build-gh-actions-list"
+            ]
+        ]
+    },
+    {
+        "id": "adt-start-btn",
+        "type": "ui-button",
+        "z": "adt-tab",
+        "group": "adt-ui-group-settings",
+        "name": "Start",
+        "label": "Start",
+        "order": 6,
+        "width": 0,
+        "height": 0,
+        "emulateClick": false,
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
+        "payload": "",
+        "payloadType": "str",
+        "topic": "topic",
+        "topicType": "msg",
+        "buttonColor": "",
+        "textColor": "",
+        "iconColor": "",
+        "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
+        "x": 200,
+        "y": -60,
+        "wires": [
+            [
+                "adt-start-fn"
+            ]
+        ]
+    },
+    {
+        "id": "adt-stop-btn",
+        "type": "ui-button",
+        "z": "adt-tab",
+        "group": "adt-ui-group-settings",
+        "name": "Stop",
+        "label": "Stop",
+        "order": 7,
+        "width": 0,
+        "height": 0,
+        "emulateClick": false,
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
+        "payload": "",
+        "payloadType": "str",
+        "topic": "topic",
+        "topicType": "msg",
+        "buttonColor": "",
+        "textColor": "",
+        "iconColor": "",
+        "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
+        "x": 200,
+        "y": -20,
+        "wires": [
+            [
+                "adt-stop-fn"
+            ]
+        ]
+    },
+    {
+        "id": "adt-store-host",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "store host",
+        "func": "const ctx = global.get('adt_ctx') || {};\nctx.host = (msg.payload || '').trim();\nglobal.set('adt_ctx', ctx);\nreturn null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 460,
+        "y": -260,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adt-store-owner",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "store owner",
+        "func": "const ctx = global.get('adt_ctx') || {};\nctx.owner = (msg.payload || '').trim();\nglobal.set('adt_ctx', ctx);\nreturn null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 460,
+        "y": -220,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adt-store-repo",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "store repo",
+        "func": "const ctx = global.get('adt_ctx') || {};\nctx.repo = (msg.payload || '').trim();\nglobal.set('adt_ctx', ctx);\nreturn null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 460,
+        "y": -180,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adt-store-model",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "store selected model",
+        "func": "const ctx = global.get('adt_ctx') || {};\nctx.model = msg.payload;\nglobal.set('adt_ctx', ctx);\nreturn null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 460,
+        "y": -140,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adt-start-fn",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "set running=true, build prune args",
+        "func": "global.set('adt_running', true);\nconst ctx = global.get('adt_ctx') || {};\nmsg.payload = ctx.owner + ' ' + ctx.repo;\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 460,
+        "y": -60,
+        "wires": [
+            [
+                "adt-prune-exec"
+            ]
+        ]
+    },
+    {
+        "id": "adt-prune-exec",
+        "type": "exec",
+        "z": "adt-tab",
+        "command": "bash scripts/prune-worktrees.sh",
+        "addpay": true,
+        "append": "",
+        "useSpawn": "false",
+        "timer": "60",
+        "winHide": false,
+        "oldrc": "false",
+        "name": "prune worktrees",
+        "x": 720,
+        "y": -60,
+        "wires": [
+            [
+                "adt-build-gh-issues-list",
+                "adt-build-gh-prs-list",
+                "adt-build-gh-actions-list",
+                "adt-dispatch-issues",
+                "adt-dispatch-prs",
+                "adt-dispatch-actions"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "adt-stop-fn",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "sweep + terminate + reset (all kinds)",
+        "func": "global.set('adt_running', false);\nconst tasks = global.get('adt_tasks') || { issue: {}, pr: {}, action: {} };\nconst issueMsgs = [];\nconst prMsgs = [];\nconst actionMsgs = [];\n['issue', 'pr', 'action'].forEach(function (kind) {\n    const bucket = tasks[kind] || {};\n    Object.keys(bucket).forEach(function (id) {\n        const t = bucket[id];\n        if (t.executionId) {\n            const m = { operation: 'terminate', executionId: t.executionId };\n            if (kind === 'issue') issueMsgs.push(m);\n            if (kind === 'pr') prMsgs.push(m);\n            if (kind === 'action') actionMsgs.push(m);\n            t.phase = 'not_started';\n            t.executionId = undefined;\n            t.updatedAt = new Date().toISOString();\n        }\n    });\n    tasks[kind] = bucket;\n});\nglobal.set('adt_tasks', tasks);\nreturn [\n    issueMsgs.length ? issueMsgs : null,\n    prMsgs.length ? prMsgs : null,\n    actionMsgs.length ? actionMsgs : null,\n    [{}]\n];",
+        "outputs": 4,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 460,
+        "y": -20,
+        "wires": [
+            [
+                "adt-test-issue-investigate-instance",
+                "adt-issue-fix-instance"
+            ],
+            [
+                "adt-pr-review-instance"
+            ],
+            [
+                "adt-action-investigate-instance"
+            ],
+            [
+                "adt-render-issues",
+                "adt-render-prs",
+                "adt-render-actions"
+            ]
+        ]
+    },
+    {
+        "id": "adt-max-issue-input",
+        "type": "ui-text-input",
+        "z": "adt-tab",
+        "group": "adt-ui-group-issues",
+        "name": "Max concurrency",
+        "label": "Max concurrency (Issues)",
+        "order": 1,
+        "width": 0,
+        "height": 0,
+        "topic": "topic",
+        "topicType": "msg",
+        "mode": "text",
+        "tooltip": "",
+        "delay": 300,
+        "passthru": true,
+        "sendOnDelay": false,
+        "sendOnBlur": true,
+        "sendOnEnter": true,
+        "className": "",
+        "clearable": false,
+        "sendOnClear": false,
+        "icon": "",
+        "iconPosition": "left",
+        "iconInnerPosition": "inside",
+        "x": 1350,
+        "y": 300,
+        "wires": [
+            [
+                "adt-max-issue-fn"
+            ]
+        ]
+    },
+    {
+        "id": "adt-max-issue-fn",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "set adt_max.issue",
+        "func": "const n = parseInt(msg.payload, 10);\nconst clamped = Number.isFinite(n) ? Math.min(20, Math.max(1, n)) : 3;\nconst max = global.get('adt_max') || { issue: 3, pr: 3, action: 3 };\nmax.issue = clamped;\nglobal.set('adt_max', max);\nreturn null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1600,
+        "y": 300,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adt-max-pr-input",
+        "type": "ui-text-input",
+        "z": "adt-tab",
+        "group": "adt-ui-group-prs",
+        "name": "Max concurrency",
+        "label": "Max concurrency (PRs)",
+        "order": 1,
+        "width": 0,
+        "height": 0,
+        "topic": "topic",
+        "topicType": "msg",
+        "mode": "text",
+        "tooltip": "",
+        "delay": 300,
+        "passthru": true,
+        "sendOnDelay": false,
+        "sendOnBlur": true,
+        "sendOnEnter": true,
+        "className": "",
+        "clearable": false,
+        "sendOnClear": false,
+        "icon": "",
+        "iconPosition": "left",
+        "iconInnerPosition": "inside",
+        "x": 1350,
+        "y": 600,
+        "wires": [
+            [
+                "adt-max-pr-fn"
+            ]
+        ]
+    },
+    {
+        "id": "adt-max-pr-fn",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "set adt_max.pr",
+        "func": "const n = parseInt(msg.payload, 10);\nconst clamped = Number.isFinite(n) ? Math.min(20, Math.max(1, n)) : 3;\nconst max = global.get('adt_max') || { issue: 3, pr: 3, action: 3 };\nmax.pr = clamped;\nglobal.set('adt_max', max);\nreturn null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1600,
+        "y": 600,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adt-max-action-input",
+        "type": "ui-text-input",
+        "z": "adt-tab",
+        "group": "adt-ui-group-actions",
+        "name": "Max concurrency",
+        "label": "Max concurrency (Actions)",
+        "order": 1,
+        "width": 0,
+        "height": 0,
+        "topic": "topic",
+        "topicType": "msg",
+        "mode": "text",
+        "tooltip": "",
+        "delay": 300,
+        "passthru": true,
+        "sendOnDelay": false,
+        "sendOnBlur": true,
+        "sendOnEnter": true,
+        "className": "",
+        "clearable": false,
+        "sendOnClear": false,
+        "icon": "",
+        "iconPosition": "left",
+        "iconInnerPosition": "inside",
+        "x": 1350,
+        "y": 900,
+        "wires": [
+            [
+                "adt-max-action-fn"
+            ]
+        ]
+    },
+    {
+        "id": "adt-max-action-fn",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "set adt_max.action",
+        "func": "const n = parseInt(msg.payload, 10);\nconst clamped = Number.isFinite(n) ? Math.min(20, Math.max(1, n)) : 3;\nconst max = global.get('adt_max') || { issue: 3, pr: 3, action: 3 };\nmax.action = clamped;\nglobal.set('adt_max', max);\nreturn null;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1600,
+        "y": 900,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "adt-scheduler-inject",
+        "type": "inject",
+        "z": "adt-tab",
+        "name": "Scheduler tick (30s)",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "30",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 150,
+        "y": 100,
+        "wires": [
+            [
+                "adt-scheduler-gate-fn"
+            ]
+        ]
+    },
+    {
+        "id": "adt-scheduler-gate-fn",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "GATE: adt_running?",
+        "func": "if (!global.get('adt_running')) return null;\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 380,
+        "y": 100,
+        "wires": [
+            [
+                "adt-build-gh-issues-list",
+                "adt-build-gh-prs-list",
+                "adt-build-gh-actions-list",
+                "adt-dispatch-issues",
+                "adt-dispatch-prs",
+                "adt-dispatch-actions"
+            ]
+        ]
+    },
+    {
+        "id": "tmp-debug-adt-issue-fix-instance",
+        "type": "debug",
+        "z": "adt-tab",
+        "name": "TMP debug events: Issue Fix",
+        "active": true,
+        "tosidebar": true,
+        "console": true,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1700,
+        "y": 1203,
+        "wires": []
+    },
+    {
+        "id": "tmp-debug-adt-pr-review-instance",
+        "type": "debug",
+        "z": "adt-tab",
+        "name": "TMP debug events: PR Review",
+        "active": true,
+        "tosidebar": true,
+        "console": true,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1700,
+        "y": 1204,
+        "wires": []
+    },
+    {
+        "id": "tmp-debug-adt-action-investigate-instance",
+        "type": "debug",
+        "z": "adt-tab",
+        "name": "TMP debug events: Action Investigate",
+        "active": true,
+        "tosidebar": true,
+        "console": true,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 1700,
+        "y": 1205,
+        "wires": []
+    },
+    {
+        "id": "tmp-set-luna-fn",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "TMP set model luna",
+        "func": "var ctx = global.get('adt_ctx') || {}; ctx.model = 'github-copilot/gpt-5.6-luna'; ctx.host='github.com'; ctx.owner='tbrandenburg'; ctx.repo='node-red-agents'; global.set('adt_ctx', ctx); node.warn(JSON.stringify(ctx)); return msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 300,
+        "y": 970,
+        "wires": [
+            []
+        ]
+    },
+    {
+        "id": "tmp-set-luna-inject",
+        "type": "inject",
+        "z": "adt-tab",
+        "name": "TMP: set luna model",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 120,
+        "y": 970,
+        "wires": [
+            [
+                "tmp-set-luna-fn"
+            ]
+        ]
+    },
+    {
+        "id": "tmp-pr-review-fn",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "TMP: PR review context",
+        "func": "msg.context = {host:'github.com', owner:'tbrandenburg', repo:'node-red-agents', model:'github-copilot/gpt-5.6-luna', kind:'pr', itemId:11, taskKey:'pr-11-tmp', phase:'review'}; return msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 300,
+        "y": 1030,
+        "wires": [
+            [
+                "adt-read-review-pr"
+            ]
+        ]
+    },
+    {
+        "id": "tmp-pr-review-inject",
+        "type": "inject",
+        "z": "adt-tab",
+        "name": "TMP: PR review test",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 120,
+        "y": 1030,
+        "wires": [
+            [
+                "tmp-pr-review-fn"
+            ]
+        ]
+    },
+    {
+        "id": "tmp-set-running-fn",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "TMP: set running true",
+        "func": "global.set('adt_running', true); return msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 300,
+        "y": 1090,
+        "wires": [
+            [
+                "tmp-pr-review-fn"
+            ]
+        ]
+    },
+    {
+        "id": "tmp-set-running-inject",
+        "type": "inject",
+        "z": "adt-tab",
+        "name": "TMP: set running + PR review",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "",
+        "payloadType": "date",
+        "x": 120,
+        "y": 1090,
+        "wires": [
+            [
+                "tmp-set-running-fn"
+            ]
+        ]
     }
 ]

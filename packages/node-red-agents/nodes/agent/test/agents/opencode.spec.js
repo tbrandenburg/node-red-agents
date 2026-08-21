@@ -228,3 +228,53 @@ test("parseResult: killed by signal fails with a signal-specific message", () =>
   assert.equal(result.status, "failed");
   assert.match(result.errorMessage, /SIGKILL/);
 });
+
+test("parseResult: opencode's generic UnknownError hints at the requested model and surfaces the ref", () => {
+  const adapter = new OpenCodeAdapter();
+  const events = [
+    adapter.parseEvent(
+      JSON.stringify({
+        type: "error",
+        sessionID: "s1",
+        error: {
+          name: "UnknownError",
+          data: { message: "Unexpected server error. Check server logs for details.", ref: "err_abc123" },
+        },
+      }),
+    ),
+  ];
+  const result = adapter.parseResult(events, 0, null, "", baseResolved({ model: "bogus/model" }));
+  assert.equal(result.status, "failed");
+  assert.match(result.errorMessage, /ref=err_abc123/);
+  assert.match(result.errorMessage, /model "bogus\/model" may not exist/);
+  assert.match(result.errorMessage, /opencode models/);
+});
+
+test("parseResult: UnknownError with no model set skips the model hint", () => {
+  const adapter = new OpenCodeAdapter();
+  const events = [
+    adapter.parseEvent(
+      JSON.stringify({
+        type: "error",
+        sessionID: "s1",
+        error: { name: "UnknownError", data: { message: "Unexpected server error." } },
+      }),
+    ),
+  ];
+  const result = adapter.parseResult(events, 0, null, "", baseResolved({ model: "" }));
+  assert.equal(result.status, "failed");
+  assert.doesNotMatch(result.errorMessage, /may not exist/);
+});
+
+test("validate: rejects a model string with no provider/model separator", () => {
+  const adapter = new OpenCodeAdapter();
+  assert.throws(
+    () => adapter.validate(baseResolved({ model: "just-a-model-name" })),
+    /expected "provider\/model"/,
+  );
+});
+
+test("validate: accepts a well-formed provider/model string", () => {
+  const adapter = new OpenCodeAdapter();
+  assert.doesNotThrow(() => adapter.validate(baseResolved({ model: "github-copilot/claude-sonnet-5" })));
+});

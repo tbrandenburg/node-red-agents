@@ -3,6 +3,7 @@
 const fs = require("fs");
 const { AgentAdapter } = require("./base");
 const { toOpenCodeMcp } = require("../mcp/normalize");
+const { assertModelFormat } = require("../../../../shared/model-format");
 
 // Maps opencode's real `--format json` event stream types (verified against
 // packages/opencode/src/cli/cmd/run.ts) onto the Agent node's generic event
@@ -18,6 +19,8 @@ const TYPE_MAP = {
 
 class OpenCodeAdapter extends AgentAdapter {
   validate(resolved) {
+    assertModelFormat(resolved.model);
+
     if (resolved.cwd) {
       let stat;
       try {
@@ -107,7 +110,7 @@ class OpenCodeAdapter extends AgentAdapter {
     return { type, sessionID: raw.sessionID, data: raw };
   }
 
-  parseResult(events, exitCode, signal, stderr) {
+  parseResult(events, exitCode, signal, stderr, resolved) {
     const raw = events.map((e) => e.data);
     const errorEvent = raw.find((e) => e.type === "error");
     const sessionID = raw.length ? raw[raw.length - 1].sessionID : undefined;
@@ -123,12 +126,26 @@ class OpenCodeAdapter extends AgentAdapter {
       const message =
         (errDetail.data && errDetail.data.message) || errDetail.name || "opencode reported an error";
       // The JSON error event only carries opencode's own top-level
-      // message/name -- append name (if distinct) and any stderr output
-      // opencode wrote alongside it, since both would otherwise be
-      // silently dropped here (unlike the exitCode!==0 branch below,
-      // which already surfaces stderr).
+      // message/name -- append name (if distinct), its diagnostic ref (if
+      // any -- note this does NOT reliably show up in opencode's own log
+      // file, verified empirically, so it's a weak clue at best), and any
+      // stderr output opencode wrote alongside it, since all three would
+      // otherwise be silently dropped here (unlike the exitCode!==0
+      // branch below, which already surfaces stderr).
       const extras = [];
       if (errDetail.name && errDetail.name !== message) extras.push(errDetail.name);
+      if (errDetail.data && errDetail.data.ref) extras.push(`ref=${errDetail.data.ref}`);
+      // "UnknownError" is opencode's catch-all for a request the provider/
+      // server rejected before generating any content -- in practice the
+      // single most common trigger we've seen is a `--model` value that
+      // doesn't exist (wrong provider, typo, or a model that isn't
+      // actually available to this account). It's not the only possible
+      // cause, so this is phrased as a hint, not a diagnosis.
+      if (errDetail.name === "UnknownError" && resolved && resolved.model) {
+        extras.push(
+          `possible cause: model "${resolved.model}" may not exist or isn't available -- run "opencode models" to check`,
+        );
+      }
       if (stderr && String(stderr).trim()) extras.push(String(stderr).trim());
       const errorMessage = extras.length ? `${message} (${extras.join("; ")})` : message;
       return {

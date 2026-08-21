@@ -51,7 +51,7 @@ async function runAgent({ adapter, runtime, resolved, executionId, onEvent, onSt
   });
 
   const durationMs = Date.now() - startedAt;
-  const result = adapter.parseResult(events, outcome.exitCode, outcome.signal, outcome.stderr);
+  const result = adapter.parseResult(events, outcome.exitCode, outcome.signal, outcome.stderr, resolved);
   const status = outcome.timedOut ? "timeout" : result.status;
 
   if (onStatus) onStatus(status);

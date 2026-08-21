@@ -717,7 +717,7 @@
         "agent": "opencode",
         "runtime": "srt",
         "invocation": "prompt",
-        "model": "github-copilot/gpt-5.6-luna",
+        "model": "opencode/big-pickle",
         "modelType": "str",
         "prompt": "",
         "promptType": "str",
@@ -736,7 +736,8 @@
         "srtSettingsMode": "inline",
         "srtSettingsPath": "/tmp/opencode/luna-srt-settings.json",
         "srtAllowedDomains": [
-            "api.githubcopilot.com"
+            "api.githubcopilot.com",
+            "opencode.ai"
         ],
         "srtAllowedWriteDirs": [
             ".",
@@ -945,7 +946,7 @@
         "agent": "opencode",
         "runtime": "srt",
         "invocation": "prompt",
-        "model": "github-copilot/gpt-5.6-luna",
+        "model": "opencode/big-pickle",
         "modelType": "str",
         "prompt": "",
         "promptType": "str",
@@ -964,7 +965,8 @@
         "srtSettingsMode": "inline",
         "srtSettingsPath": "/tmp/opencode/luna-srt-settings.json",
         "srtAllowedDomains": [
-            "api.githubcopilot.com"
+            "api.githubcopilot.com",
+            "opencode.ai"
         ],
         "srtAllowedWriteDirs": [
             ".",
@@ -8385,7 +8387,7 @@
         "type": "function",
         "z": "adt-tab",
         "name": "TMP set model luna",
-        "func": "var ctx = global.get('adt_ctx') || {}; ctx.model = 'github-copilot/gpt-5.6-luna'; ctx.host='github.com'; ctx.owner='tbrandenburg'; ctx.repo='node-red-agents'; global.set('adt_ctx', ctx); node.warn(JSON.stringify(ctx)); return msg;",
+        "func": "var ctx = global.get('adt_ctx') || {}; ctx.model = 'opencode/big-pickle'; ctx.host='github.com'; ctx.owner='tbrandenburg'; ctx.repo='node-red-agents'; global.set('adt_ctx', ctx); node.warn(JSON.stringify(ctx)); return msg;",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,
@@ -8428,7 +8430,7 @@
         "type": "function",
         "z": "adt-tab",
         "name": "TMP: PR review context",
-        "func": "msg.context = {host:'github.com', owner:'tbrandenburg', repo:'node-red-agents', model:'github-copilot/gpt-5.6-luna', kind:'pr', itemId:11, taskKey:'pr-11-tmp', phase:'review'}; return msg;",
+        "func": "msg.context = {host:'github.com', owner:'tbrandenburg', repo:'node-red-agents', model:'opencode/big-pickle', kind:'pr', itemId:11, taskKey:'pr-11-tmp', phase:'review'}; return msg;",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,

@@ -7771,17 +7771,17 @@
         ]
     },
     {
-        "id": "adt-start-btn",
+        "id": "adt-prime-btn",
         "type": "ui-button",
         "z": "adt-tab",
         "group": "adt-ui-group-settings",
-        "name": "Start",
-        "label": "Start",
+        "name": "Prime Base",
+        "label": "Prime Base",
         "order": 6,
         "width": 0,
         "height": 0,
         "emulateClick": false,
-        "tooltip": "",
+        "tooltip": "Clone/fetch the shared base repo ahead of time, so Start doesn't block on a huge repo's first clone",
         "color": "",
         "bgcolor": "",
         "className": "",
@@ -7805,17 +7805,104 @@
         "y": -60,
         "wires": [
             [
-                "adt-start-fn"
+                "adt-prime-fn"
             ]
         ]
     },
     {
-        "id": "adt-stop-btn",
+        "id": "adt-prime-fn",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "build prime-base args + start toast",
+        "func": "const ctx = global.get('adt_ctx') || {};\nconst label = ctx.owner + '/' + ctx.repo;\nconst argsMsg = { payload: ctx.host + ' ' + ctx.owner + ' ' + ctx.repo };\nconst toastMsg = { payload: 'Priming base clone for ' + label + '\\u2026' };\nreturn [argsMsg, toastMsg];",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 460,
+        "y": -100,
+        "wires": [
+            [
+                "adt-prime-exec"
+            ],
+            [
+                "adt-prime-toast"
+            ]
+        ]
+    },
+    {
+        "id": "adt-prime-exec",
+        "type": "exec",
+        "z": "adt-tab",
+        "command": "bash scripts/prime-base.sh",
+        "addpay": true,
+        "append": "",
+        "useSpawn": "false",
+        "timer": "600",
+        "winHide": false,
+        "oldrc": "false",
+        "name": "prime base clone",
+        "x": 720,
+        "y": -100,
+        "wires": [
+            [
+                "adt-prime-done-fn"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "adt-prime-done-fn",
+        "type": "function",
+        "z": "adt-tab",
+        "name": "build prime result toast",
+        "func": "const rc = msg.rc || { code: 0 };\nconst ctx = global.get('adt_ctx') || {};\nconst label = ctx.owner + '/' + ctx.repo;\nif (rc.code !== 0) {\n    msg.payload = 'Priming ' + label + ' failed (exit ' + rc.code + '): ' +\n        (rc.message || msg.payload || '');\n    return msg;\n}\nmsg.payload = 'Base clone for ' + label + ' is ready.';\nreturn msg;",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 950,
+        "y": -100,
+        "wires": [
+            [
+                "adt-prime-toast"
+            ]
+        ]
+    },
+    {
+        "id": "adt-prime-toast",
+        "type": "ui-notification",
+        "z": "adt-tab",
+        "ui": "7cde684526b81393",
+        "position": "top right",
+        "colorDefault": true,
+        "color": null,
+        "displayTime": "5",
+        "showCountdown": true,
+        "outputs": 0,
+        "allowDismiss": true,
+        "dismissText": "Dismiss",
+        "allowConfirm": false,
+        "confirmText": "Confirm",
+        "raw": false,
+        "className": "",
+        "name": "Prime Base status",
+        "x": 1200,
+        "y": -100,
+        "wires": []
+    },
+    {
+        "id": "adt-start-btn",
         "type": "ui-button",
         "z": "adt-tab",
         "group": "adt-ui-group-settings",
-        "name": "Stop",
-        "label": "Stop",
+        "name": "Start",
+        "label": "Start",
         "order": 7,
         "width": 0,
         "height": 0,
@@ -7842,6 +7929,45 @@
         "pointerupPayloadType": "str",
         "x": 200,
         "y": -20,
+        "wires": [
+            [
+                "adt-start-fn"
+            ]
+        ]
+    },
+    {
+        "id": "adt-stop-btn",
+        "type": "ui-button",
+        "z": "adt-tab",
+        "group": "adt-ui-group-settings",
+        "name": "Stop",
+        "label": "Stop",
+        "order": 8,
+        "width": 0,
+        "height": 0,
+        "emulateClick": false,
+        "tooltip": "",
+        "color": "",
+        "bgcolor": "",
+        "className": "",
+        "icon": "",
+        "iconPosition": "left",
+        "payload": "",
+        "payloadType": "str",
+        "topic": "topic",
+        "topicType": "msg",
+        "buttonColor": "",
+        "textColor": "",
+        "iconColor": "",
+        "enableClick": true,
+        "enablePointerdown": false,
+        "pointerdownPayload": "",
+        "pointerdownPayloadType": "str",
+        "enablePointerup": false,
+        "pointerupPayload": "",
+        "pointerupPayloadType": "str",
+        "x": 200,
+        "y": 20,
         "wires": [
             [
                 "adt-stop-fn"

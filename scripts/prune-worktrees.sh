@@ -21,7 +21,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKSPACE_DIR="$ROOT_DIR/workspace"
 BASE_DIR="$WORKSPACE_DIR/${OWNER}__${REPO}.base"
 
-if [ ! -d "$BASE_DIR/.git" ]; then
+if ! git -C "$BASE_DIR" rev-parse --is-bare-repository >/dev/null 2>&1; then
     echo "prune-worktrees: no base clone at $BASE_DIR, nothing to do" >&2
     exit 0
 fi

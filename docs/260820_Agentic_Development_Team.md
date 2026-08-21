@@ -110,6 +110,22 @@ removes every `workspace/<owner>__<repo>--*` directory and runs
 `git worktree prune` in the base clone. This keeps results inspectable between
 runs and bounds disk growth to one schedule cycle.
 
+**Update (huge-repo demo hardening):** the base-clone-or-fetch step (the only
+one needing the per-repo lock) was extracted into its own
+`scripts/prime-base.sh <host> <owner> <repo>`, callable standalone via a
+dashboard "Prime Base" button (between Update and Start) so a large repo's
+initial clone can be triggered ahead of time instead of blocking whichever
+task happens to run first. `ensure-worktree.sh` now calls `prime-base.sh`
+rather than duplicating that logic. The base clone itself was also switched
+to `git clone --bare` — it is only ever used as a `git worktree add` source,
+never checked out directly, so a bare clone is both the conventional git
+pattern for this and saves one full working tree of disk. Note bare clones do
+not set up a `refs/remotes/origin/*` refspec the way a normal clone does
+(they copy `refs/heads/*` directly); `prime-base.sh` configures
+`remote.origin.fetch` explicitly so `origin/<defaultBranch>` still resolves
+for worktree creation. Progress/success/failure is surfaced via a
+`ui-notification` toast; there is no button-disable/enable state to manage.
+
 `ensure-repo.sh` and the Issue Control Center are left untouched.
 
 ## 5. Prompts — `prompts/read-only/`

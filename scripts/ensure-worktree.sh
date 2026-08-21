@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Agentic Dev Team helper: ensure an isolated git worktree for a single task
-# exists under workspace/, based on a shared base clone of
-# <host>/<owner>/<repo>, checked out on a task branch at the tip of the
-# default branch. Safe to call concurrently for *different* taskKeys of the
-# same repo; the shared base clone (clone+fetch) is serialized via a flock
-# on the base clone directory.
+# exists under workspace/, based on a shared bare base clone of
+# <host>/<owner>/<repo> (see prime-base.sh), checked out on a task branch at
+# the tip of the default branch. Safe to call concurrently for *different*
+# taskKeys of the same repo; the shared base clone (clone+fetch) is
+# serialized via prime-base.sh's flock on the base clone directory.
 #
 # Usage: ensure-worktree.sh <host> <owner> <repo> <taskKey>
 # Prints, on success, two lines to stdout:
@@ -31,37 +31,21 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORKSPACE_DIR="$ROOT_DIR/workspace"
 BASE_DIR="$WORKSPACE_DIR/${OWNER}__${REPO}.base"
 WORKTREE_DIR="$WORKSPACE_DIR/${OWNER}__${REPO}--${TASK_KEY}"
-LOCK_FILE="$WORKSPACE_DIR/.${OWNER}__${REPO}.lock"
 BRANCH="adt/${TASK_KEY}"
 
 mkdir -p "$WORKSPACE_DIR"
 
-# Serialize base-clone creation/fetch across concurrent invocations for the
-# same repo; different repos use different lock files and never contend.
-# Use a fixed fd (200) rather than bash's `{varname}` auto-assigned fd
-# syntax, which requires bash >= 4.1 and isn't supported by the bash 3.2
-# that macOS ships as /bin/bash (Apple has not updated it since 2007 due
-# to bash 4+'s GPLv3 license).
-lock_fd=200
-eval "exec $lock_fd>\"$LOCK_FILE\""
-flock "$lock_fd"
-
-if [ ! -d "$BASE_DIR/.git" ]; then
-    git clone "https://${HOST}/${OWNER}/${REPO}.git" "$BASE_DIR"
-fi
-
-git -C "$BASE_DIR" fetch origin
-
-DEFAULT_BRANCH="$(git -C "$BASE_DIR" remote show origin | sed -n 's/.*HEAD branch: //p')"
+# Ensure the shared bare base clone exists and is fetched to the tip of its
+# default branch; this call is self-serializing across concurrent repos and
+# concurrent callers of the same repo (see prime-base.sh), so worktree
+# creation below never has to hold that lock itself (git supports multiple
+# worktrees off one base clone concurrently).
+PRIME_OUTPUT="$("$ROOT_DIR/scripts/prime-base.sh" "$HOST" "$OWNER" "$REPO")"
+DEFAULT_BRANCH="$(echo "$PRIME_OUTPUT" | sed -n 's/^DEFAULT_BRANCH=//p')"
 if [ -z "$DEFAULT_BRANCH" ]; then
     echo "ensure-worktree: could not determine default branch" >&2
     exit 1
 fi
-
-# Release the base-clone lock: worktree creation itself is safe to run
-# concurrently (git supports multiple worktrees off one base clone), and
-# holding the lock any longer would serialize all task setups needlessly.
-flock -u "$lock_fd"
 
 if git -C "$BASE_DIR" worktree list --porcelain | grep -qF "worktree $WORKTREE_DIR"; then
     # Existing, valid worktree: idempotent reset instead of recreation.

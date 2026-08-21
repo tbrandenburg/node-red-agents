@@ -46,12 +46,14 @@ module.exports = [
   },
   {
     // CLI entry points: process.exit() after handling a fatal error is
-    // idiomatic here, and they target the repo's pinned Node version (see
-    // .nvmrc), not the package's published `engines` range.
+    // idiomatic here, they target the repo's pinned Node version (see
+    // .nvmrc) not the package's published `engines` range, and some are
+    // executed directly (shebang required).
     files: ["scripts/**/*.js"],
     rules: {
       "n/no-process-exit": "off",
       "n/no-unsupported-features/node-builtins": "off",
+      "n/hashbang": "off",
     },
   },
   {

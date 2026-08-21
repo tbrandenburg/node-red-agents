@@ -119,11 +119,25 @@ class OpenCodeAdapter extends AgentAdapter {
       .trim();
 
     if (errorEvent) {
+      const errDetail = errorEvent.error || {};
       const message =
-        (errorEvent.error &&
-          ((errorEvent.error.data && errorEvent.error.data.message) || errorEvent.error.name)) ||
-        "opencode reported an error";
-      return { payload, sessionID, status: "failed", errorMessage: message };
+        (errDetail.data && errDetail.data.message) || errDetail.name || "opencode reported an error";
+      // The JSON error event only carries opencode's own top-level
+      // message/name -- append name (if distinct) and any stderr output
+      // opencode wrote alongside it, since both would otherwise be
+      // silently dropped here (unlike the exitCode!==0 branch below,
+      // which already surfaces stderr).
+      const extras = [];
+      if (errDetail.name && errDetail.name !== message) extras.push(errDetail.name);
+      if (stderr && String(stderr).trim()) extras.push(String(stderr).trim());
+      const errorMessage = extras.length ? `${message} (${extras.join("; ")})` : message;
+      return {
+        payload,
+        sessionID,
+        status: "failed",
+        errorMessage,
+        errorDetail: errDetail,
+      };
     }
     if (signal) {
       return {

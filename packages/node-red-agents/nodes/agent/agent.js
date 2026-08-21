@@ -250,6 +250,14 @@ module.exports = function (RED) {
               timedOut: result.timedOut,
               durationMs: result.durationMs,
               sessionID: result.sessionID,
+              // Raw error object from the adapter (e.g. opencode's full
+              // {"type":"error"} payload, or pi's failing assistant
+              // message) when the run failed -- the `done(err)` string
+              // below only carries a single summarized message/name, so
+              // anything needing the fuller detail (extra fields the
+              // adapter didn't fold into errorMessage) should wire a
+              // Debug node to output 1 and inspect this field.
+              errorDetail: result.errorDetail,
             },
           });
           send([resultMsg, null]);

@@ -186,9 +186,10 @@ class PiAdapter extends AgentAdapter {
 
     let payload = "";
     let errorMessage;
+    let lastAssistant;
 
     if (agentEnd && Array.isArray(agentEnd.messages)) {
-      const lastAssistant = [...agentEnd.messages].reverse().find((m) => m.role === "assistant");
+      lastAssistant = [...agentEnd.messages].reverse().find((m) => m.role === "assistant");
       if (lastAssistant) {
         if (lastAssistant.stopReason === "error") {
           // pi does NOT set a non-zero exit code for a model/API
@@ -207,7 +208,17 @@ class PiAdapter extends AgentAdapter {
     }
 
     if (errorMessage) {
-      return { payload, sessionID, status: "failed", errorMessage };
+      // Same rationale as the opencode adapter: stderr is otherwise
+      // silently dropped for this branch (it's only appended in the
+      // exitCode!==0 branch below).
+      const extra = stderr && String(stderr).trim() ? ` (${String(stderr).trim()})` : "";
+      return {
+        payload,
+        sessionID,
+        status: "failed",
+        errorMessage: `${errorMessage}${extra}`,
+        errorDetail: lastAssistant,
+      };
     }
     if (signal) {
       return {

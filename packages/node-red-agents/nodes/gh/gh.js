@@ -38,6 +38,27 @@ function validateCommand(command) {
   return null;
 }
 
+// Classifies a gh stderr message into a stable, machine-checkable category so
+// downstream flows can branch on `err.errorType` instead of regex-matching
+// the (locale/version dependent) human-readable message themselves. Order
+// matters: more specific patterns are checked before generic ones.
+const ERROR_TYPE_PATTERNS = [
+  [/not logged into|to authenticate|gh auth login|authentication required|bad credentials/i, "auth"],
+  [/api rate limit exceeded|secondary rate limit/i, "rate-limit"],
+  [/has disabled issues|has disabled pull requests|has disabled projects/i, "feature-disabled"],
+  [/could not resolve to a repository|repository not found|404/i, "not-found"],
+  [/403|resource not accessible|must have admin rights|permission/i, "permission"],
+  [/network|timed out|econnreset|enotfound/i, "network"],
+];
+
+function classifyGhError(stderr) {
+  if (!stderr) return "unknown";
+  for (const [pattern, type] of ERROR_TYPE_PATTERNS) {
+    if (pattern.test(stderr)) return type;
+  }
+  return "unknown";
+}
+
 // Resolves an "args" value (from config or msg.gh.args) into a string[].
 // Strings are tokenized (quote-aware, no shell evaluation); arrays are used
 // as-is (each element coerced to a string); anything else is rejected.
@@ -172,6 +193,7 @@ module.exports = function (RED) {
         const wrapped = new Error("gh: " + message);
         wrapped.command = command;
         wrapped.args = args;
+        wrapped.errorType = err && err.code === "ENOENT" ? "not-installed" : "spawn-failed";
         done(wrapped);
       });
 
@@ -188,19 +210,23 @@ module.exports = function (RED) {
           err.args = args;
           err.signal = signal;
           err.timedOut = timedOut;
+          err.errorType = timedOut ? "timeout" : "killed";
           done(err);
           return;
         }
 
         if (code !== 0) {
-          node.status({ fill: "red", shape: "dot", text: "exit " + code });
+          const trimmedStderr = stderr.trim();
+          const errorType = classifyGhError(trimmedStderr);
+          node.status({ fill: "red", shape: "dot", text: errorType + " (exit " + code + ")" });
           const err = new Error(
-            "gh: command failed (exit " + code + ")" + (stderr.trim() ? ": " + stderr.trim() : ""),
+            "gh: command failed (exit " + code + ")" + (trimmedStderr ? ": " + trimmedStderr : ""),
           );
           err.command = command;
           err.args = args;
           err.exitCode = code;
-          err.stderr = stderr.trim();
+          err.stderr = trimmedStderr;
+          err.errorType = errorType;
           done(err);
           return;
         }

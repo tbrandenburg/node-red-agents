@@ -107,8 +107,22 @@ test("non-zero exit code produces an error via done(), no sent message", async (
     assert.ok(err instanceof Error);
     assert.equal(err.exitCode, 3);
     assert.match(err.stderr, /boom/);
+    assert.equal(err.errorType, "unknown");
     // must not leak the whole environment into the error
     assert.equal(Object.prototype.hasOwnProperty.call(err, "env"), false);
+  } finally {
+    delete process.env.GH_TEST_MODE;
+  }
+});
+
+test("auth-related stderr is classified as errorType 'auth'", async () => {
+  process.env.GH_TEST_MODE = "fail-auth";
+  try {
+    const ctor = loadNode();
+    const node = createNode(ctor, { command: "pr", args: "list" });
+    const { sent, err } = await runInput(node, {});
+    assert.equal(sent, undefined);
+    assert.equal(err.errorType, "auth");
   } finally {
     delete process.env.GH_TEST_MODE;
   }

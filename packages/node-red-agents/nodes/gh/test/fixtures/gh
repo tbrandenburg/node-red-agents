@@ -32,6 +32,10 @@ switch (mode) {
     process.stderr.write("boom: something went wrong\n");
     process.exit(3);
     break;
+  case "fail-auth":
+    process.stderr.write("gh: To authenticate, please run `gh auth login`.\n");
+    process.exit(4);
+    break;
   case "hang":
     // Deliberately never exits on its own; relies on gh.js's spawn
     // timeout to SIGTERM it.

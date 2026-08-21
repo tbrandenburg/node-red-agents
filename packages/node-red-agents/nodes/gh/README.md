@@ -49,7 +49,23 @@ configuration for that message.
 
 A non-zero exit code, a timeout, or a missing `gh` executable all go through
 `done(error)` (catchable with a Catch node) instead of producing an output
-message.
+message. Every such error carries an `err.errorType` string so flows can
+branch on it without regex-matching gh's (locale/version dependent) human
+-readable stderr text themselves:
+
+| `errorType`        | When                                                                          |
+| ------------------- | ------------------------------------------------------------------------------ |
+| `auth`              | Not logged in / bad credentials (stderr mentions `gh auth login`, etc.)       |
+| `rate-limit`        | GitHub API (primary or secondary) rate limit exceeded                        |
+| `feature-disabled`  | Repo has issues/PRs/projects disabled (e.g. this ticket's original report)    |
+| `not-found`         | Repository/resource doesn't exist or can't be resolved                       |
+| `permission`        | 403 / insufficient permissions                                               |
+| `network`           | Network failure or timeout talking to GitHub                                 |
+| `not-installed`     | `gh` executable not found on `PATH` (spawn `ENOENT`)                          |
+| `spawn-failed`      | The child process could not be started for another reason                    |
+| `timeout`           | The command exceeded the configured Timeout and was killed                   |
+| `killed`            | The command was killed by a signal other than the node's own timeout         |
+| `unknown`           | Non-zero exit whose stderr didn't match any known pattern                    |
 
 ## Example
 

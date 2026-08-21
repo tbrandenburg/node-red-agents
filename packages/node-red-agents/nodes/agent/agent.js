@@ -173,7 +173,7 @@ module.exports = function (RED) {
     // active/queued numbers, no separate polling needed) and a
     // timestamp (so external aggregation/history doesn't have to rely
     // on message-arrival time).
-    function lifecycleEnvelope(msg, executionId, payload, agentName) {
+    function lifecycleEnvelope(msg, executionId, payload, agentName, cwd) {
       return {
         _msgid: msg._msgid,
         topic: msg.topic,
@@ -182,6 +182,7 @@ module.exports = function (RED) {
         runtime: node.runtime,
         agentId: node.id,
         agentName,
+        cwd,
         executionId,
         active: node.scheduler.activeCount,
         queued: node.scheduler.queuedCount,
@@ -189,8 +190,8 @@ module.exports = function (RED) {
       };
     }
 
-    function emitEvent(send, msg, executionId, type, agentName) {
-      send([null, lifecycleEnvelope(msg, executionId, { type }, agentName)]);
+    function emitEvent(send, msg, executionId, type, agentName, cwd) {
+      send([null, lifecycleEnvelope(msg, executionId, { type }, agentName, cwd)]);
     }
 
     // The actual work for one execution. Only ever invoked by the
@@ -207,11 +208,11 @@ module.exports = function (RED) {
         resolved,
         executionId,
         onEvent: (event) => {
-          send([null, lifecycleEnvelope(msg, executionId, event, resolved.agentName)]);
+          send([null, lifecycleEnvelope(msg, executionId, event, resolved.agentName, resolved.cwd)]);
         },
         onStatus: (status) => {
           if (status === "running") {
-            emitEvent(send, msg, executionId, "running", resolved.agentName);
+            emitEvent(send, msg, executionId, "running", resolved.agentName, resolved.cwd);
           } else {
             // Terminal (completed/failed/timeout): stash rather
             // than emit immediately -- the scheduler hasn't
@@ -296,6 +297,7 @@ module.exports = function (RED) {
             item.executionId,
             item.finalStatus,
             item.resolved.agentName,
+            item.resolved.cwd,
           );
         }
         updateStatus();

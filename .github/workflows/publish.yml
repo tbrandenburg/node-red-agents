@@ -19,10 +19,6 @@ on:
         description: "Run npm publish/gh release in dry-run mode (no publish, no release)"
         type: boolean
         default: true
-      fix_latest_dist_tag:
-        description: "TEMPORARY: repoint the npm 'latest' dist-tag at this package.json version instead of publishing (fixes a race where an out-of-order tag push moved 'latest' backward). Remove this input/step once used."
-        type: boolean
-        default: false
 
 concurrency:
   group: publish-${{ github.workflow }}-${{ github.ref }}
@@ -114,17 +110,12 @@ jobs:
         run: npm pack --dry-run
 
       - name: npm publish
-        if: github.event_name != 'pull_request' && inputs.fix_latest_dist_tag != true
+        if: github.event_name != 'pull_request'
         working-directory: ${{ env.PACKAGE_DIR }}
         run: npm publish --access public ${{ steps.vars.outputs.dry_run == 'true' && '--dry-run' || '' }}
 
-      - name: TEMPORARY -- fix 'latest' dist-tag (race from an out-of-order tag push)
-        if: github.event_name == 'workflow_dispatch' && inputs.fix_latest_dist_tag == true
-        working-directory: ${{ env.PACKAGE_DIR }}
-        run: npm dist-tag add "@tbrandenburg/node-red-agents@${{ steps.vars.outputs.version }}" latest
-
       - name: Create GitHub Release
-        if: github.event_name != 'pull_request' && steps.vars.outputs.dry_run == 'false' && inputs.fix_latest_dist_tag != true
+        if: github.event_name != 'pull_request' && steps.vars.outputs.dry_run == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

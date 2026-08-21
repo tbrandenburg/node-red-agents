@@ -1,6 +1,6 @@
 {
   "name": "@tbrandenburg/node-red-agents",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Node-RED nodes for running coding agents (opencode, pi) and GitHub CLI operations from flows.",
   "keywords": [
     "node-red",

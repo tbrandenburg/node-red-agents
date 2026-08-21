@@ -120,7 +120,18 @@
                 srtAllowedDomains: { value: [] },
                 srtAllowedWriteDirs: { value: ['.', '/tmp', '~/.local/share/opencode'] },
                 srtStrictAllowlist: { value: true },
-                srtAdvancedJson: { value: '' }
+                srtAdvancedJson: {
+                    value: '',
+                    validate: function (v) {
+                        if (!v || !v.trim()) return true;
+                        try {
+                            JSON.parse(v);
+                            return true;
+                        } catch (err) {
+                            return false;
+                        }
+                    }
+                }
             },
             inputs: 1,
             outputs: 2,
@@ -312,8 +323,49 @@
                     });
                     return values;
                 }
-                this.srtAllowedDomains = collectStrings($('#node-input-srtAllowedDomains-list'));
-                this.srtAllowedWriteDirs = collectStrings($('#node-input-srtAllowedWriteDirs-list'));
+
+                // Only persist the SRT inline-settings lists/fields while
+                // they're actually the active runtime+mode -- otherwise
+                // reset them to their defaults. Without this, switching
+                // Runtime back to Direct (or SRT settings back to File
+                // path) silently keeps whatever domains/directories/JSON
+                // were entered earlier, still saved into the flow even
+                // though the now-hidden fields are irrelevant to the
+                // deployed config -- confusing at best, and a footgun if
+                // the runtime is ever switched back to SRT without
+                // re-checking these stale values.
+                //
+                // Note: Node-RED's own core copies each defaults-bound
+                // plain input's *current DOM value* into `this[key]`
+                // right after oneditsave returns, so setting e.g.
+                // `this.srtSettingsMode` here alone is not enough -- a
+                // hidden <select>/<input>/<textarea> still holds its old
+                // value and would silently overwrite it straight back.
+                // The reset has to touch the DOM element itself for any
+                // field with a plain `#node-input-<name>` binding;
+                // srtAllowedDomains/srtAllowedWriteDirs are the exception
+                // (no such element exists -- only the "-list" editableList
+                // container), so those are fine set directly on `this`.
+                const runtime = $('#node-input-runtime').val();
+                const srtSettingsMode = $('#node-input-srtSettingsMode').val();
+
+                if (runtime !== 'srt') {
+                    $('#node-input-srtSettingsMode').val('file');
+                    $('#node-input-srtSettingsPath').val('');
+                    $('#node-input-srtBinary').val('');
+                    $('#node-input-srtStrictAllowlist').prop('checked', true);
+                    $('#node-input-srtAdvancedJson').val('');
+                    this.srtAllowedDomains = [];
+                    this.srtAllowedWriteDirs = ['.', '/tmp', '~/.local/share/opencode'];
+                } else if (srtSettingsMode !== 'inline') {
+                    $('#node-input-srtStrictAllowlist').prop('checked', true);
+                    $('#node-input-srtAdvancedJson').val('');
+                    this.srtAllowedDomains = [];
+                    this.srtAllowedWriteDirs = ['.', '/tmp', '~/.local/share/opencode'];
+                } else {
+                    this.srtAllowedDomains = collectStrings($('#node-input-srtAllowedDomains-list'));
+                    this.srtAllowedWriteDirs = collectStrings($('#node-input-srtAllowedWriteDirs-list'));
+                }
             }
         });
     }());

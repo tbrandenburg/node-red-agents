@@ -41,7 +41,7 @@
     "!**/fixtures/**"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=20"
   },
   "scripts": {
     "test": "node --test --experimental-test-coverage=false 'nodes/**/test/**/*.spec.js' 'shared/**/test/**/*.spec.js'"

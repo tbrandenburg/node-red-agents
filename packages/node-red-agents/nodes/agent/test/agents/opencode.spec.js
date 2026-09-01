@@ -238,7 +238,10 @@ test("parseResult: opencode's generic UnknownError hints at the requested model 
         sessionID: "s1",
         error: {
           name: "UnknownError",
-          data: { message: "Unexpected server error. Check server logs for details.", ref: "err_abc123" },
+          data: {
+            message: "Unexpected server error. Check server logs for details.",
+            ref: "err_abc123",
+          },
         },
       }),
     ),
@@ -276,5 +279,7 @@ test("validate: rejects a model string with no provider/model separator", () => 
 
 test("validate: accepts a well-formed provider/model string", () => {
   const adapter = new OpenCodeAdapter();
-  assert.doesNotThrow(() => adapter.validate(baseResolved({ model: "github-copilot/claude-sonnet-5" })));
+  assert.doesNotThrow(() =>
+    adapter.validate(baseResolved({ model: "github-copilot/claude-sonnet-5" })),
+  );
 });

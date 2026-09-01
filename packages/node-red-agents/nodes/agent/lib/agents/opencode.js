@@ -124,7 +124,9 @@ class OpenCodeAdapter extends AgentAdapter {
     if (errorEvent) {
       const errDetail = errorEvent.error || {};
       const message =
-        (errDetail.data && errDetail.data.message) || errDetail.name || "opencode reported an error";
+        (errDetail.data && errDetail.data.message) ||
+        errDetail.name ||
+        "opencode reported an error";
       // The JSON error event only carries opencode's own top-level
       // message/name -- append name (if distinct), its diagnostic ref (if
       // any -- note this does NOT reliably show up in opencode's own log

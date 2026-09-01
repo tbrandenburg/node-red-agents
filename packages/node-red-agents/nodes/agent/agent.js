@@ -208,7 +208,10 @@ module.exports = function (RED) {
         resolved,
         executionId,
         onEvent: (event) => {
-          send([null, lifecycleEnvelope(msg, executionId, event, resolved.agentName, resolved.cwd)]);
+          send([
+            null,
+            lifecycleEnvelope(msg, executionId, event, resolved.agentName, resolved.cwd),
+          ]);
         },
         onStatus: (status) => {
           if (status === "running") {

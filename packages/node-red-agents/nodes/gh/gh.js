@@ -43,7 +43,10 @@ function validateCommand(command) {
 // the (locale/version dependent) human-readable message themselves. Order
 // matters: more specific patterns are checked before generic ones.
 const ERROR_TYPE_PATTERNS = [
-  [/not logged into|to authenticate|gh auth login|authentication required|bad credentials/i, "auth"],
+  [
+    /not logged into|to authenticate|gh auth login|authentication required|bad credentials/i,
+    "auth",
+  ],
   [/api rate limit exceeded|secondary rate limit/i, "rate-limit"],
   [/has disabled issues|has disabled pull requests|has disabled projects/i, "feature-disabled"],
   [/could not resolve to a repository|repository not found|404/i, "not-found"],

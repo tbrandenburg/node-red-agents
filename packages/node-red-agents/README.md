@@ -19,7 +19,9 @@ and example flows (`nodes/gh/examples/`).
 
 ## Requirements
 
-- Node-RED >= 4.0.0, Node.js >= 22
+- Node-RED >= 4.0.0, Node.js >= 20
+  (Node.js 20 compatibility is verified for these nodes; the monorepo's own
+  dev/CI tooling still targets Node.js 22, see the repo root `.nvmrc`)
 - The [`opencode`](https://opencode.ai) CLI on `PATH` (for `agent`/`agent-server`)
 - [`srt`](https://github.com/anthropics/sandbox-runtime) on `PATH`, only if using the SRT runtime option
 - The [`gh`](https://cli.github.com) CLI on `PATH`, authenticated (for `gh`)

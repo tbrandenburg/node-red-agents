@@ -63,5 +63,16 @@ module.exports = [
       "n/hashbang": "off",
     },
   },
+  {
+    // Global fetch is experimental (not yet "stable") on Node 20, which
+    // this package's engines.node (>=20) now targets, but it works fine in
+    // practice: verified live under a real Node 20 runtime (see
+    // tbrandenburg/cade#63 and node-red-agents#17), no --experimental-fetch
+    // flag needed since Node 18.
+    files: ["packages/node-red-agents/nodes/agent-server/lib/http.js"],
+    rules: {
+      "n/no-unsupported-features/node-builtins": "off",
+    },
+  },
   prettierConfig,
 ];

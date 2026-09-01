@@ -101,3 +101,4 @@ coverage/
 .zprofile
 .zshrc
 .claude/
+.worktrees/

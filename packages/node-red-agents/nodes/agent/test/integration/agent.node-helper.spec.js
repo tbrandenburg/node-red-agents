@@ -18,11 +18,24 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { test, before, after, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
+const { execFileSync } = require("node:child_process");
 const helper = require("node-red-node-test-helper");
 const agentNode = require("../../agent.js");
 
 const FIXTURES_DIR = path.join(__dirname, "..", "fixtures");
 const originalPath = process.env.PATH;
+
+// Same skip-when-missing guard as test/runtimes/srt.spec.js: srt is an
+// optional runtime (v1 requires only Direct + SRT where available), so
+// these node-helper tests must skip (not fail) when it isn't on PATH.
+function hasSrt() {
+  try {
+    execFileSync("srt", ["--version"], { stdio: "ignore" });
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
 
 before(() => {
   process.env.PATH = FIXTURES_DIR + path.delimiter + originalPath;
@@ -1037,6 +1050,147 @@ test("a mistyped $INPUTS.<name> token warns once but does not change the run's o
         (a) => a[0].level === 30 && /\$INPUTS\.topik has no matching 'inputs' entry/.test(a[0].msg),
       );
     assert.equal(warnCalls.length, 1, "exactly one warn naming the mistyped token");
+  } finally {
+    process.env.PATH = priorPath;
+  }
+});
+
+// issue #30: no test anywhere previously exercised runtime:"srt" through a
+// real agent node + node-red-node-test-helper (only SrtRuntime's own
+// argv-building was unit tested, in test/runtimes/srt.spec.js). The fake
+// opencode/pi-fixture CLIs are put on PATH exactly as in the direct-runtime
+// tests above; srt itself just wraps that same command with `-s
+// <settingsPath> <command> <args...>` (see SrtRuntime.buildCommand), so a
+// minimal inline settings config (no allowedDomains/allowedWriteDirs
+// needed -- these fixtures touch neither network nor the filesystem) is
+// enough to prove the full node -> SrtRuntime -> real srt binary -> fixture
+// CLI -> parsed result path end to end. Skips cleanly (not fails) when
+// `srt` isn't on PATH, matching test/runtimes/srt.spec.js's own guard.
+test(
+  "runtime:'srt' + opencode adapter: a real srt binary wraps the (faked) opencode CLI end to end (issue #30)",
+  { skip: !hasSrt() },
+  async () => {
+    const flow = [
+      {
+        id: "n1",
+        type: "agent",
+        name: "agent",
+        agent: "opencode",
+        runtime: "srt",
+        invocation: "prompt",
+        prompt: "payload",
+        promptType: "msg",
+        srtSettingsMode: "inline",
+        srtAllowedDomains: [],
+        srtAllowedWriteDirs: [],
+        srtStrictAllowlist: true,
+        wires: [["n2"], []],
+      },
+      { id: "n2", type: "helper" },
+    ];
+    await helper.load(agentNode, flow);
+    const n1 = helper.getNode("n1");
+    const n2 = helper.getNode("n2");
+
+    const received = await new Promise((resolve, reject) => {
+      n2.on("input", resolve);
+      n1.receive({ payload: "say hello" });
+      setTimeout(() => reject(new Error("timed out waiting for agent node output")), 15000).unref();
+    });
+
+    assert.equal(received.payload, "hello from fake opencode");
+    assert.equal(received.sessionID, "fake-session-id");
+    assert.equal(received.agentExecution.status, "completed");
+    assert.equal(received.agentExecution.exitCode, 0);
+  },
+);
+
+test(
+  "runtime:'srt' + pi adapter: a real srt binary wraps the (faked) pi CLI end to end (issue #30)",
+  { skip: !hasSrt() },
+  async () => {
+    const PI_FIXTURES_DIR = path.join(FIXTURES_DIR, "pi-fixture");
+    const priorPath = process.env.PATH;
+    process.env.PATH = PI_FIXTURES_DIR + path.delimiter + priorPath;
+
+    const flow = [
+      {
+        id: "n1",
+        type: "agent",
+        name: "agent",
+        agent: "pi",
+        runtime: "srt",
+        invocation: "prompt",
+        prompt: "payload",
+        promptType: "msg",
+        srtSettingsMode: "inline",
+        srtAllowedDomains: [],
+        srtAllowedWriteDirs: [],
+        srtStrictAllowlist: true,
+        wires: [["n2"], []],
+      },
+      { id: "n2", type: "helper" },
+    ];
+    try {
+      await helper.load(agentNode, flow);
+      const n1 = helper.getNode("n1");
+      const n2 = helper.getNode("n2");
+
+      const received = await new Promise((resolve, reject) => {
+        n2.on("input", resolve);
+        n1.receive({ payload: "say hello" });
+        setTimeout(
+          () => reject(new Error("timed out waiting for agent node output")),
+          15000,
+        ).unref();
+      });
+
+      assert.equal(received.payload, "hello from fake pi");
+      assert.equal(received.agentExecution.status, "completed");
+      assert.equal(received.agentExecution.exitCode, 0);
+    } finally {
+      process.env.PATH = priorPath;
+    }
+  },
+);
+
+// issue #30 (optional, point 5): pi is otherwise only exercised via
+// runtime:"direct" implicitly inside other tests (e.g. the costUsd/tokens
+// omission test above) -- this makes that combination an explicit,
+// dedicated test in its own right.
+test("runtime:'direct' + pi adapter: a minimal inject -> agent -> output flow runs the (faked) pi CLI (issue #30)", async () => {
+  const PI_FIXTURES_DIR = path.join(FIXTURES_DIR, "pi-fixture");
+  const priorPath = process.env.PATH;
+  process.env.PATH = PI_FIXTURES_DIR + path.delimiter + priorPath;
+
+  const flow = [
+    {
+      id: "n1",
+      type: "agent",
+      name: "agent",
+      agent: "pi",
+      runtime: "direct",
+      invocation: "prompt",
+      prompt: "payload",
+      promptType: "msg",
+      wires: [["n2"], []],
+    },
+    { id: "n2", type: "helper" },
+  ];
+  try {
+    await helper.load(agentNode, flow);
+    const n1 = helper.getNode("n1");
+    const n2 = helper.getNode("n2");
+
+    const received = await new Promise((resolve, reject) => {
+      n2.on("input", resolve);
+      n1.receive({ payload: "say hello" });
+      setTimeout(() => reject(new Error("timed out waiting for agent node output")), 5000).unref();
+    });
+
+    assert.equal(received.payload, "hello from fake pi");
+    assert.equal(received.agentExecution.status, "completed");
+    assert.equal(received.agentExecution.exitCode, 0);
   } finally {
     process.env.PATH = priorPath;
   }

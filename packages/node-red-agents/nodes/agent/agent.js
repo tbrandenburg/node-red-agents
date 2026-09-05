@@ -8,6 +8,7 @@ const { runAgent } = require("./lib/execution/lifecycle");
 const { ExecutionScheduler } = require("./lib/execution/scheduler");
 const { computeNodeStatus } = require("./lib/execution/status");
 const { getCapabilities } = require("./lib/agents/capabilities");
+const { shouldRetry } = require("./lib/execution/retry");
 const {
   STRUCTURED_OUTPUT_MAX_REASKS,
   compileOutputFormat,
@@ -105,6 +106,20 @@ module.exports = function (RED) {
 
     node.allowedTools = Array.isArray(config.allowedTools) ? config.allowedTools : [];
     node.deniedTools = Array.isArray(config.deniedTools) ? config.deniedTools : [];
+
+    // Node-level retry (issue #24): fully opt-in-by-default at a
+    // conservative setting (2 total attempts = 1 original + 1 retry, per
+    // the issue's "default 2 attempts" wording), gated by a small
+    // transient-vs-fatal string classifier (lib/execution/retry.js) so a
+    // fatal error (bad auth, quota exhaustion) never burns a retry. See
+    // startExecution below for the actual retry loop.
+    node.retryMaxAttempts = Number.isFinite(Number(config.retryMaxAttempts))
+      ? Math.max(1, Number(config.retryMaxAttempts))
+      : 2;
+    node.retryDelayMs = Number.isFinite(Number(config.retryDelayMs))
+      ? Math.max(0, Number(config.retryDelayMs))
+      : 3000;
+    node.retryOnError = config.retryOnError === "all" ? "all" : "transient";
 
     // output_format (issue #23): fully opt-in, JSON-Schema-as-text config
     // field. Compiled once here (deploy time), not per-execution -- a bad
@@ -343,12 +358,12 @@ module.exports = function (RED) {
         : undefined;
       const structuredEnabled = !!outputFormat && resolved.invocation === "prompt";
 
-      async function executeWithStructuredOutput() {
+      async function executeWithStructuredOutput(execResolved) {
         const firstResolved = structuredEnabled
-          ? Object.assign({}, resolved, {
-              prompt: augmentPromptForSchema(resolved.prompt, outputFormat.schema),
+          ? Object.assign({}, execResolved, {
+              prompt: augmentPromptForSchema(execResolved.prompt, outputFormat.schema),
             })
-          : resolved;
+          : execResolved;
 
         let result = await invoke(firstResolved);
         if (!structuredEnabled || result.status !== "completed") return result;
@@ -362,12 +377,12 @@ module.exports = function (RED) {
 
         while (!valid && attempts < maxReasks) {
           attempts += 1;
-          const reaskResolved = Object.assign({}, resolved, {
-            prompt: buildReaskPrompt(resolved.prompt, outputFormat.schema, lastErrors),
+          const reaskResolved = Object.assign({}, execResolved, {
+            prompt: buildReaskPrompt(execResolved.prompt, outputFormat.schema, lastErrors),
             sessionID:
               capabilities.sessionResume && result.sessionID
                 ? result.sessionID
-                : resolved.sessionID,
+                : execResolved.sessionID,
           });
           result = await invoke(reaskResolved);
           if (result.status !== "completed") break;
@@ -390,7 +405,51 @@ module.exports = function (RED) {
         return Object.assign({}, result, { structuredOutput: parsed });
       }
 
-      return executeWithStructuredOutput()
+      function delay(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
+
+      // Node-level retry (issue #24): a whole executeWithStructuredOutput()
+      // call (first attempt + any reasks) counts as one "attempt" here --
+      // retries only kick in once that entire pipeline has settled on a
+      // final failed/timeout result. Runs inside this one scheduler slot
+      // (see the module header comment on ExecutionScheduler's contract)
+      // -- never re-`submit()`s to the scheduler, so no duplicate
+      // queued/running events and no extra slot churn.
+      async function executeWithRetry() {
+        let currentResolved = resolved;
+        let attempt = 1;
+        for (;;) {
+          const result = await executeWithStructuredOutput(currentResolved);
+          const isTerminalFailure = result.status === "failed" || result.status === "timeout";
+          if (
+            !isTerminalFailure ||
+            attempt >= node.retryMaxAttempts ||
+            !shouldRetry(result, node.retryOnError)
+          ) {
+            return result;
+          }
+
+          attempt += 1;
+          emitEvent(send, msg, executionId, "retrying", resolved.agentName, resolved.cwd, {
+            attempt,
+            maxAttempts: node.retryMaxAttempts,
+          });
+
+          if (node.retryDelayMs > 0) await delay(node.retryDelayMs);
+
+          // Session-reuse-on-retry: only when the adapter can actually
+          // resume a session (capabilities.sessionResume, e.g. opencode)
+          // and the failed attempt got far enough to mint one -- pi
+          // (sessionResume: false) always retries sessionless, unchanged.
+          currentResolved =
+            capabilities.sessionResume && result.sessionID
+              ? Object.assign({}, currentResolved, { sessionID: result.sessionID })
+              : currentResolved;
+        }
+      }
+
+      return executeWithRetry()
         .then((result) => {
           node.lastTerminal = result.status;
           node.lastText = undefined;

@@ -715,7 +715,21 @@ module.exports = function (RED) {
                       "",
                     );
                   });
-                  return substituteInputs(raw, inputsMap);
+                  // issue #29: warn once per distinct unmatched $INPUTS.<name>
+                  // token found in this run (de-duplicated so a typo'd token
+                  // repeated in `arguments` doesn't spam the log) -- purely
+                  // additive observability, the substituted text itself (and
+                  // thus the eventual invocation) is unchanged.
+                  const unmatchedNames = new Set();
+                  const substituted = substituteInputs(raw, inputsMap, (name) =>
+                    unmatchedNames.add(name),
+                  );
+                  unmatchedNames.forEach((name) => {
+                    node.warn(
+                      `$INPUTS.${name} has no matching 'inputs' entry and was left unsubstituted`,
+                    );
+                  });
+                  return substituted;
                 })()
               : undefined,
           cwd: (() => {

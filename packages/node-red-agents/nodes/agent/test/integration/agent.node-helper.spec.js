@@ -985,3 +985,59 @@ test("a node-level 'inputs' config substitutes $INPUTS.<name> into the resolved 
     process.env.PATH = priorPath;
   }
 });
+
+// issue #29: an unmatched $INPUTS.<name> token must not change the run's
+// outcome (still completes, literal token still reaches the invocation args)
+// but must surface exactly one node.warn naming the mistyped token.
+test("a mistyped $INPUTS.<name> token warns once but does not change the run's outcome (issue #29)", async () => {
+  const ECHO_ARGS_FIXTURES_DIR = path.join(FIXTURES_DIR, "echo-args");
+  const priorPath = process.env.PATH;
+  process.env.PATH = ECHO_ARGS_FIXTURES_DIR + path.delimiter + priorPath;
+
+  const flow = [
+    {
+      id: "n1",
+      type: "agent",
+      name: "agent",
+      agent: "opencode",
+      runtime: "direct",
+      invocation: "command",
+      invocationName: "review",
+      invocationNameType: "str",
+      arguments: "summarize $INPUTS.topik please",
+      argumentsType: "str",
+      inputs: [{ name: "topic", value: "payload.topic", valueType: "msg" }],
+      wires: [["n2"], []],
+    },
+    { id: "n2", type: "helper" },
+  ];
+  try {
+    await helper.load(agentNode, flow);
+    const n1 = helper.getNode("n1");
+    const n2 = helper.getNode("n2");
+
+    const received = await new Promise((resolve, reject) => {
+      n2.on("input", resolve);
+      n1.receive({ payload: { topic: "the release notes" } });
+      setTimeout(() => reject(new Error("timed out waiting for agent node output")), 5000).unref();
+    });
+
+    const echoedArgv = JSON.parse(received.payload);
+    const argsIndex = echoedArgv.indexOf("--command");
+    assert.equal(echoedArgv[argsIndex + 1], "review");
+    assert.equal(
+      echoedArgv[argsIndex + 2],
+      "summarize $INPUTS.topik please",
+      "the run completes as before -- the mistyped token still reaches the invocation as literal text",
+    );
+
+    const warnCalls = helper
+      .log()
+      .args.filter(
+        (a) => a[0].level === 30 && /\$INPUTS\.topik has no matching 'inputs' entry/.test(a[0].msg),
+      );
+    assert.equal(warnCalls.length, 1, "exactly one warn naming the mistyped token");
+  } finally {
+    process.env.PATH = priorPath;
+  }
+});

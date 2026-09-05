@@ -1,0 +1,27 @@
+#!/usr/bin/env node
+"use strict";
+
+// Stand-in for `opencode run --format json`, used only by node-level
+// integration tests covering costUsd/tokens surfacing (issue #22). Emits a
+// "text" event followed by a "step_finish" event carrying the real
+// tokens/cost shape verified against a real `opencode run --format json`
+// invocation (see lib/agents/opencode.js's summarizeUsage), then exits 0.
+process.stdout.write(
+  JSON.stringify({
+    type: "text",
+    sessionID: "fake-session-id",
+    part: { text: "hello from fake opencode" },
+  }) + "\n",
+);
+process.stdout.write(
+  JSON.stringify({
+    type: "step_finish",
+    sessionID: "fake-session-id",
+    part: {
+      type: "step-finish",
+      tokens: { total: 16456, input: 16451, output: 5, reasoning: 0, cache: { write: 0, read: 0 } },
+      cost: 0.012,
+    },
+  }) + "\n",
+);
+process.exit(0);

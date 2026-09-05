@@ -85,7 +85,7 @@ async function startSmokeInstance({ port, readyTimeoutMs = 20000 } = {}) {
   } catch (err) {
     child.kill("SIGKILL");
     fs.rmSync(userDir, { recursive: true, force: true });
-    throw new Error(`${err.message}\n--- node-red stderr tail ---\n${stderrTail}`);
+    throw new Error(`${err.message}\n--- node-red stderr tail ---\n${stderrTail}`, { cause: err });
   }
 
   async function deployFlow(flow) {

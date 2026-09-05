@@ -32,9 +32,9 @@ async function request(url, opts = {}) {
     });
   } catch (err) {
     if (err.name === "AbortError") {
-      throw new Error(`request to ${url} timed out after ${timeoutMs}ms`);
+      throw new Error(`request to ${url} timed out after ${timeoutMs}ms`, { cause: err });
     }
-    throw new Error(`request to ${url} failed: ${err.message}`);
+    throw new Error(`request to ${url} failed: ${err.message}`, { cause: err });
   } finally {
     clearTimeout(timer);
   }

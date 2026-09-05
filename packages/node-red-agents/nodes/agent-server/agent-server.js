@@ -126,7 +126,7 @@ module.exports = function (RED) {
         const value = RED.util.evaluateNodeProperty(prop, type, node, msg);
         return value === undefined || value === null || value === "" ? fallback : value;
       } catch (err) {
-        throw new Error(`invalid ${type} property "${prop}": ${err.message}`);
+        throw new Error(`invalid ${type} property "${prop}": ${err.message}`, { cause: err });
       }
     }
 

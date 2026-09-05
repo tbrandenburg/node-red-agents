@@ -26,7 +26,7 @@ class OpenCodeAdapter extends AgentAdapter {
       try {
         stat = fs.statSync(resolved.cwd);
       } catch (err) {
-        throw new Error(`cwd does not exist: ${resolved.cwd}`);
+        throw new Error(`cwd does not exist: ${resolved.cwd}`, { cause: err });
       }
       if (!stat.isDirectory()) {
         throw new Error(`cwd is not a directory: ${resolved.cwd}`);

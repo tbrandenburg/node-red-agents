@@ -1383,7 +1383,7 @@
         "sessionIdPropType": "msg",
         "promptProp": "payload",
         "promptPropType": "msg",
-        "model": "github-copilot/claude-sonnet-4.6",
+        "model": "github-copilot/claude-sonnet-5",
         "modelType": "str",
         "startupTimeoutMs": 15000,
         "requestTimeoutMs": 120000,
@@ -2649,8 +2649,8 @@
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-sonnet-4.6",
-                "label": "github-copilot/claude-sonnet-4.6",
+                "value": "github-copilot/claude-sonnet-5",
+                "label": "github-copilot/claude-sonnet-5",
                 "type": "str"
             },
             {
@@ -2794,7 +2794,7 @@
                 "type": "str"
             }
         ],
-        "payload": "github-copilot/claude-sonnet-4.6",
+        "payload": "github-copilot/claude-sonnet-5",
         "topic": "topic",
         "topicType": "msg",
         "className": "",
@@ -3436,7 +3436,7 @@
         "type": "function",
         "z": "9c4510ab1faa72ba",
         "name": "Build repo context",
-        "func": "const host = flow.get('icc_host');\nconst owner = flow.get('icc_owner');\nconst repo = flow.get('icc_repo');\n\nif (!host || !owner || !repo) {\n    return [null, { payload: 'Select a repo before running a workflow.' }];\n}\n\nmsg.context = {\n    host, owner, repo,\n    model: flow.get('icc_model') || 'github-copilot/claude-sonnet-4.6'\n};\n\nreturn [msg, null];\n",
+        "func": "const host = flow.get('icc_host');\nconst owner = flow.get('icc_owner');\nconst repo = flow.get('icc_repo');\n\nif (!host || !owner || !repo) {\n    return [null, { payload: 'Select a repo before running a workflow.' }];\n}\n\nmsg.context = {\n    host, owner, repo,\n    model: flow.get('icc_model') || 'github-copilot/claude-sonnet-5'\n};\n\nreturn [msg, null];\n",
         "outputs": 2,
         "timeout": 0,
         "noerr": 0,
@@ -3891,7 +3891,7 @@
         "type": "function",
         "z": "1a4f0b3d4eb305df",
         "name": "attach stored sessionID",
-        "func": "// Preserve the original prompt text (agent.js overwrites\n// msg.payload with the reply) so the log table can show both\n// sides of the turn.\nmsg.prompt = msg.payload;\nif (flow.get('agent_chat_session')) {\n    msg.sessionID = flow.get('agent_chat_session');\n}\nmsg.model = flow.get('agent_chat_model') || 'github-copilot/claude-sonnet-4.6';\nreturn msg;",
+        "func": "// Preserve the original prompt text (agent.js overwrites\n// msg.payload with the reply) so the log table can show both\n// sides of the turn.\nmsg.prompt = msg.payload;\nif (flow.get('agent_chat_session')) {\n    msg.sessionID = flow.get('agent_chat_session');\n}\nmsg.model = flow.get('agent_chat_model') || 'github-copilot/claude-sonnet-5';\nreturn msg;",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,
@@ -4373,8 +4373,8 @@
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-sonnet-4.6",
-                "label": "github-copilot/claude-sonnet-4.6",
+                "value": "github-copilot/claude-sonnet-5",
+                "label": "github-copilot/claude-sonnet-5",
                 "type": "str"
             },
             {
@@ -4518,7 +4518,7 @@
                 "type": "str"
             }
         ],
-        "payload": "github-copilot/claude-sonnet-4.6",
+        "payload": "github-copilot/claude-sonnet-5",
         "topic": "topic",
         "topicType": "msg",
         "className": "",
@@ -4758,8 +4758,8 @@
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-sonnet-4.6",
-                "label": "github-copilot/claude-sonnet-4.6",
+                "value": "github-copilot/claude-sonnet-5",
+                "label": "github-copilot/claude-sonnet-5",
                 "type": "str"
             },
             {
@@ -4903,7 +4903,7 @@
                 "type": "str"
             }
         ],
-        "payload": "github-copilot/claude-sonnet-4.6",
+        "payload": "github-copilot/claude-sonnet-5",
         "topic": "topic",
         "topicType": "msg",
         "className": "",
@@ -5035,7 +5035,7 @@
         "type": "function",
         "z": "advanced-chat-tab",
         "name": "attach stored sessionID",
-        "func": "// Preserve the original prompt text (agent.js overwrites\n// msg.payload with the reply) in case we need it later for\n// debugging or logging.\nmsg.prompt = msg.payload;\nif (flow.get('advanced_chat_session')) {\n    msg.sessionID = flow.get('advanced_chat_session');\n}\nmsg.model = flow.get('advanced_chat_model') || 'github-copilot/claude-sonnet-4.6';\nreturn msg;",
+        "func": "// Preserve the original prompt text (agent.js overwrites\n// msg.payload with the reply) in case we need it later for\n// debugging or logging.\nmsg.prompt = msg.payload;\nif (flow.get('advanced_chat_session')) {\n    msg.sessionID = flow.get('advanced_chat_session');\n}\nmsg.model = flow.get('advanced_chat_model') || 'github-copilot/claude-sonnet-5';\nreturn msg;",
         "outputs": 1,
         "timeout": 0,
         "noerr": 0,
@@ -7575,8 +7575,8 @@
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-sonnet-4.6",
-                "label": "github-copilot/claude-sonnet-4.6",
+                "value": "github-copilot/claude-sonnet-5",
+                "label": "github-copilot/claude-sonnet-5",
                 "type": "str"
             },
             {

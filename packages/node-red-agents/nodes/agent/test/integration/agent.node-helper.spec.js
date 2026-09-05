@@ -939,3 +939,49 @@ test("retry: default retryMaxAttempts (2) with a persistently transient error st
     fs.rmSync(stateFile, { force: true });
   }
 });
+
+test("a node-level 'inputs' config substitutes $INPUTS.<name> into the resolved args before invocation (issue #20)", async () => {
+  const ECHO_ARGS_FIXTURES_DIR = path.join(FIXTURES_DIR, "echo-args");
+  const priorPath = process.env.PATH;
+  process.env.PATH = ECHO_ARGS_FIXTURES_DIR + path.delimiter + priorPath;
+
+  const flow = [
+    {
+      id: "n1",
+      type: "agent",
+      name: "agent",
+      agent: "opencode",
+      runtime: "direct",
+      invocation: "command",
+      invocationName: "review",
+      invocationNameType: "str",
+      arguments: "summarize $INPUTS.topic please, cc $INPUTS.missing",
+      argumentsType: "str",
+      inputs: [{ name: "topic", value: "payload.topic", valueType: "msg" }],
+      wires: [["n2"], []],
+    },
+    { id: "n2", type: "helper" },
+  ];
+  try {
+    await helper.load(agentNode, flow);
+    const n1 = helper.getNode("n1");
+    const n2 = helper.getNode("n2");
+
+    const received = await new Promise((resolve, reject) => {
+      n2.on("input", resolve);
+      n1.receive({ payload: { topic: "the release notes" } });
+      setTimeout(() => reject(new Error("timed out waiting for agent node output")), 5000).unref();
+    });
+
+    const echoedArgv = JSON.parse(received.payload);
+    const argsIndex = echoedArgv.indexOf("--command");
+    assert.equal(echoedArgv[argsIndex + 1], "review");
+    assert.equal(
+      echoedArgv[argsIndex + 2],
+      "summarize the release notes please, cc $INPUTS.missing",
+      "$INPUTS.topic is substituted; an unmatched $INPUTS.<name> token is left as literal text",
+    );
+  } finally {
+    process.env.PATH = priorPath;
+  }
+});

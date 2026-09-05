@@ -17,6 +17,10 @@ function baseResolved(overrides) {
       auto: false,
       sessionID: "",
       mcpServers: [],
+      systemPrompt: "",
+      effort: "",
+      allowedTools: [],
+      deniedTools: [],
     },
     overrides,
   );
@@ -132,6 +136,56 @@ test("buildExecution: sets OPENCODE_CONFIG_CONTENT only when mcpServers is non-e
   assert.deepEqual(parsed, {
     mcp: { github: { type: "remote", url: "https://x", enabled: true } },
   });
+});
+
+test("buildExecution: pushes --variant <effort> when effort is set (issue #25)", () => {
+  const adapter = new OpenCodeAdapter();
+  const withoutEffort = adapter.buildExecution(baseResolved());
+  assert.ok(!withoutEffort.args.includes("--variant"));
+
+  const withEffort = adapter.buildExecution(baseResolved({ effort: "high" }));
+  assert.deepEqual(withEffort.args, [
+    "run",
+    "--format",
+    "json",
+    "--variant",
+    "high",
+    "hello world",
+  ]);
+});
+
+test("buildExecution: allowedTools/deniedTools materialize a temp agent config selected via --agent (issue #25)", () => {
+  const adapter = new OpenCodeAdapter();
+
+  const withoutTools = adapter.buildExecution(baseResolved());
+  assert.ok(!withoutTools.args.includes("--agent"));
+  assert.equal(withoutTools.env.OPENCODE_CONFIG_CONTENT, undefined);
+
+  const withTools = adapter.buildExecution(
+    baseResolved({ allowedTools: ["read", "grep"], deniedTools: ["bash"] }),
+  );
+  const agentIndex = withTools.args.indexOf("--agent");
+  assert.ok(agentIndex !== -1, "--agent flag must be present");
+  const agentName = withTools.args[agentIndex + 1];
+  const parsedConfig = JSON.parse(withTools.env.OPENCODE_CONFIG_CONTENT);
+  assert.deepEqual(parsedConfig.agent[agentName], {
+    mode: "primary",
+    tools: { bash: false, read: true, grep: true },
+  });
+});
+
+test("buildExecution: allowedTools/deniedTools config merges with mcpServers in the same OPENCODE_CONFIG_CONTENT (issue #25)", () => {
+  const adapter = new OpenCodeAdapter();
+  const { env, args } = adapter.buildExecution(
+    baseResolved({
+      allowedTools: ["read"],
+      mcpServers: [{ name: "github", type: "remote", url: "https://x" }],
+    }),
+  );
+  const parsed = JSON.parse(env.OPENCODE_CONFIG_CONTENT);
+  assert.ok(parsed.mcp && parsed.mcp.github, "mcp config must still be present");
+  assert.ok(parsed.agent, "agent config must also be present");
+  assert.ok(args.includes("--agent"));
 });
 
 test("validate: throws on missing prompt / missing skill-or-command name", () => {

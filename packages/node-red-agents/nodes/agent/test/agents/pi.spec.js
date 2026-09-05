@@ -18,6 +18,10 @@ function baseResolved(overrides) {
       model: "",
       auto: false,
       mcpServers: [],
+      allowedTools: [],
+      deniedTools: [],
+      effort: "",
+      systemPrompt: "",
     },
     overrides,
   );
@@ -44,6 +48,35 @@ test("buildExecution: auto:true drops the --tools restriction entirely", () => {
   const adapter = new PiAdapter();
   const { args } = adapter.buildExecution(baseResolved({ auto: true }));
   assert.ok(!args.includes("--tools"));
+});
+
+test("buildExecution: a configured allowedTools list overrides the hardcoded default --tools value (issue #25)", () => {
+  const adapter = new PiAdapter();
+  const { args } = adapter.buildExecution(baseResolved({ allowedTools: ["read", "grep", "bash"] }));
+  assert.deepEqual(args, [
+    "--no-session",
+    "--mode",
+    "json",
+    "--tools",
+    "read,grep,bash",
+    "hello world",
+  ]);
+});
+
+test("buildExecution: a configured allowedTools list wins even when auto:true (issue #25)", () => {
+  const adapter = new PiAdapter();
+  const { args } = adapter.buildExecution(baseResolved({ auto: true, allowedTools: ["read"] }));
+  assert.ok(args.includes("--tools"));
+  assert.equal(args[args.indexOf("--tools") + 1], "read");
+});
+
+test("buildExecution: an empty allowedTools list falls back to today's default (not-auto) or none (auto) (issue #25)", () => {
+  const adapter = new PiAdapter();
+  const notAuto = adapter.buildExecution(baseResolved({ allowedTools: [] }));
+  assert.equal(notAuto.args[notAuto.args.indexOf("--tools") + 1], "read,grep,find,ls");
+
+  const auto = adapter.buildExecution(baseResolved({ auto: true, allowedTools: [] }));
+  assert.ok(!auto.args.includes("--tools"));
 });
 
 test('buildExecution: model passes straight through to --model (pi itself parses "provider/id")', () => {

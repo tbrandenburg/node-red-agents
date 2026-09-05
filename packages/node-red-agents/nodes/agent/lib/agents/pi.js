@@ -118,7 +118,21 @@ class PiAdapter extends AgentAdapter {
     // tools are even available: "not auto" -> read-only tool set,
     // "auto" -> everything. This is an approximation, not a true
     // permission bypass -- documented in the node's help text.
-    if (!resolved.auto) {
+    //
+    // allowed_tools (issue #25): a configured allow-list always wins over
+    // the auto-derived default above, for both auto and non-auto runs --
+    // an explicit list is a stronger signal than the auto/read-only
+    // heuristic. denied_tools has no equivalent here: pi's --tools flag is
+    // allow-list-only (verified against `pi --help`), so there's no
+    // mechanism to subtract individual tools from an otherwise-unbounded
+    // set; only allowedTools is wired up for this adapter.
+    const hasAllow =
+      PiAdapter.CAPABILITIES.toolRestrictions &&
+      Array.isArray(resolved.allowedTools) &&
+      resolved.allowedTools.length > 0;
+    if (hasAllow) {
+      args.push("--tools", resolved.allowedTools.join(","));
+    } else if (!resolved.auto) {
       args.push("--tools", "read,grep,find,ls");
     }
 

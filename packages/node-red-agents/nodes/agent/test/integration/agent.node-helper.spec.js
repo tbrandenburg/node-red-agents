@@ -365,3 +365,118 @@ test("a clean exit (0) with no assistant text is reported as failed with a null 
     process.env.PATH = priorPath;
   }
 });
+
+// issue #25: systemPrompt has no verified CLI flag for either adapter
+// (CAPABILITIES.systemPromptControl is false for both) -- setting it must
+// always warn-and-drop, never error, regardless of which adapter is active.
+test("a configured systemPrompt is always warned-and-dropped (unsupported by either adapter, issue #25)", async () => {
+  const flow = [
+    {
+      id: "n1",
+      type: "agent",
+      name: "agent",
+      agent: "opencode",
+      runtime: "direct",
+      invocation: "prompt",
+      prompt: "payload",
+      promptType: "msg",
+      systemPrompt: "You are a helpful assistant",
+      systemPromptType: "str",
+      wires: [["n2"], []],
+    },
+    { id: "n2", type: "helper" },
+  ];
+  await helper.load(agentNode, flow);
+  const n1 = helper.getNode("n1");
+  const n2 = helper.getNode("n2");
+
+  await new Promise((resolve, reject) => {
+    n2.on("input", resolve);
+    n1.receive({ payload: "say hello" });
+    setTimeout(() => reject(new Error("timed out waiting for agent node output")), 5000).unref();
+  });
+
+  const warnCalls = helper
+    .log()
+    .args.filter((a) => a[0].level === 30 && /systemPrompt is not supported/.test(a[0].msg));
+  assert.equal(warnCalls.length, 1, "exactly one warn for the unsupported systemPrompt field");
+});
+
+// issue #25: effortControl is false for pi (no verified CLI flag) -- setting
+// Effort on a pi-agent node must warn-and-drop, never error.
+test("a configured effort is warned-and-dropped for the pi adapter (effortControl capability is false, issue #25)", async () => {
+  const PI_FIXTURES_DIR = path.join(FIXTURES_DIR, "pi-fixture");
+  const priorPath = process.env.PATH;
+  process.env.PATH = PI_FIXTURES_DIR + path.delimiter + priorPath;
+
+  const flow = [
+    {
+      id: "n1",
+      type: "agent",
+      name: "agent",
+      agent: "pi",
+      runtime: "direct",
+      invocation: "prompt",
+      prompt: "payload",
+      promptType: "msg",
+      effort: "high",
+      effortType: "str",
+      wires: [["n2"], []],
+    },
+    { id: "n2", type: "helper" },
+  ];
+  try {
+    await helper.load(agentNode, flow);
+    const n1 = helper.getNode("n1");
+    const n2 = helper.getNode("n2");
+
+    const received = await new Promise((resolve, reject) => {
+      n2.on("input", resolve);
+      n1.receive({ payload: "say hello" });
+      setTimeout(() => reject(new Error("timed out waiting for agent node output")), 5000).unref();
+    });
+
+    assert.equal(received.payload, "hello from fake pi");
+    const warnCalls = helper
+      .log()
+      .args.filter((a) => a[0].level === 30 && /effort is not supported/.test(a[0].msg));
+    assert.equal(warnCalls.length, 1, "exactly one warn for the unsupported effort field");
+  } finally {
+    process.env.PATH = priorPath;
+  }
+});
+
+// issue #25: effortControl is true for opencode -- Effort must NOT warn and
+// must actually reach the CLI as --variant <effort>.
+test("a configured effort is forwarded (not warned) for the opencode adapter and reaches --variant (issue #25)", async () => {
+  const flow = [
+    {
+      id: "n1",
+      type: "agent",
+      name: "agent",
+      agent: "opencode",
+      runtime: "direct",
+      invocation: "prompt",
+      prompt: "payload",
+      promptType: "msg",
+      effort: "high",
+      effortType: "str",
+      wires: [["n2"], []],
+    },
+    { id: "n2", type: "helper" },
+  ];
+  await helper.load(agentNode, flow);
+  const n1 = helper.getNode("n1");
+  const n2 = helper.getNode("n2");
+
+  await new Promise((resolve, reject) => {
+    n2.on("input", resolve);
+    n1.receive({ payload: "say hello" });
+    setTimeout(() => reject(new Error("timed out waiting for agent node output")), 5000).unref();
+  });
+
+  const warnCalls = helper
+    .log()
+    .args.filter((a) => a[0].level === 30 && /effort is not supported/.test(a[0].msg));
+  assert.equal(warnCalls.length, 0, "opencode supports effort -- no warning expected");
+});

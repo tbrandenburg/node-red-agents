@@ -205,6 +205,16 @@ test("parseResult: joins text parts, carries sessionID, completed on clean exit"
   assert.equal(result.status, "completed");
 });
 
+test("parseResult: clean exit (0) with no text/content events fails with a zero-output message (issue #21)", () => {
+  const adapter = new OpenCodeAdapter();
+  const events = [adapter.parseEvent(JSON.stringify({ type: "step_finish", sessionID: "s1" }))];
+  const result = adapter.parseResult(events, 0, null, "");
+  assert.equal(result.payload, "");
+  assert.equal(result.sessionID, "s1");
+  assert.equal(result.status, "failed");
+  assert.match(result.errorMessage, /no assistant output/);
+});
+
 test('parseResult: an {type:"error"} event fails the result even with exitCode 0', () => {
   const adapter = new OpenCodeAdapter();
   const events = [

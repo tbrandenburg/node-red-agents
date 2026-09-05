@@ -224,6 +224,22 @@ test('parseResult: detects failure via stopReason:"error" even though exitCode i
   assert.match(result.errorMessage, /DeploymentNotFound/);
 });
 
+test("parseResult: agent_end present but with an empty assistant content array fails as zero-output (issue #21)", () => {
+  const adapter = new PiAdapter();
+  const events = [
+    adapter.parseEvent(
+      JSON.stringify({
+        type: "agent_end",
+        messages: [{ role: "assistant", content: [] }],
+      }),
+    ),
+  ];
+  const result = adapter.parseResult(events, 0, null, "");
+  assert.equal(result.payload, "");
+  assert.equal(result.status, "failed");
+  assert.match(result.errorMessage, /no assistant output/);
+});
+
 test("parseResult: no agent_end event at all is treated as a failure, not a silent empty success", () => {
   const adapter = new PiAdapter();
   const result = adapter.parseResult([], 0, null, "");

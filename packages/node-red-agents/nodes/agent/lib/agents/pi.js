@@ -244,6 +244,14 @@ class PiAdapter extends AgentAdapter {
         errorMessage: "pi produced no agent_end event",
       };
     }
+    if (!payload) {
+      return {
+        payload,
+        sessionID,
+        status: "failed",
+        errorMessage: "pi produced no assistant output (silent rejection or empty response)",
+      };
+    }
     return { payload, sessionID, status: "completed" };
   }
 }

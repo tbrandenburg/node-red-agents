@@ -234,7 +234,7 @@ module.exports = function (RED) {
           node.lastText = undefined;
 
           const resultMsg = Object.assign({}, msg, {
-            payload: result.payload,
+            payload: result.status === "completed" ? result.payload : null,
             agent: node.agent,
             runtime: node.runtime,
             agentId: node.id,

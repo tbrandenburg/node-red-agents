@@ -220,3 +220,7 @@ meant to read stdin.
   test-only scratch content. `demo/node_modules/`, `demo/package-lock.json`,
   `demo/.config.*.json`, `demo/.node-red.pid` are regenerable and
   gitignored, same as their `data/` counterparts.
+
+## Lessons Learned
+
+- 2026-09-05: Pitfall: a subagent task can report "user rejected permission" and appear failed even though it already `git commit`ed real, complete work first. Prevention rule/countermeasure: before retrying/redoing, always check the worktree's `git log`/`git status` for prior commits; instruct subagents to commit before their final message.

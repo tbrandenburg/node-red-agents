@@ -87,6 +87,39 @@
     // Much simpler than mcpServerRow: one plain text input per row, no
     // per-row type switch. Used for the SRT "Allowed domains" and
     // "Allowed write directories" lists.
+    let inputsRowCounter = 0;
+    function inputsRow(container, data) {
+      data = data || { name: "", value: "", valueType: "msg" };
+      inputsRowCounter += 1;
+      const rowId = `agent-inputs-row-${inputsRowCounter}`;
+      const row = $("<div/>", {
+        style: "display:flex; gap:4px; align-items:center; width:100%;",
+      }).appendTo(container);
+
+      const nameInput = $("<input/>", { type: "text", placeholder: "name", style: "width:110px" })
+        .val(data.name || "")
+        .appendTo(row);
+
+      const valueInput = $("<input/>", { type: "text", id: rowId, style: "flex:1" })
+        .val(data.value || "")
+        .appendTo(row);
+      const valueType = $("<input/>", { type: "hidden", id: `${rowId}-type` }).appendTo(row);
+      valueInput.typedInput({
+        typeField: `#${rowId}-type`,
+        types: ["msg", "str", "flow", "global", "env"],
+      });
+      valueInput.typedInput("type", data.valueType || "msg");
+
+      row.data("inputsGetValue", function () {
+        return {
+          name: nameInput.val().trim(),
+          value: valueInput.typedInput("value"),
+          valueType: valueInput.typedInput("type"),
+        };
+      });
+      row.data("inputsValueType", valueType);
+    }
+
     function simpleStringRow(container, value) {
       const input = $("<input/>", { type: "text", style: "width:100%" })
         .val(value || "")
@@ -122,6 +155,8 @@
 
         arguments: { value: "payload" },
         argumentsType: { value: "msg" },
+
+        inputs: { value: [] },
 
         cwd: { value: "cwd" },
         cwdType: { value: "msg" },
@@ -347,6 +382,19 @@
           allowedToolsList.editableList("addItem", entry),
         );
 
+        const inputsList = $("#node-input-inputs-list");
+        inputsList.editableList({
+          addButton: "Add input",
+          height: 120,
+          addItem: function (container, index, data) {
+            inputsRow(container, data);
+          },
+          removable: true,
+          sortable: true,
+        });
+        (node.inputs || []).forEach((entry) => inputsList.editableList("addItem", entry));
+
+
         const deniedToolsList = $("#node-input-deniedTools-list");
         deniedToolsList.editableList({
           addButton: "Add denied tool",
@@ -426,6 +474,16 @@
 
         this.allowedTools = collectStrings($("#node-input-allowedTools-list"));
         this.deniedTools = collectStrings($("#node-input-deniedTools-list"));
+
+        const inputsOut = [];
+        $("#node-input-inputs-list")
+          .editableList("items")
+          .each(function () {
+            const v = $(this).data("inputsGetValue")();
+            if (v && v.name) inputsOut.push(v);
+          });
+        this.inputs = inputsOut;
+
 
         // Only persist the SRT inline-settings lists/fields while
         // they're actually the active runtime+mode -- otherwise
@@ -630,6 +688,18 @@
       style="width:60%"
     />
     <input type="hidden" id="node-input-argumentsType" />
+  </div>
+
+  <div class="form-row agent-row-arguments">
+    <label
+      ><i class="fa fa-tags"></i> Inputs
+      <i
+        class="fa fa-info-circle"
+        style="color:#888; cursor:help; margin-left:4px;"
+        title="Named values substituted into Arguments as $INPUTS.<name> before invocation. Pure text templating -- unmatched tokens are left as literal text."
+      ></i>
+    </label>
+    <ol id="node-input-inputs-list"></ol>
   </div>
 
   <div class="form-row">

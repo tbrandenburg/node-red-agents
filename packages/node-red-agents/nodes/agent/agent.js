@@ -9,6 +9,7 @@ const { ExecutionScheduler } = require("./lib/execution/scheduler");
 const { computeNodeStatus } = require("./lib/execution/status");
 const { getCapabilities } = require("./lib/agents/capabilities");
 const { shouldRetry } = require("./lib/execution/retry");
+const { substituteInputs } = require("./lib/execution/inputs");
 const {
   STRUCTURED_OUTPUT_MAX_REASKS,
   compileOutputFormat,
@@ -81,6 +82,14 @@ module.exports = function (RED) {
 
     node.arguments_ = config.arguments !== undefined ? config.arguments : "payload";
     node.argumentsType = config.argumentsType || "msg";
+
+    // Named, multi-value $INPUTS.<name> templating (issue #20): a list of
+    // { name, value, valueType } typed-input entries, each resolved
+    // per-message via resolveTyped below and substituted into the
+    // resolved arguments string before it's handed to either adapter.
+    // Pure text templating, zero adapter-specific code -- see
+    // lib/execution/inputs.js. Default empty list = zero behavior change.
+    node.inputs = Array.isArray(config.inputs) ? config.inputs : [];
 
     node.cwd = config.cwd !== undefined ? config.cwd : "cwd";
     node.cwdType = config.cwdType || "msg";
@@ -694,7 +703,20 @@ module.exports = function (RED) {
               : undefined,
           args:
             node.invocation !== "prompt"
-              ? resolveTyped(node.arguments_, node.argumentsType, msg, msg.payload)
+              ? (() => {
+                  const raw = resolveTyped(node.arguments_, node.argumentsType, msg, msg.payload);
+                  if (typeof raw !== "string" || node.inputs.length === 0) return raw;
+                  const inputsMap = {};
+                  node.inputs.forEach((entry) => {
+                    inputsMap[entry.name] = resolveTyped(
+                      entry.value,
+                      entry.valueType || "msg",
+                      msg,
+                      "",
+                    );
+                  });
+                  return substituteInputs(raw, inputsMap);
+                })()
               : undefined,
           cwd: (() => {
             const v = resolveTyped(node.cwd, node.cwdType, msg, "");

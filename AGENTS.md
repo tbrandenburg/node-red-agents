@@ -41,6 +41,21 @@ commands (`make help`).
   checking. `make ci` runs format + lint + test + test-e2e, the same
   local gate CI enforces across its three jobs (see
   `.github/workflows/tests.yml`).
+- `make audit` -- `npm audit` scoped to what actually matters: the
+  published `packages/node-red-agents` package's production deps (fails
+  the build only with `STRICT=1`, which `make release` always runs) plus
+  an advisory-only pass over the root workspace's dev tooling (Node-RED
+  core, ESLint, etc. -- never shipped to consumers, so never build-blocking).
+  Deliberately **not** part of `make ci`/`tests.yml`'s per-PR gate: new
+  advisories land against unchanged dependency trees, which would make
+  the PR gate fail for reasons unrelated to the diff under review.
+  Instead, `.github/workflows/audit.yml` runs `make audit STRICT=1` on a
+  weekly schedule plus `workflow_dispatch`. `.github/dependabot.yml` keeps
+  the root npm workspace (covers `packages/node-red-agents` via npm
+  workspaces -- it has no lockfile of its own) and the GitHub Actions used
+  in our own workflows up to date; `data/`/`demo/`'s own `package-lock.json`
+  files are intentionally excluded since they're gitignored/regenerable
+  local dev state, not durable Dependabot targets.
 
 ## Releasing
 

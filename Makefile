@@ -13,7 +13,7 @@ PID_FILE      := $(USER_DIR)/.node-red.pid
 NAME          ?=
 BUMP          ?=
 
-.PHONY: help install start dev stop demo demo-install demo-stop new-node-package format lint test test-e2e ci release publish clean
+.PHONY: help install start dev stop demo demo-install demo-stop new-node-package format lint test test-e2e audit ci release publish clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | sed -E 's/:.*## /|/' | awk -F'|' '{printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -95,6 +95,12 @@ format: install ## Check formatting with Prettier (use FIX=1 to rewrite files in
 lint: install ## Lint with ESLint (use FIX=1 to auto-fix what it can)
 	node_modules/.bin/eslint $(if $(FIX),--fix,) .
 
+audit: install ## Check for known vulnerabilities (advisory by default; use STRICT=1 to fail on high/critical in the published package's production deps)
+	@echo "--- packages/node-red-agents (published package, production deps) ---"
+	@cd $(PACKAGE_DIR) && npm audit --omit=dev $(if $(STRICT),--audit-level=high,) || $(if $(STRICT),exit 1,true)
+	@echo "--- root workspace (dev tooling only, not shipped -- advisory) ---"
+	@npm audit || true
+
 ci: format lint test test-e2e ## Run the full local gate: format check, lint, unit+integration tests, and the E2E suite
 
 release: ## Bump packages/node-red-agents's version and tag the release commit (usage: make release BUMP=patch, minor, or major)
@@ -104,6 +110,7 @@ release: ## Bump packages/node-red-agents's version and tag the release commit (
 	esac
 	@git diff --quiet && git diff --cached --quiet || \
 		(echo "release: working tree has uncommitted changes -- commit or stash first" && exit 1)
+	$(MAKE) audit STRICT=1
 	$(MAKE) test
 	cd $(PACKAGE_DIR) && npm version $(BUMP) --no-git-tag-version
 	@NEW_VERSION=$$(node -p "require('./$(PACKAGE_JSON)').version"); \

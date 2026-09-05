@@ -75,6 +75,15 @@ class OpenCodeAdapter extends AgentAdapter {
     if (resolved.model) args.push("--model", resolved.model);
     if (resolved.auto) args.push("--auto");
 
+    // --variant <effort> -- verified working against a real `opencode run`
+    // invocation (see CAPABILITIES.effortControl below). systemPrompt has
+    // no verified CLI flag for this adapter (CAPABILITIES.systemPromptControl
+    // is false), so it's never forwarded here -- agent.js already warns and
+    // drops it before this is even called.
+    if (OpenCodeAdapter.CAPABILITIES.effortControl && resolved.effort) {
+      args.push("--variant", resolved.effort);
+    }
+
     // Skill and Command/Template invocation share the same underlying
     // opencode mechanism: skills are registered internally as commands
     // (source:"skill"), so `--command <name>` handles both -- verified
@@ -87,8 +96,36 @@ class OpenCodeAdapter extends AgentAdapter {
     }
 
     const env = {};
+    const opencodeConfig = {};
     if (Array.isArray(resolved.mcpServers) && resolved.mcpServers.length > 0) {
-      env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ mcp: toOpenCodeMcp(resolved.mcpServers) });
+      opencodeConfig.mcp = toOpenCodeMcp(resolved.mcpServers);
+    }
+
+    // allowed_tools/denied_tools (issue #25): opencode has no direct
+    // `--tools` flag (unlike pi.js), but its config schema supports a
+    // per-agent `tools: { <name>: true|false }` map (verified against
+    // opencode's own agent docs). Rather than inventing a new delivery
+    // mechanism, this reuses the exact same OPENCODE_CONFIG_CONTENT env
+    // var already used for mcpServers above -- an ephemeral, per-process
+    // config the child process reads and that vanishes with it, with
+    // nothing left on disk to clean up (unlike the srt inline-settings
+    // temp file, which outlives the process and does need explicit
+    // unlinking). A fixed, unique-per-node agent name is defined as
+    // "primary" (required for `opencode run --agent <name>` to accept it)
+    // and selected via --agent.
+    const hasAllow = Array.isArray(resolved.allowedTools) && resolved.allowedTools.length > 0;
+    const hasDeny = Array.isArray(resolved.deniedTools) && resolved.deniedTools.length > 0;
+    if (OpenCodeAdapter.CAPABILITIES.toolRestrictions && (hasAllow || hasDeny)) {
+      const tools = {};
+      for (const name of resolved.deniedTools || []) tools[name] = false;
+      for (const name of resolved.allowedTools || []) tools[name] = true;
+      const agentName = "node-red-agent-tools";
+      opencodeConfig.agent = { [agentName]: { mode: "primary", tools } };
+      args.push("--agent", agentName);
+    }
+
+    if (Object.keys(opencodeConfig).length > 0) {
+      env.OPENCODE_CONFIG_CONTENT = JSON.stringify(opencodeConfig);
     }
 
     return { command: "opencode", args, env };
@@ -121,6 +158,14 @@ class OpenCodeAdapter extends AgentAdapter {
       .join("\n")
       .trim();
 
+    // Sums cost/tokens across every step_finish event seen during this run
+    // -- verified against a real `opencode run --format json` invocation,
+    // whose step_finish `part` carries { tokens: {input,output,reasoning,
+    // cache:{read,write},total}, cost }. `costUsd`/`tokens` stay undefined
+    // (rather than 0) when no step_finish event was observed at all, so
+    // agent.js can omit the fields entirely instead of reporting a false 0.
+    const usage = summarizeUsage(raw);
+
     if (errorEvent) {
       const errDetail = errorEvent.error || {};
       const message =
@@ -150,32 +195,91 @@ class OpenCodeAdapter extends AgentAdapter {
       }
       if (stderr && String(stderr).trim()) extras.push(String(stderr).trim());
       const errorMessage = extras.length ? `${message} (${extras.join("; ")})` : message;
-      return {
-        payload,
-        sessionID,
-        status: "failed",
-        errorMessage,
-        errorDetail: errDetail,
-      };
+      return Object.assign(
+        {
+          payload,
+          sessionID,
+          status: "failed",
+          errorMessage,
+          errorDetail: errDetail,
+        },
+        usage,
+      );
     }
     if (signal) {
-      return {
-        payload,
-        sessionID,
-        status: "failed",
-        errorMessage: `process killed by signal ${signal}`,
-      };
+      return Object.assign(
+        {
+          payload,
+          sessionID,
+          status: "failed",
+          errorMessage: `process killed by signal ${signal}`,
+        },
+        usage,
+      );
     }
     if (exitCode !== 0) {
-      return {
-        payload,
-        sessionID,
-        status: "failed",
-        errorMessage: `exited with code ${exitCode}${stderr ? ": " + String(stderr).trim() : ""}`,
-      };
+      return Object.assign(
+        {
+          payload,
+          sessionID,
+          status: "failed",
+          errorMessage: `exited with code ${exitCode}${stderr ? ": " + String(stderr).trim() : ""}`,
+        },
+        usage,
+      );
     }
-    return { payload, sessionID, status: "completed" };
+    if (!payload) {
+      return Object.assign(
+        {
+          payload,
+          sessionID,
+          status: "failed",
+          errorMessage:
+            "opencode produced no assistant output (silent rejection or empty response)",
+        },
+        usage,
+      );
+    }
+    return Object.assign({ payload, sessionID, status: "completed" }, usage);
   }
+}
+
+// Sums cost (USD) and token counts across every step_finish event in a run.
+// Returns {} (no keys at all) when no step_finish event carried usable
+// data, so Object.assign(...) callers above never introduce costUsd/tokens
+// keys with `undefined` values -- agent.js relies on the key's mere
+// presence (not just its value) to decide whether to surface it.
+function summarizeUsage(raw) {
+  let costUsd;
+  let tokens;
+  for (const e of raw) {
+    if (e.type !== "step_finish" || !e.part || typeof e.part !== "object") continue;
+    const part = e.part;
+    if (typeof part.cost === "number") {
+      costUsd = (costUsd || 0) + part.cost;
+    }
+    if (part.tokens && typeof part.tokens === "object") {
+      tokens = tokens || {
+        total: 0,
+        input: 0,
+        output: 0,
+        reasoning: 0,
+        cache: { read: 0, write: 0 },
+      };
+      tokens.total += Number(part.tokens.total) || 0;
+      tokens.input += Number(part.tokens.input) || 0;
+      tokens.output += Number(part.tokens.output) || 0;
+      tokens.reasoning += Number(part.tokens.reasoning) || 0;
+      if (part.tokens.cache) {
+        tokens.cache.read += Number(part.tokens.cache.read) || 0;
+        tokens.cache.write += Number(part.tokens.cache.write) || 0;
+      }
+    }
+  }
+  const usage = {};
+  if (costUsd !== undefined) usage.costUsd = costUsd;
+  if (tokens !== undefined) usage.tokens = tokens;
+  return usage;
 }
 
 OpenCodeAdapter.CAPABILITIES = {

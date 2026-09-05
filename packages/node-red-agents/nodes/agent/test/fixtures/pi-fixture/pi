@@ -1,0 +1,22 @@
+#!/usr/bin/env node
+"use strict";
+
+// Stand-in for pi's `--mode json` output, used only by node-level
+// integration tests covering the costUsd/tokens omission behavior for
+// adapters without costReporting (issue #22, PiAdapter.CAPABILITIES).
+// Emits a minimal agent_end event with a completed assistant text
+// message, then exits 0. No cost/token fields exist anywhere in this
+// adapter's parseResult -- see lib/agents/pi.js.
+process.stdout.write(
+  JSON.stringify({
+    type: "agent_end",
+    messages: [
+      {
+        role: "assistant",
+        stopReason: "end_turn",
+        content: [{ type: "text", text: "hello from fake pi" }],
+      },
+    ],
+  }) + "\n",
+);
+process.exit(0);

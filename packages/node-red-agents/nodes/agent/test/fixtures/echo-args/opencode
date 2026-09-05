@@ -1,0 +1,17 @@
+#!/usr/bin/env node
+"use strict";
+
+// Stand-in for `opencode run --format json` used only by the issue #20
+// ($INPUTS.<name> templating) node-level integration test. Echoes back
+// its own argv (everything opencode.js built for this invocation, e.g.
+// `run --format json --command <name> <args>`) as the "text" part so the
+// test can assert the substituted argument string actually reached the
+// point where it's handed to the adapter -- without needing a real CLI.
+process.stdout.write(
+  JSON.stringify({
+    type: "text",
+    sessionID: "fake-session-id",
+    part: { text: JSON.stringify(process.argv.slice(2)) },
+  }) + "\n",
+);
+process.exit(0);

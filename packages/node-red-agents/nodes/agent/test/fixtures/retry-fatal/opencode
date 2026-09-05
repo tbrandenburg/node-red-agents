@@ -1,0 +1,25 @@
+#!/usr/bin/env node
+"use strict";
+
+// Stand-in for `opencode run --format json` used only by the node-level
+// retry integration test's fatal-error case (issue #24): always fails
+// with a fatal-looking error (401 Unauthorized), tracked via a state file
+// so the test can assert it was invoked exactly once (i.e. no retry
+// happened despite retryMaxAttempts > 1).
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+
+const stateFile = process.env.RETRY_FIXTURE_STATE || path.join(os.tmpdir(), "retry-fixture-state");
+
+let count = 0;
+try {
+  count = parseInt(fs.readFileSync(stateFile, "utf8"), 10) || 0;
+} catch (err) {
+  // First invocation: no state file yet.
+}
+count += 1;
+fs.writeFileSync(stateFile, String(count));
+
+process.stderr.write("401 Unauthorized: invalid token\n");
+process.exit(1);

@@ -1,0 +1,21 @@
+#!/usr/bin/env node
+"use strict";
+
+// Stand-in for `opencode run --format json`, used only by the issue #23
+// output_format integration test covering the "invalid then valid on
+// reask" path -- agent.js reuses the prior sessionID (--session <id>) for
+// a reask turn when the adapter declares sessionResume, so this fixture
+// uses that flag's presence as its only signal: absent (first attempt) ->
+// invalid/unparseable text; present (any reask attempt) -> valid JSON
+// matching the test's schema.
+const hasSession = process.argv.includes("--session");
+const text = hasSession ? JSON.stringify({ answer: "hello" }) : "not json at all";
+
+process.stdout.write(
+  JSON.stringify({
+    type: "text",
+    sessionID: "fake-session-id",
+    part: { text },
+  }) + "\n",
+);
+process.exit(0);

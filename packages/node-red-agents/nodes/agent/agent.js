@@ -7,6 +7,16 @@ const { writeInlineSettingsFile } = require("../../shared/srt-settings");
 const { runAgent } = require("./lib/execution/lifecycle");
 const { ExecutionScheduler } = require("./lib/execution/scheduler");
 const { computeNodeStatus } = require("./lib/execution/status");
+const { getCapabilities } = require("./lib/agents/capabilities");
+const { shouldRetry } = require("./lib/execution/retry");
+const { substituteInputs } = require("./lib/execution/inputs");
+const {
+  STRUCTURED_OUTPUT_MAX_REASKS,
+  compileOutputFormat,
+  tryParseStructuredOutput,
+  augmentPromptForSchema,
+  buildReaskPrompt,
+} = require("./lib/execution/structured-output");
 
 // Registries. Adding a future adapter/runtime is just one more entry here --
 // nothing else in this file (or in lib/execution/lifecycle.js) needs to
@@ -73,6 +83,14 @@ module.exports = function (RED) {
     node.arguments_ = config.arguments !== undefined ? config.arguments : "payload";
     node.argumentsType = config.argumentsType || "msg";
 
+    // Named, multi-value $INPUTS.<name> templating (issue #20): a list of
+    // { name, value, valueType } typed-input entries, each resolved
+    // per-message via resolveTyped below and substituted into the
+    // resolved arguments string before it's handed to either adapter.
+    // Pure text templating, zero adapter-specific code -- see
+    // lib/execution/inputs.js. Default empty list = zero behavior change.
+    node.inputs = Array.isArray(config.inputs) ? config.inputs : [];
+
     node.cwd = config.cwd !== undefined ? config.cwd : "cwd";
     node.cwdType = config.cwdType || "msg";
 
@@ -82,6 +100,75 @@ module.exports = function (RED) {
     node.timeoutType = config.timeoutType || "num";
 
     node.mcpServers = Array.isArray(config.mcpServers) ? config.mcpServers : [];
+
+    // Optional per-adapter capability-gated fields (issue #25), modeled on
+    // Archon's DagNodeBase: systemPrompt override, effort (reasoning
+    // depth), and allowed/denied tool lists. Each is only ever honored by
+    // an adapter whose CAPABILITIES flag says it's actually wired up (see
+    // lib/agents/capabilities.js) -- otherwise startExecution below warns
+    // once and drops it, never a hard error.
+    node.systemPrompt = config.systemPrompt !== undefined ? config.systemPrompt : "";
+    node.systemPromptType = config.systemPromptType || "str";
+
+    node.effort = config.effort !== undefined ? config.effort : "";
+    node.effortType = config.effortType || "str";
+
+    node.allowedTools = Array.isArray(config.allowedTools) ? config.allowedTools : [];
+    node.deniedTools = Array.isArray(config.deniedTools) ? config.deniedTools : [];
+
+    // Node-level retry (issue #24): fully opt-in-by-default at a
+    // conservative setting (2 total attempts = 1 original + 1 retry, per
+    // the issue's "default 2 attempts" wording), gated by a small
+    // transient-vs-fatal string classifier (lib/execution/retry.js) so a
+    // fatal error (bad auth, quota exhaustion) never burns a retry. See
+    // startExecution below for the actual retry loop.
+    node.retryMaxAttempts = Number.isFinite(Number(config.retryMaxAttempts))
+      ? Math.max(1, Number(config.retryMaxAttempts))
+      : 2;
+    node.retryDelayMs = Number.isFinite(Number(config.retryDelayMs))
+      ? Math.max(0, Number(config.retryDelayMs))
+      : 3000;
+    node.retryOnError = config.retryOnError === "all" ? "all" : "transient";
+
+    // output_format (issue #23): fully opt-in, JSON-Schema-as-text config
+    // field. Compiled once here (deploy time), not per-execution -- a bad
+    // schema or an adapter that doesn't support structured output at all
+    // (capabilities.structuredOutput === false) sets node.outputFormatError,
+    // which the input handler below checks before ever building an
+    // execution, mirroring the existing srtSettingsError deploy-time-
+    // validation pattern above.
+    node.outputFormat = config.outputFormat !== undefined ? config.outputFormat : "";
+    node.compiledOutputFormat = undefined; // AJV validate fn, if configured+valid
+    node.outputFormatSchema = undefined; // parsed schema object, if configured+valid
+    node.outputFormatError = undefined;
+
+    if (node.outputFormat && String(node.outputFormat).trim()) {
+      let schema;
+      try {
+        schema = JSON.parse(node.outputFormat);
+      } catch (err) {
+        node.outputFormatError = `invalid output_format schema: ${err.message}`;
+      }
+      if (!node.outputFormatError) {
+        const compiled = compileOutputFormat(schema);
+        if (compiled.error) {
+          node.outputFormatError = `invalid output_format schema: ${compiled.error}`;
+        } else {
+          node.compiledOutputFormat = compiled.validate;
+          node.outputFormatSchema = schema;
+        }
+      }
+      if (!node.outputFormatError && AGENTS[node.agent]) {
+        const capabilities = getCapabilities(AGENTS[node.agent]());
+        if (capabilities.structuredOutput === false) {
+          node.outputFormatError = `output_format not supported by ${node.agent}`;
+        }
+      }
+      if (node.outputFormatError) {
+        node.error(`agent: ${node.outputFormatError}`);
+        node.status({ fill: "red", shape: "ring", text: node.outputFormatError });
+      }
+    }
 
     node.srtBinary = config.srtBinary || "";
     node.srtSettingsMode = config.srtSettingsMode || "file";
@@ -190,8 +277,15 @@ module.exports = function (RED) {
       };
     }
 
-    function emitEvent(send, msg, executionId, type, agentName, cwd) {
-      send([null, lifecycleEnvelope(msg, executionId, { type }, agentName, cwd)]);
+    // `extra` (e.g. { costUsd, tokens } -- see startExecution/onSettled
+    // below) is merged into the { type } payload only when provided, so
+    // every other emitEvent call site (queued/cancelled/running/etc.)
+    // keeps its existing { type }-only payload shape unchanged.
+    function emitEvent(send, msg, executionId, type, agentName, cwd, extra) {
+      send([
+        null,
+        lifecycleEnvelope(msg, executionId, Object.assign({ type }, extra), agentName, cwd),
+      ]);
     }
 
     // The actual work for one execution. Only ever invoked by the
@@ -201,40 +295,236 @@ module.exports = function (RED) {
       const { executionId, msg, send, done, resolved } = item;
       const adapter = AGENTS[node.agent]();
       const runtime = buildRuntime(node);
+      const capabilities = getCapabilities(adapter);
 
-      return runAgent({
-        adapter,
-        runtime,
-        resolved,
-        executionId,
-        onEvent: (event) => {
-          send([
-            null,
-            lifecycleEnvelope(msg, executionId, event, resolved.agentName, resolved.cwd),
-          ]);
-        },
-        onStatus: (status) => {
-          if (status === "running") {
-            emitEvent(send, msg, executionId, "running", resolved.agentName, resolved.cwd);
-          } else {
-            // Terminal (completed/failed/timeout): stash rather
-            // than emit immediately -- the scheduler hasn't
-            // removed this execution from `active` yet at this
-            // point, so the active/queued counts on the
-            // envelope would be stale by one. onSettled (below)
-            // emits it once the scheduler's own bookkeeping,
-            // including any newly-started queued item, is
-            // fully settled.
-            item.finalStatus = status;
+      // Capability-gated warn-and-drop (issue #25): a field the user
+      // configured but this adapter doesn't actually wire up gets exactly
+      // one node.warn per run here -- never a hard error, and never a
+      // silent no-op either. Adapters themselves only ever act on these
+      // fields when their own CAPABILITIES flag agrees (see opencode.js/
+      // pi.js), so this is the single place responsible for surfacing
+      // the "ignored" case to the flow author.
+      function warnUnsupported(field, isSet, supported) {
+        if (isSet && !supported) {
+          node.warn(`${field} is not supported by the ${node.agent} adapter and will be ignored`);
+        }
+      }
+      warnUnsupported("systemPrompt", !!resolved.systemPrompt, capabilities.systemPromptControl);
+      warnUnsupported("effort", !!resolved.effort, capabilities.effortControl);
+      warnUnsupported(
+        "allowed_tools",
+        Array.isArray(resolved.allowedTools) && resolved.allowedTools.length > 0,
+        capabilities.toolRestrictions,
+      );
+      warnUnsupported(
+        "denied_tools",
+        Array.isArray(resolved.deniedTools) && resolved.deniedTools.length > 0,
+        capabilities.toolRestrictions,
+      );
+
+      function invoke(currentResolved) {
+        return runAgent({
+          adapter,
+          runtime,
+          resolved: currentResolved,
+          executionId,
+          onEvent: (event) => {
+            send([
+              null,
+              lifecycleEnvelope(msg, executionId, event, resolved.agentName, resolved.cwd),
+            ]);
+          },
+          onStatus: (status) => {
+            if (status === "running") {
+              emitEvent(send, msg, executionId, "running", resolved.agentName, resolved.cwd);
+            } else {
+              // Terminal (completed/failed/timeout): stash rather
+              // than emit immediately -- the scheduler hasn't
+              // removed this execution from `active` yet at this
+              // point, so the active/queued counts on the
+              // envelope would be stale by one. onSettled (below)
+              // emits it once the scheduler's own bookkeeping,
+              // including any newly-started queued item, is
+              // fully settled.
+              item.finalStatus = status;
+            }
+          },
+        });
+      }
+
+      // output_format (issue #23): only ever engaged for prompt invocation
+      // with a compiled schema (deploy-time-validated -- see the
+      // constructor above). Runs the adapter once with the prompt
+      // augmented to ask for schema-matching JSON, then parses+validates
+      // the result; on failure, best-effort adapters (capabilities.
+      // structuredOutput === "best-effort") get up to
+      // STRUCTURED_OUTPUT_MAX_REASKS additional turns (reusing the prior
+      // sessionID when capabilities.sessionResume is true, so context
+      // isn't lost) before the whole execution is reported as failed --
+      // it must never silently fall back to raw, unvalidated text.
+      const outputFormat = node.compiledOutputFormat
+        ? { validate: node.compiledOutputFormat, schema: node.outputFormatSchema }
+        : undefined;
+      const structuredEnabled = !!outputFormat && resolved.invocation === "prompt";
+
+      async function executeWithStructuredOutput(execResolved) {
+        const firstResolved = structuredEnabled
+          ? Object.assign({}, execResolved, {
+              prompt: augmentPromptForSchema(execResolved.prompt, outputFormat.schema),
+            })
+          : execResolved;
+
+        let result = await invoke(firstResolved);
+        if (!structuredEnabled || result.status !== "completed") return result;
+
+        let parsed = tryParseStructuredOutput(result.payload);
+        let valid = parsed !== undefined && outputFormat.validate(parsed);
+        let lastErrors = outputFormat.validate.errors;
+        let attempts = 0;
+        const maxReasks =
+          capabilities.structuredOutput === "best-effort" ? STRUCTURED_OUTPUT_MAX_REASKS : 0;
+
+        while (!valid && attempts < maxReasks) {
+          attempts += 1;
+          const reaskResolved = Object.assign({}, execResolved, {
+            prompt: buildReaskPrompt(execResolved.prompt, outputFormat.schema, lastErrors),
+            sessionID:
+              capabilities.sessionResume && result.sessionID
+                ? result.sessionID
+                : execResolved.sessionID,
+          });
+          result = await invoke(reaskResolved);
+          if (result.status !== "completed") break;
+          parsed = tryParseStructuredOutput(result.payload);
+          valid = parsed !== undefined && outputFormat.validate(parsed);
+          lastErrors = outputFormat.validate.errors;
+        }
+
+        if (!valid) {
+          const errText =
+            lastErrors && lastErrors.length
+              ? lastErrors.map((e) => `${e.instancePath || "(root)"} ${e.message}`).join("; ")
+              : "response was not valid JSON matching output_format";
+          return Object.assign({}, result, {
+            status: "failed",
+            errorMessage: `output_format validation failed after ${attempts} reask(s): ${errText}`,
+          });
+        }
+
+        return Object.assign({}, result, { structuredOutput: parsed });
+      }
+
+      function delay(ms) {
+        return new Promise((resolve) => setTimeout(resolve, ms));
+      }
+
+      // Node-level retry (issue #24): a whole executeWithStructuredOutput()
+      // call (first attempt + any reasks) counts as one "attempt" here --
+      // retries only kick in once that entire pipeline has settled on a
+      // final failed/timeout result. Runs inside this one scheduler slot
+      // (see the module header comment on ExecutionScheduler's contract)
+      // -- never re-`submit()`s to the scheduler, so no duplicate
+      // queued/running events and no extra slot churn.
+      async function executeWithRetry() {
+        let currentResolved = resolved;
+        let attempt = 1;
+        for (;;) {
+          const result = await executeWithStructuredOutput(currentResolved);
+          const isTerminalFailure = result.status === "failed" || result.status === "timeout";
+          if (
+            !isTerminalFailure ||
+            attempt >= node.retryMaxAttempts ||
+            !shouldRetry(result, node.retryOnError)
+          ) {
+            return result;
           }
-        },
-      })
+
+          attempt += 1;
+          emitEvent(send, msg, executionId, "retrying", resolved.agentName, resolved.cwd, {
+            attempt,
+            maxAttempts: node.retryMaxAttempts,
+          });
+
+          if (node.retryDelayMs > 0) await delay(node.retryDelayMs);
+
+          // Session-reuse-on-retry: only when the adapter can actually
+          // resume a session (capabilities.sessionResume, e.g. opencode)
+          // and the failed attempt got far enough to mint one -- pi
+          // (sessionResume: false) always retries sessionless, unchanged.
+          currentResolved =
+            capabilities.sessionResume && result.sessionID
+              ? Object.assign({}, currentResolved, { sessionID: result.sessionID })
+              : currentResolved;
+        }
+      }
+
+      return executeWithRetry()
         .then((result) => {
           node.lastTerminal = result.status;
           node.lastText = undefined;
 
+          // output_format success (issue #23): canonicalize msg.payload to
+          // the parsed-then-restringified JSON text (not the adapter's
+          // possibly fence-wrapped/padded raw text), and stash the parsed
+          // object separately on agentExecution below.
+          if (
+            structuredEnabled &&
+            result.status === "completed" &&
+            result.structuredOutput !== undefined
+          ) {
+            result = Object.assign({}, result, {
+              payload: JSON.stringify(result.structuredOutput),
+            });
+          }
+
+          const agentExecution = {
+            id: executionId,
+            status: result.status,
+            exitCode: result.exitCode,
+            signal: result.signal,
+            timedOut: result.timedOut,
+            durationMs: result.durationMs,
+            sessionID: result.sessionID,
+            // Raw error object from the adapter (e.g. opencode's full
+            // {"type":"error"} payload, or pi's failing assistant
+            // message) when the run failed -- the `done(err)` string
+            // below only carries a single summarized message/name, so
+            // anything needing the fuller detail (extra fields the
+            // adapter didn't fold into errorMessage) should wire a
+            // Debug node to output 1 and inspect this field.
+            errorDetail: result.errorDetail,
+          };
+          if (structuredEnabled && result.structuredOutput !== undefined) {
+            agentExecution.structuredOutput = result.structuredOutput;
+            agentExecution.declaredFields = Object.keys(
+              (outputFormat.schema && outputFormat.schema.properties) || {},
+            );
+          }
+
+          // Only adapters declaring costReporting (see
+          // lib/agents/capabilities.js) ever populate result.costUsd/
+          // .tokens (e.g. opencode.js's parseResult) -- checking the
+          // capability first, rather than just `!== undefined`, means an
+          // adapter that isn't wired for this can never leak a stray
+          // key even if its result object happens to carry one.
+          let usage;
+          if (capabilities.costReporting) {
+            if (result.costUsd !== undefined) agentExecution.costUsd = result.costUsd;
+            if (result.tokens !== undefined) agentExecution.tokens = result.tokens;
+            if (agentExecution.costUsd !== undefined || agentExecution.tokens !== undefined) {
+              usage = {};
+              if (agentExecution.costUsd !== undefined) usage.costUsd = agentExecution.costUsd;
+              if (agentExecution.tokens !== undefined) usage.tokens = agentExecution.tokens;
+            }
+          }
+          // Stashed for onSettled below (the deferred terminal lifecycle
+          // event on output 2, see the onStatus comment above) -- by the
+          // time onSettled fires this Promise has already resolved, so
+          // item.finalUsage is guaranteed to be set.
+          item.finalUsage = usage;
+
           const resultMsg = Object.assign({}, msg, {
-            payload: result.payload,
+            payload: result.status === "completed" ? result.payload : null,
             agent: node.agent,
             runtime: node.runtime,
             agentId: node.id,
@@ -245,23 +535,7 @@ module.exports = function (RED) {
             // (default) Session ID field -- msg.sessionID -- of
             // this or another agent node with no extra wiring.
             sessionID: result.sessionID,
-            agentExecution: {
-              id: executionId,
-              status: result.status,
-              exitCode: result.exitCode,
-              signal: result.signal,
-              timedOut: result.timedOut,
-              durationMs: result.durationMs,
-              sessionID: result.sessionID,
-              // Raw error object from the adapter (e.g. opencode's full
-              // {"type":"error"} payload, or pi's failing assistant
-              // message) when the run failed -- the `done(err)` string
-              // below only carries a single summarized message/name, so
-              // anything needing the fuller detail (extra fields the
-              // adapter didn't fold into errorMessage) should wire a
-              // Debug node to output 1 and inspect this field.
-              errorDetail: result.errorDetail,
-            },
+            agentExecution,
           });
           send([resultMsg, null]);
 
@@ -309,6 +583,7 @@ module.exports = function (RED) {
             item.finalStatus,
             item.resolved.agentName,
             item.resolved.cwd,
+            item.finalUsage,
           );
         }
         updateStatus();
@@ -391,6 +666,14 @@ module.exports = function (RED) {
         return;
       }
 
+      if (node.outputFormatError) {
+        node.lastTerminal = "failed";
+        node.lastText = "bad output_format";
+        updateStatus();
+        done(new Error(`agent: ${node.outputFormatError}`));
+        return;
+      }
+
       if (msg.operation === "terminate") {
         handleTerminateOperation(msg, send, done);
         return;
@@ -420,7 +703,20 @@ module.exports = function (RED) {
               : undefined,
           args:
             node.invocation !== "prompt"
-              ? resolveTyped(node.arguments_, node.argumentsType, msg, msg.payload)
+              ? (() => {
+                  const raw = resolveTyped(node.arguments_, node.argumentsType, msg, msg.payload);
+                  if (typeof raw !== "string" || node.inputs.length === 0) return raw;
+                  const inputsMap = {};
+                  node.inputs.forEach((entry) => {
+                    inputsMap[entry.name] = resolveTyped(
+                      entry.value,
+                      entry.valueType || "msg",
+                      msg,
+                      "",
+                    );
+                  });
+                  return substituteInputs(raw, inputsMap);
+                })()
               : undefined,
           cwd: (() => {
             const v = resolveTyped(node.cwd, node.cwdType, msg, "");
@@ -443,6 +739,16 @@ module.exports = function (RED) {
               : num * 1000;
           })(),
           mcpServers: node.mcpServers,
+          systemPrompt: (() => {
+            const v = resolveTyped(node.systemPrompt, node.systemPromptType, msg, "");
+            return v === undefined || v === null ? "" : String(v).trim();
+          })(),
+          effort: (() => {
+            const v = resolveTyped(node.effort, node.effortType, msg, "");
+            return v === undefined || v === null ? "" : String(v).trim();
+          })(),
+          allowedTools: node.allowedTools,
+          deniedTools: node.deniedTools,
         };
       } catch (err) {
         node.lastTerminal = "failed";

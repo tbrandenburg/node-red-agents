@@ -56,6 +56,14 @@ commands (`make help`).
   in our own workflows up to date; `data/`/`demo/`'s own `package-lock.json`
   files are intentionally excluded since they're gitignored/regenerable
   local dev state, not durable Dependabot targets.
+  `.github/workflows/dependabot-auto-merge.yml` requests GitHub's native
+  auto-merge (not an instant merge -- it still waits on the branch
+  ruleset's required status checks: Format + Lint, Unit + Integration, E2E)
+  for Dependabot PRs that are patch/minor bumps of dev dependencies or
+  GitHub Actions only. Production dependency bumps and any major bump
+  (dev or prod) are deliberately excluded and always need a human to
+  merge, since those are the changes most likely to carry breaking or
+  security-relevant behavior for consumers of the published package.
 
 ## Releasing
 

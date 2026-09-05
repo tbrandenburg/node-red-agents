@@ -480,3 +480,194 @@ test("a configured effort is forwarded (not warned) for the opencode adapter and
     .args.filter((a) => a[0].level === 30 && /effort is not supported/.test(a[0].msg));
   assert.equal(warnCalls.length, 0, "opencode supports effort -- no warning expected");
 });
+
+// issue #23: output_format (JSON Schema) + AJV validation + best-effort
+// reask loop. All three fixtures below are fixed opencode CLI stand-ins
+// under ../fixtures/structured-output-*; see each fixture's own header
+// comment for exactly what it emits and why.
+const OUTPUT_FORMAT_SCHEMA = {
+  type: "object",
+  properties: { answer: { type: "string" } },
+  required: ["answer"],
+};
+
+test("output_format: valid JSON on the first attempt sets canonical payload + agentExecution.structuredOutput (issue #23)", async () => {
+  const FIXTURES = path.join(FIXTURES_DIR, "structured-output-valid");
+  const priorPath = process.env.PATH;
+  process.env.PATH = FIXTURES + path.delimiter + priorPath;
+
+  const flow = [
+    {
+      id: "n1",
+      type: "agent",
+      name: "agent",
+      agent: "opencode",
+      runtime: "direct",
+      invocation: "prompt",
+      prompt: "payload",
+      promptType: "msg",
+      outputFormat: JSON.stringify(OUTPUT_FORMAT_SCHEMA),
+      wires: [["n2"], []],
+    },
+    { id: "n2", type: "helper" },
+  ];
+  try {
+    await helper.load(agentNode, flow);
+    const n1 = helper.getNode("n1");
+    const n2 = helper.getNode("n2");
+
+    const received = await new Promise((resolve, reject) => {
+      n2.on("input", resolve);
+      n1.receive({ payload: "give me an answer" });
+      setTimeout(() => reject(new Error("timed out waiting for agent node output")), 5000).unref();
+    });
+
+    assert.equal(received.payload, JSON.stringify({ answer: "hello" }));
+    assert.equal(received.agentExecution.status, "completed");
+    assert.deepEqual(received.agentExecution.structuredOutput, { answer: "hello" });
+    assert.deepEqual(received.agentExecution.declaredFields, ["answer"]);
+  } finally {
+    process.env.PATH = priorPath;
+  }
+});
+
+test("output_format: invalid JSON that becomes valid on a reask retry still succeeds (issue #23)", async () => {
+  const FIXTURES = path.join(FIXTURES_DIR, "structured-output-reask");
+  const priorPath = process.env.PATH;
+  process.env.PATH = FIXTURES + path.delimiter + priorPath;
+
+  const flow = [
+    {
+      id: "n1",
+      type: "agent",
+      name: "agent",
+      agent: "opencode",
+      runtime: "direct",
+      invocation: "prompt",
+      prompt: "payload",
+      promptType: "msg",
+      outputFormat: JSON.stringify(OUTPUT_FORMAT_SCHEMA),
+      wires: [["n2"], []],
+    },
+    { id: "n2", type: "helper" },
+  ];
+  try {
+    await helper.load(agentNode, flow);
+    const n1 = helper.getNode("n1");
+    const n2 = helper.getNode("n2");
+
+    const received = await new Promise((resolve, reject) => {
+      n2.on("input", resolve);
+      n1.receive({ payload: "give me an answer" });
+      setTimeout(() => reject(new Error("timed out waiting for agent node output")), 5000).unref();
+    });
+
+    assert.equal(received.payload, JSON.stringify({ answer: "hello" }));
+    assert.equal(received.agentExecution.status, "completed");
+    assert.deepEqual(received.agentExecution.structuredOutput, { answer: "hello" });
+  } finally {
+    process.env.PATH = priorPath;
+  }
+});
+
+test("output_format: never producing valid JSON within the reask budget fails with a null payload (issue #23)", async () => {
+  const FIXTURES = path.join(FIXTURES_DIR, "structured-output-never-valid");
+  const priorPath = process.env.PATH;
+  process.env.PATH = FIXTURES + path.delimiter + priorPath;
+
+  const flow = [
+    {
+      id: "n1",
+      type: "agent",
+      name: "agent",
+      agent: "opencode",
+      runtime: "direct",
+      invocation: "prompt",
+      prompt: "payload",
+      promptType: "msg",
+      outputFormat: JSON.stringify(OUTPUT_FORMAT_SCHEMA),
+      wires: [["n2"], []],
+    },
+    { id: "n2", type: "helper" },
+  ];
+  try {
+    await helper.load(agentNode, flow);
+    const n1 = helper.getNode("n1");
+    const n2 = helper.getNode("n2");
+
+    const received = await new Promise((resolve, reject) => {
+      n2.on("input", resolve);
+      n1.receive({ payload: "give me an answer" });
+      setTimeout(() => reject(new Error("timed out waiting for agent node output")), 5000).unref();
+    });
+
+    assert.equal(received.payload, null, "a failed run must never leak its raw text");
+    assert.equal(received.agentExecution.status, "failed");
+    assert.ok(!("structuredOutput" in received.agentExecution));
+  } finally {
+    process.env.PATH = priorPath;
+  }
+});
+
+test("output_format unset: zero behavior change (no structuredOutput/declaredFields keys)", async () => {
+  const flow = [
+    {
+      id: "n1",
+      type: "agent",
+      name: "agent",
+      agent: "opencode",
+      runtime: "direct",
+      invocation: "prompt",
+      prompt: "payload",
+      promptType: "msg",
+      wires: [["n2"], []],
+    },
+    { id: "n2", type: "helper" },
+  ];
+  await helper.load(agentNode, flow);
+  const n1 = helper.getNode("n1");
+  const n2 = helper.getNode("n2");
+
+  const received = await new Promise((resolve, reject) => {
+    n2.on("input", resolve);
+    n1.receive({ payload: "say hello" });
+    setTimeout(() => reject(new Error("timed out waiting for agent node output")), 5000).unref();
+  });
+
+  assert.equal(received.payload, "hello from fake opencode");
+  assert.ok(!("structuredOutput" in received.agentExecution));
+  assert.ok(!("declaredFields" in received.agentExecution));
+});
+
+test("output_format: an invalid JSON Schema at deploy time sets a red status and refuses to run (issue #23)", async () => {
+  const flow = [
+    {
+      id: "n1",
+      type: "agent",
+      name: "agent",
+      agent: "opencode",
+      runtime: "direct",
+      invocation: "prompt",
+      prompt: "payload",
+      promptType: "msg",
+      outputFormat: "{ not valid json",
+      wires: [["n2"], []],
+    },
+    { id: "n2", type: "helper" },
+  ];
+  await helper.load(agentNode, flow);
+  const n1 = helper.getNode("n1");
+
+  assert.match(n1.outputFormatError, /invalid output_format schema/);
+
+  const done = await new Promise((resolve) => {
+    n1.receive({ payload: "say hello" });
+    setTimeout(() => resolve(), 200).unref();
+  });
+  void done;
+
+  const errorLogs = helper
+    .log()
+    .args.filter((a) => a[0].level === 20 && /invalid output_format schema/.test(a[0].msg));
+  assert.ok(errorLogs.length >= 1, "deploy-time bad schema logs an error");
+});

@@ -144,6 +144,25 @@
         allowedTools: { value: [] },
         deniedTools: { value: [] },
 
+        // output_format (issue #23): raw JSON-Schema text, fully opt-in
+        // (default empty/disabled). Only checked for well-formed JSON
+        // here (client-side) -- the actual AJV schema compile + capability
+        // gate happens server-side at deploy time (see agent.js), same
+        // division of labor as srtAdvancedJson below.
+        outputFormat: {
+          value: "",
+          validate: function (v) {
+            if (!v || !v.trim()) return true;
+            try {
+              JSON.parse(v);
+              return true;
+            } catch (err) {
+              return false;
+            }
+          },
+        },
+
+
         srtBinary: { value: "" },
         srtSettingsMode: { value: "file" },
         srtSettingsPath: { value: "" },
@@ -732,6 +751,23 @@
       ></i>
     </label>
     <ol id="node-input-deniedTools-list"></ol>
+  </div>
+
+  <div class="form-row">
+    <label
+      ><i class="fa fa-code"></i> Output format (JSON Schema)
+      <i
+        class="fa fa-info-circle"
+        style="color:#888; cursor:help; margin-left:4px;"
+        title="Optional. If set, the prompt is augmented to ask for JSON matching this schema, the response is validated with AJV, and (both adapters today) up to 3 reask turns are attempted on failure. Leave blank to disable (default)."
+      ></i>
+    </label>
+    <textarea
+      id="node-input-outputFormat"
+      rows="4"
+      style="width:100%; font-family:monospace;"
+      placeholder='e.g. {"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"]}'
+    ></textarea>
   </div>
 </script>
 

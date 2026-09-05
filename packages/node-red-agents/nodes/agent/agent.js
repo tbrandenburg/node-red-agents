@@ -8,6 +8,13 @@ const { runAgent } = require("./lib/execution/lifecycle");
 const { ExecutionScheduler } = require("./lib/execution/scheduler");
 const { computeNodeStatus } = require("./lib/execution/status");
 const { getCapabilities } = require("./lib/agents/capabilities");
+const {
+  STRUCTURED_OUTPUT_MAX_REASKS,
+  compileOutputFormat,
+  tryParseStructuredOutput,
+  augmentPromptForSchema,
+  buildReaskPrompt,
+} = require("./lib/execution/structured-output");
 
 // Registries. Adding a future adapter/runtime is just one more entry here --
 // nothing else in this file (or in lib/execution/lifecycle.js) needs to
@@ -98,6 +105,46 @@ module.exports = function (RED) {
 
     node.allowedTools = Array.isArray(config.allowedTools) ? config.allowedTools : [];
     node.deniedTools = Array.isArray(config.deniedTools) ? config.deniedTools : [];
+
+    // output_format (issue #23): fully opt-in, JSON-Schema-as-text config
+    // field. Compiled once here (deploy time), not per-execution -- a bad
+    // schema or an adapter that doesn't support structured output at all
+    // (capabilities.structuredOutput === false) sets node.outputFormatError,
+    // which the input handler below checks before ever building an
+    // execution, mirroring the existing srtSettingsError deploy-time-
+    // validation pattern above.
+    node.outputFormat = config.outputFormat !== undefined ? config.outputFormat : "";
+    node.compiledOutputFormat = undefined; // AJV validate fn, if configured+valid
+    node.outputFormatSchema = undefined; // parsed schema object, if configured+valid
+    node.outputFormatError = undefined;
+
+    if (node.outputFormat && String(node.outputFormat).trim()) {
+      let schema;
+      try {
+        schema = JSON.parse(node.outputFormat);
+      } catch (err) {
+        node.outputFormatError = `invalid output_format schema: ${err.message}`;
+      }
+      if (!node.outputFormatError) {
+        const compiled = compileOutputFormat(schema);
+        if (compiled.error) {
+          node.outputFormatError = `invalid output_format schema: ${compiled.error}`;
+        } else {
+          node.compiledOutputFormat = compiled.validate;
+          node.outputFormatSchema = schema;
+        }
+      }
+      if (!node.outputFormatError && AGENTS[node.agent]) {
+        const capabilities = getCapabilities(AGENTS[node.agent]());
+        if (capabilities.structuredOutput === false) {
+          node.outputFormatError = `output_format not supported by ${node.agent}`;
+        }
+      }
+      if (node.outputFormatError) {
+        node.error(`agent: ${node.outputFormatError}`);
+        node.status({ fill: "red", shape: "ring", text: node.outputFormatError });
+      }
+    }
 
     node.srtBinary = config.srtBinary || "";
     node.srtSettingsMode = config.srtSettingsMode || "file";
@@ -251,36 +298,116 @@ module.exports = function (RED) {
         capabilities.toolRestrictions,
       );
 
-      return runAgent({
-        adapter,
-        runtime,
-        resolved,
-        executionId,
-        onEvent: (event) => {
-          send([
-            null,
-            lifecycleEnvelope(msg, executionId, event, resolved.agentName, resolved.cwd),
-          ]);
-        },
-        onStatus: (status) => {
-          if (status === "running") {
-            emitEvent(send, msg, executionId, "running", resolved.agentName, resolved.cwd);
-          } else {
-            // Terminal (completed/failed/timeout): stash rather
-            // than emit immediately -- the scheduler hasn't
-            // removed this execution from `active` yet at this
-            // point, so the active/queued counts on the
-            // envelope would be stale by one. onSettled (below)
-            // emits it once the scheduler's own bookkeeping,
-            // including any newly-started queued item, is
-            // fully settled.
-            item.finalStatus = status;
-          }
-        },
-      })
+      function invoke(currentResolved) {
+        return runAgent({
+          adapter,
+          runtime,
+          resolved: currentResolved,
+          executionId,
+          onEvent: (event) => {
+            send([
+              null,
+              lifecycleEnvelope(msg, executionId, event, resolved.agentName, resolved.cwd),
+            ]);
+          },
+          onStatus: (status) => {
+            if (status === "running") {
+              emitEvent(send, msg, executionId, "running", resolved.agentName, resolved.cwd);
+            } else {
+              // Terminal (completed/failed/timeout): stash rather
+              // than emit immediately -- the scheduler hasn't
+              // removed this execution from `active` yet at this
+              // point, so the active/queued counts on the
+              // envelope would be stale by one. onSettled (below)
+              // emits it once the scheduler's own bookkeeping,
+              // including any newly-started queued item, is
+              // fully settled.
+              item.finalStatus = status;
+            }
+          },
+        });
+      }
+
+      // output_format (issue #23): only ever engaged for prompt invocation
+      // with a compiled schema (deploy-time-validated -- see the
+      // constructor above). Runs the adapter once with the prompt
+      // augmented to ask for schema-matching JSON, then parses+validates
+      // the result; on failure, best-effort adapters (capabilities.
+      // structuredOutput === "best-effort") get up to
+      // STRUCTURED_OUTPUT_MAX_REASKS additional turns (reusing the prior
+      // sessionID when capabilities.sessionResume is true, so context
+      // isn't lost) before the whole execution is reported as failed --
+      // it must never silently fall back to raw, unvalidated text.
+      const outputFormat = node.compiledOutputFormat
+        ? { validate: node.compiledOutputFormat, schema: node.outputFormatSchema }
+        : undefined;
+      const structuredEnabled = !!outputFormat && resolved.invocation === "prompt";
+
+      async function executeWithStructuredOutput() {
+        const firstResolved = structuredEnabled
+          ? Object.assign({}, resolved, {
+              prompt: augmentPromptForSchema(resolved.prompt, outputFormat.schema),
+            })
+          : resolved;
+
+        let result = await invoke(firstResolved);
+        if (!structuredEnabled || result.status !== "completed") return result;
+
+        let parsed = tryParseStructuredOutput(result.payload);
+        let valid = parsed !== undefined && outputFormat.validate(parsed);
+        let lastErrors = outputFormat.validate.errors;
+        let attempts = 0;
+        const maxReasks =
+          capabilities.structuredOutput === "best-effort" ? STRUCTURED_OUTPUT_MAX_REASKS : 0;
+
+        while (!valid && attempts < maxReasks) {
+          attempts += 1;
+          const reaskResolved = Object.assign({}, resolved, {
+            prompt: buildReaskPrompt(resolved.prompt, outputFormat.schema, lastErrors),
+            sessionID:
+              capabilities.sessionResume && result.sessionID
+                ? result.sessionID
+                : resolved.sessionID,
+          });
+          result = await invoke(reaskResolved);
+          if (result.status !== "completed") break;
+          parsed = tryParseStructuredOutput(result.payload);
+          valid = parsed !== undefined && outputFormat.validate(parsed);
+          lastErrors = outputFormat.validate.errors;
+        }
+
+        if (!valid) {
+          const errText =
+            lastErrors && lastErrors.length
+              ? lastErrors.map((e) => `${e.instancePath || "(root)"} ${e.message}`).join("; ")
+              : "response was not valid JSON matching output_format";
+          return Object.assign({}, result, {
+            status: "failed",
+            errorMessage: `output_format validation failed after ${attempts} reask(s): ${errText}`,
+          });
+        }
+
+        return Object.assign({}, result, { structuredOutput: parsed });
+      }
+
+      return executeWithStructuredOutput()
         .then((result) => {
           node.lastTerminal = result.status;
           node.lastText = undefined;
+
+          // output_format success (issue #23): canonicalize msg.payload to
+          // the parsed-then-restringified JSON text (not the adapter's
+          // possibly fence-wrapped/padded raw text), and stash the parsed
+          // object separately on agentExecution below.
+          if (
+            structuredEnabled &&
+            result.status === "completed" &&
+            result.structuredOutput !== undefined
+          ) {
+            result = Object.assign({}, result, {
+              payload: JSON.stringify(result.structuredOutput),
+            });
+          }
 
           const agentExecution = {
             id: executionId,
@@ -299,6 +426,13 @@ module.exports = function (RED) {
             // Debug node to output 1 and inspect this field.
             errorDetail: result.errorDetail,
           };
+          if (structuredEnabled && result.structuredOutput !== undefined) {
+            agentExecution.structuredOutput = result.structuredOutput;
+            agentExecution.declaredFields = Object.keys(
+              (outputFormat.schema && outputFormat.schema.properties) || {},
+            );
+          }
+
           // Only adapters declaring costReporting (see
           // lib/agents/capabilities.js) ever populate result.costUsd/
           // .tokens (e.g. opencode.js's parseResult) -- checking the
@@ -461,6 +595,14 @@ module.exports = function (RED) {
         node.lastText = "bad srt settings";
         updateStatus();
         done(new Error(`agent: ${node.srtSettingsError}`));
+        return;
+      }
+
+      if (node.outputFormatError) {
+        node.lastTerminal = "failed";
+        node.lastText = "bad output_format";
+        updateStatus();
+        done(new Error(`agent: ${node.outputFormatError}`));
         return;
       }
 

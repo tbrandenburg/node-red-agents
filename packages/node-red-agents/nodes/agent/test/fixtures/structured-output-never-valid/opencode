@@ -1,0 +1,17 @@
+#!/usr/bin/env node
+"use strict";
+
+// Stand-in for `opencode run --format json`, used only by the issue #23
+// output_format integration test covering the "never produces valid JSON
+// within the reask budget" path -- every attempt (first + all reasks)
+// returns unparseable text, so the node must end up reporting `status:
+// "failed"` with `payload: null` rather than exhausting the budget and
+// silently degrading to raw text.
+process.stdout.write(
+  JSON.stringify({
+    type: "text",
+    sessionID: "fake-session-id",
+    part: { text: "still not json" },
+  }) + "\n",
+);
+process.exit(0);

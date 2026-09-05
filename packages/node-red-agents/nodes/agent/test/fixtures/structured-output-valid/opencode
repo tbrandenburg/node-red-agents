@@ -1,0 +1,15 @@
+#!/usr/bin/env node
+"use strict";
+
+// Stand-in for `opencode run --format json`, used only by the issue #23
+// output_format integration test covering the "valid on first attempt"
+// path -- emits a single text event whose text is a JSON object that
+// validates against the test's schema straight away (no reask needed).
+process.stdout.write(
+  JSON.stringify({
+    type: "text",
+    sessionID: "fake-session-id",
+    part: { text: JSON.stringify({ answer: "hello" }) },
+  }) + "\n",
+);
+process.exit(0);

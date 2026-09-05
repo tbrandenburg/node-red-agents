@@ -205,6 +205,56 @@ test("parseResult: joins text parts, carries sessionID, completed on clean exit"
   assert.equal(result.status, "completed");
 });
 
+test("parseResult: sums cost/tokens across multiple step_finish events (issue #22)", () => {
+  const adapter = new OpenCodeAdapter();
+  const events = [
+    adapter.parseEvent(JSON.stringify({ type: "text", sessionID: "s1", part: { text: "hi" } })),
+    adapter.parseEvent(
+      JSON.stringify({
+        type: "step_finish",
+        sessionID: "s1",
+        part: {
+          type: "step-finish",
+          tokens: { total: 100, input: 90, output: 5, reasoning: 5, cache: { write: 1, read: 2 } },
+          cost: 0.001,
+        },
+      }),
+    ),
+    adapter.parseEvent(
+      JSON.stringify({
+        type: "step_finish",
+        sessionID: "s1",
+        part: {
+          type: "step-finish",
+          tokens: { total: 50, input: 40, output: 10, reasoning: 0, cache: { write: 0, read: 3 } },
+          cost: 0.002,
+        },
+      }),
+    ),
+  ];
+  const result = adapter.parseResult(events, 0, null, "");
+  assert.equal(result.status, "completed");
+  assert.equal(result.costUsd, 0.003);
+  assert.deepEqual(result.tokens, {
+    total: 150,
+    input: 130,
+    output: 15,
+    reasoning: 5,
+    cache: { write: 1, read: 5 },
+  });
+});
+
+test("parseResult: no costUsd/tokens keys at all when no step_finish event carried usage data (issue #22)", () => {
+  const adapter = new OpenCodeAdapter();
+  const events = [
+    adapter.parseEvent(JSON.stringify({ type: "text", sessionID: "s1", part: { text: "hi" } })),
+  ];
+  const result = adapter.parseResult(events, 0, null, "");
+  assert.equal(result.status, "completed");
+  assert.ok(!("costUsd" in result));
+  assert.ok(!("tokens" in result));
+});
+
 test("parseResult: clean exit (0) with no text/content events fails with a zero-output message (issue #21)", () => {
   const adapter = new OpenCodeAdapter();
   const events = [adapter.parseEvent(JSON.stringify({ type: "step_finish", sessionID: "s1" }))];

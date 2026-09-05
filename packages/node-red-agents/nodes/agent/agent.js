@@ -7,6 +7,7 @@ const { writeInlineSettingsFile } = require("../../shared/srt-settings");
 const { runAgent } = require("./lib/execution/lifecycle");
 const { ExecutionScheduler } = require("./lib/execution/scheduler");
 const { computeNodeStatus } = require("./lib/execution/status");
+const { getCapabilities } = require("./lib/agents/capabilities");
 
 // Registries. Adding a future adapter/runtime is just one more entry here --
 // nothing else in this file (or in lib/execution/lifecycle.js) needs to
@@ -190,8 +191,15 @@ module.exports = function (RED) {
       };
     }
 
-    function emitEvent(send, msg, executionId, type, agentName, cwd) {
-      send([null, lifecycleEnvelope(msg, executionId, { type }, agentName, cwd)]);
+    // `extra` (e.g. { costUsd, tokens } -- see startExecution/onSettled
+    // below) is merged into the { type } payload only when provided, so
+    // every other emitEvent call site (queued/cancelled/running/etc.)
+    // keeps its existing { type }-only payload shape unchanged.
+    function emitEvent(send, msg, executionId, type, agentName, cwd, extra) {
+      send([
+        null,
+        lifecycleEnvelope(msg, executionId, Object.assign({ type }, extra), agentName, cwd),
+      ]);
     }
 
     // The actual work for one execution. Only ever invoked by the
@@ -201,6 +209,7 @@ module.exports = function (RED) {
       const { executionId, msg, send, done, resolved } = item;
       const adapter = AGENTS[node.agent]();
       const runtime = buildRuntime(node);
+      const capabilities = getCapabilities(adapter);
 
       return runAgent({
         adapter,
@@ -233,6 +242,45 @@ module.exports = function (RED) {
           node.lastTerminal = result.status;
           node.lastText = undefined;
 
+          const agentExecution = {
+            id: executionId,
+            status: result.status,
+            exitCode: result.exitCode,
+            signal: result.signal,
+            timedOut: result.timedOut,
+            durationMs: result.durationMs,
+            sessionID: result.sessionID,
+            // Raw error object from the adapter (e.g. opencode's full
+            // {"type":"error"} payload, or pi's failing assistant
+            // message) when the run failed -- the `done(err)` string
+            // below only carries a single summarized message/name, so
+            // anything needing the fuller detail (extra fields the
+            // adapter didn't fold into errorMessage) should wire a
+            // Debug node to output 1 and inspect this field.
+            errorDetail: result.errorDetail,
+          };
+          // Only adapters declaring costReporting (see
+          // lib/agents/capabilities.js) ever populate result.costUsd/
+          // .tokens (e.g. opencode.js's parseResult) -- checking the
+          // capability first, rather than just `!== undefined`, means an
+          // adapter that isn't wired for this can never leak a stray
+          // key even if its result object happens to carry one.
+          let usage;
+          if (capabilities.costReporting) {
+            if (result.costUsd !== undefined) agentExecution.costUsd = result.costUsd;
+            if (result.tokens !== undefined) agentExecution.tokens = result.tokens;
+            if (agentExecution.costUsd !== undefined || agentExecution.tokens !== undefined) {
+              usage = {};
+              if (agentExecution.costUsd !== undefined) usage.costUsd = agentExecution.costUsd;
+              if (agentExecution.tokens !== undefined) usage.tokens = agentExecution.tokens;
+            }
+          }
+          // Stashed for onSettled below (the deferred terminal lifecycle
+          // event on output 2, see the onStatus comment above) -- by the
+          // time onSettled fires this Promise has already resolved, so
+          // item.finalUsage is guaranteed to be set.
+          item.finalUsage = usage;
+
           const resultMsg = Object.assign({}, msg, {
             payload: result.status === "completed" ? result.payload : null,
             agent: node.agent,
@@ -245,23 +293,7 @@ module.exports = function (RED) {
             // (default) Session ID field -- msg.sessionID -- of
             // this or another agent node with no extra wiring.
             sessionID: result.sessionID,
-            agentExecution: {
-              id: executionId,
-              status: result.status,
-              exitCode: result.exitCode,
-              signal: result.signal,
-              timedOut: result.timedOut,
-              durationMs: result.durationMs,
-              sessionID: result.sessionID,
-              // Raw error object from the adapter (e.g. opencode's full
-              // {"type":"error"} payload, or pi's failing assistant
-              // message) when the run failed -- the `done(err)` string
-              // below only carries a single summarized message/name, so
-              // anything needing the fuller detail (extra fields the
-              // adapter didn't fold into errorMessage) should wire a
-              // Debug node to output 1 and inspect this field.
-              errorDetail: result.errorDetail,
-            },
+            agentExecution,
           });
           send([resultMsg, null]);
 
@@ -309,6 +341,7 @@ module.exports = function (RED) {
             item.finalStatus,
             item.resolved.agentName,
             item.resolved.cwd,
+            item.finalUsage,
           );
         }
         updateStatus();

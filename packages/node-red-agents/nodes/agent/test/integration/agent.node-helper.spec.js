@@ -197,6 +197,137 @@ test("agentName/agentNameType set to msg falls back to the configured Name when 
   );
 });
 
+test("agentExecution.costUsd/tokens are surfaced for opencode runs whose step_finish events carry usage (issue #22)", async () => {
+  const WITH_USAGE_FIXTURES_DIR = path.join(FIXTURES_DIR, "with-usage");
+  const priorPath = process.env.PATH;
+  process.env.PATH = WITH_USAGE_FIXTURES_DIR + path.delimiter + priorPath;
+
+  const flow = [
+    {
+      id: "n1",
+      type: "agent",
+      name: "agent",
+      agent: "opencode",
+      runtime: "direct",
+      invocation: "prompt",
+      prompt: "payload",
+      promptType: "msg",
+      wires: [["n2"], ["n3"]],
+    },
+    { id: "n2", type: "helper" },
+    { id: "n3", type: "helper" },
+  ];
+  try {
+    await helper.load(agentNode, flow);
+    const n1 = helper.getNode("n1");
+    const n2 = helper.getNode("n2");
+    const n3 = helper.getNode("n3");
+
+    const events = [];
+    n3.on("input", (msg) => events.push(msg));
+
+    const received = await new Promise((resolve, reject) => {
+      n2.on("input", resolve);
+      n1.receive({ payload: "say hello" });
+      setTimeout(() => reject(new Error("timed out waiting for agent node output")), 5000).unref();
+    });
+
+    assert.equal(received.agentExecution.status, "completed");
+    assert.equal(received.agentExecution.costUsd, 0.012);
+    assert.deepEqual(received.agentExecution.tokens, {
+      total: 16456,
+      input: 16451,
+      output: 5,
+      reasoning: 0,
+      cache: { write: 0, read: 0 },
+    });
+
+    // The terminal lifecycle envelope (output 2) carries the same
+    // costUsd/tokens as agentExecution above. onSettled (agent.js) fires
+    // this asynchronously, slightly after the output-1 resultMsg above --
+    // see agent.js's onSettled comment -- so wait for it separately.
+    const terminalEvent = await new Promise((resolve, reject) => {
+      const existing = events.find((m) => m.payload && m.payload.type === "completed");
+      if (existing) {
+        resolve(existing);
+        return;
+      }
+      n3.on("input", (msg) => {
+        if (msg.payload && msg.payload.type === "completed") resolve(msg);
+      });
+      setTimeout(
+        () => reject(new Error("timed out waiting for terminal lifecycle event")),
+        5000,
+      ).unref();
+    });
+    assert.equal(terminalEvent.payload.costUsd, 0.012);
+    assert.deepEqual(terminalEvent.payload.tokens, received.agentExecution.tokens);
+  } finally {
+    process.env.PATH = priorPath;
+  }
+});
+
+test("agentExecution never includes costUsd/tokens keys for pi runs (costReporting capability is false, issue #22)", async () => {
+  const PI_FIXTURES_DIR = path.join(FIXTURES_DIR, "pi-fixture");
+  const priorPath = process.env.PATH;
+  process.env.PATH = PI_FIXTURES_DIR + path.delimiter + priorPath;
+
+  const flow = [
+    {
+      id: "n1",
+      type: "agent",
+      name: "agent",
+      agent: "pi",
+      runtime: "direct",
+      invocation: "prompt",
+      prompt: "payload",
+      promptType: "msg",
+      wires: [["n2"], ["n3"]],
+    },
+    { id: "n2", type: "helper" },
+    { id: "n3", type: "helper" },
+  ];
+  try {
+    await helper.load(agentNode, flow);
+    const n1 = helper.getNode("n1");
+    const n2 = helper.getNode("n2");
+    const n3 = helper.getNode("n3");
+
+    const events = [];
+    n3.on("input", (msg) => events.push(msg));
+
+    const received = await new Promise((resolve, reject) => {
+      n2.on("input", resolve);
+      n1.receive({ payload: "say hello" });
+      setTimeout(() => reject(new Error("timed out waiting for agent node output")), 5000).unref();
+    });
+
+    assert.equal(received.payload, "hello from fake pi");
+    assert.equal(received.agentExecution.status, "completed");
+    assert.ok(!("costUsd" in received.agentExecution), "pi must never gain a costUsd key");
+    assert.ok(!("tokens" in received.agentExecution), "pi must never gain a tokens key");
+
+    const terminalEvent = await new Promise((resolve, reject) => {
+      const existing = events.find((m) => m.payload && m.payload.type === "completed");
+      if (existing) {
+        resolve(existing);
+        return;
+      }
+      n3.on("input", (msg) => {
+        if (msg.payload && msg.payload.type === "completed") resolve(msg);
+      });
+      setTimeout(
+        () => reject(new Error("timed out waiting for terminal lifecycle event")),
+        5000,
+      ).unref();
+    });
+    assert.ok(!("costUsd" in terminalEvent.payload));
+    assert.ok(!("tokens" in terminalEvent.payload));
+  } finally {
+    process.env.PATH = priorPath;
+  }
+});
+
 test("a clean exit (0) with no assistant text is reported as failed with a null msg.payload (issue #21)", async () => {
   const EMPTY_FIXTURES_DIR = path.join(FIXTURES_DIR, "empty-output");
   const priorPath = process.env.PATH;

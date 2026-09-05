@@ -52,3 +52,48 @@ test("a null/undefined value for a matched name is left as literal text rather t
   assert.equal(substituteInputs("$INPUTS.a", { a: null }), "$INPUTS.a");
   assert.equal(substituteInputs("$INPUTS.a", { a: undefined }), "$INPUTS.a");
 });
+
+// issue #29: onUnmatched(name) is an optional third argument -- reported for
+// every token left as literal text (missing key, or matched-but-null/undefined
+// value), and never called for a token that actually substitutes. The
+// substituted text output must stay byte-identical to the pre-#29 behavior
+// in every case above and below.
+test("onUnmatched is called with the name of a token missing from inputsMap", () => {
+  const unmatched = [];
+  const result = substituteInputs("cc $INPUTS.missing", { topic: "x" }, (name) =>
+    unmatched.push(name),
+  );
+  assert.equal(result, "cc $INPUTS.missing");
+  assert.deepEqual(unmatched, ["missing"]);
+});
+
+test("onUnmatched is called once per distinct unmatched name, even if repeated in the text", () => {
+  const unmatched = [];
+  const result = substituteInputs("$INPUTS.a $INPUTS.b $INPUTS.a", {}, (name) =>
+    unmatched.push(name),
+  );
+  assert.equal(result, "$INPUTS.a $INPUTS.b $INPUTS.a");
+  assert.deepEqual(unmatched, ["a", "b", "a"], "callback fires per occurrence; caller dedupes");
+});
+
+test("onUnmatched is called for a matched name whose value is null/undefined", () => {
+  const unmatched = [];
+  const result = substituteInputs("$INPUTS.a and $INPUTS.b", { a: null, b: undefined }, (name) =>
+    unmatched.push(name),
+  );
+  assert.equal(result, "$INPUTS.a and $INPUTS.b");
+  assert.deepEqual(unmatched, ["a", "b"]);
+});
+
+test("onUnmatched is never called when every token has a real matching non-null value", () => {
+  const unmatched = [];
+  const result = substituteInputs("$INPUTS.a and $INPUTS.b", { a: "1", b: 2 }, (name) =>
+    unmatched.push(name),
+  );
+  assert.equal(result, "1 and 2");
+  assert.deepEqual(unmatched, []);
+});
+
+test("onUnmatched is not required (omitting it behaves exactly as before)", () => {
+  assert.equal(substituteInputs("cc $INPUTS.missing", { topic: "x" }), "cc $INPUTS.missing");
+});

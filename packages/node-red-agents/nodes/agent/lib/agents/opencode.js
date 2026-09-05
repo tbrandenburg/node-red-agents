@@ -75,6 +75,15 @@ class OpenCodeAdapter extends AgentAdapter {
     if (resolved.model) args.push("--model", resolved.model);
     if (resolved.auto) args.push("--auto");
 
+    // --variant <effort> -- verified working against a real `opencode run`
+    // invocation (see CAPABILITIES.effortControl below). systemPrompt has
+    // no verified CLI flag for this adapter (CAPABILITIES.systemPromptControl
+    // is false), so it's never forwarded here -- agent.js already warns and
+    // drops it before this is even called.
+    if (OpenCodeAdapter.CAPABILITIES.effortControl && resolved.effort) {
+      args.push("--variant", resolved.effort);
+    }
+
     // Skill and Command/Template invocation share the same underlying
     // opencode mechanism: skills are registered internally as commands
     // (source:"skill"), so `--command <name>` handles both -- verified
@@ -87,8 +96,36 @@ class OpenCodeAdapter extends AgentAdapter {
     }
 
     const env = {};
+    const opencodeConfig = {};
     if (Array.isArray(resolved.mcpServers) && resolved.mcpServers.length > 0) {
-      env.OPENCODE_CONFIG_CONTENT = JSON.stringify({ mcp: toOpenCodeMcp(resolved.mcpServers) });
+      opencodeConfig.mcp = toOpenCodeMcp(resolved.mcpServers);
+    }
+
+    // allowed_tools/denied_tools (issue #25): opencode has no direct
+    // `--tools` flag (unlike pi.js), but its config schema supports a
+    // per-agent `tools: { <name>: true|false }` map (verified against
+    // opencode's own agent docs). Rather than inventing a new delivery
+    // mechanism, this reuses the exact same OPENCODE_CONFIG_CONTENT env
+    // var already used for mcpServers above -- an ephemeral, per-process
+    // config the child process reads and that vanishes with it, with
+    // nothing left on disk to clean up (unlike the srt inline-settings
+    // temp file, which outlives the process and does need explicit
+    // unlinking). A fixed, unique-per-node agent name is defined as
+    // "primary" (required for `opencode run --agent <name>` to accept it)
+    // and selected via --agent.
+    const hasAllow = Array.isArray(resolved.allowedTools) && resolved.allowedTools.length > 0;
+    const hasDeny = Array.isArray(resolved.deniedTools) && resolved.deniedTools.length > 0;
+    if (OpenCodeAdapter.CAPABILITIES.toolRestrictions && (hasAllow || hasDeny)) {
+      const tools = {};
+      for (const name of resolved.deniedTools || []) tools[name] = false;
+      for (const name of resolved.allowedTools || []) tools[name] = true;
+      const agentName = "node-red-agent-tools";
+      opencodeConfig.agent = { [agentName]: { mode: "primary", tools } };
+      args.push("--agent", agentName);
+    }
+
+    if (Object.keys(opencodeConfig).length > 0) {
+      env.OPENCODE_CONFIG_CONTENT = JSON.stringify(opencodeConfig);
     }
 
     return { command: "opencode", args, env };

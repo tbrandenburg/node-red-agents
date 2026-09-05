@@ -84,6 +84,21 @@ module.exports = function (RED) {
 
     node.mcpServers = Array.isArray(config.mcpServers) ? config.mcpServers : [];
 
+    // Optional per-adapter capability-gated fields (issue #25), modeled on
+    // Archon's DagNodeBase: systemPrompt override, effort (reasoning
+    // depth), and allowed/denied tool lists. Each is only ever honored by
+    // an adapter whose CAPABILITIES flag says it's actually wired up (see
+    // lib/agents/capabilities.js) -- otherwise startExecution below warns
+    // once and drops it, never a hard error.
+    node.systemPrompt = config.systemPrompt !== undefined ? config.systemPrompt : "";
+    node.systemPromptType = config.systemPromptType || "str";
+
+    node.effort = config.effort !== undefined ? config.effort : "";
+    node.effortType = config.effortType || "str";
+
+    node.allowedTools = Array.isArray(config.allowedTools) ? config.allowedTools : [];
+    node.deniedTools = Array.isArray(config.deniedTools) ? config.deniedTools : [];
+
     node.srtBinary = config.srtBinary || "";
     node.srtSettingsMode = config.srtSettingsMode || "file";
     node.srtSettingsPath = config.srtSettingsPath || "";
@@ -210,6 +225,31 @@ module.exports = function (RED) {
       const adapter = AGENTS[node.agent]();
       const runtime = buildRuntime(node);
       const capabilities = getCapabilities(adapter);
+
+      // Capability-gated warn-and-drop (issue #25): a field the user
+      // configured but this adapter doesn't actually wire up gets exactly
+      // one node.warn per run here -- never a hard error, and never a
+      // silent no-op either. Adapters themselves only ever act on these
+      // fields when their own CAPABILITIES flag agrees (see opencode.js/
+      // pi.js), so this is the single place responsible for surfacing
+      // the "ignored" case to the flow author.
+      function warnUnsupported(field, isSet, supported) {
+        if (isSet && !supported) {
+          node.warn(`${field} is not supported by the ${node.agent} adapter and will be ignored`);
+        }
+      }
+      warnUnsupported("systemPrompt", !!resolved.systemPrompt, capabilities.systemPromptControl);
+      warnUnsupported("effort", !!resolved.effort, capabilities.effortControl);
+      warnUnsupported(
+        "allowed_tools",
+        Array.isArray(resolved.allowedTools) && resolved.allowedTools.length > 0,
+        capabilities.toolRestrictions,
+      );
+      warnUnsupported(
+        "denied_tools",
+        Array.isArray(resolved.deniedTools) && resolved.deniedTools.length > 0,
+        capabilities.toolRestrictions,
+      );
 
       return runAgent({
         adapter,
@@ -476,6 +516,16 @@ module.exports = function (RED) {
               : num * 1000;
           })(),
           mcpServers: node.mcpServers,
+          systemPrompt: (() => {
+            const v = resolveTyped(node.systemPrompt, node.systemPromptType, msg, "");
+            return v === undefined || v === null ? "" : String(v).trim();
+          })(),
+          effort: (() => {
+            const v = resolveTyped(node.effort, node.effortType, msg, "");
+            return v === undefined || v === null ? "" : String(v).trim();
+          })(),
+          allowedTools: node.allowedTools,
+          deniedTools: node.deniedTools,
         };
       } catch (err) {
         node.lastTerminal = "failed";

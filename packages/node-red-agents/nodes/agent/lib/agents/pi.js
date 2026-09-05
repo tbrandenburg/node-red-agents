@@ -248,4 +248,13 @@ class PiAdapter extends AgentAdapter {
   }
 }
 
+PiAdapter.CAPABILITIES = {
+  sessionResume: false, // every run uses --no-session
+  structuredOutput: "best-effort", // no schema CLI flag; prompt+parse only
+  toolRestrictions: true, // --tools flag
+  effortControl: false, // no verified CLI flag yet (pi not installed here)
+  systemPromptControl: false, // no verified CLI flag yet
+  costReporting: false, // pi CLI not installed/verified
+};
+
 module.exports = { PiAdapter, resolveResourcePath };

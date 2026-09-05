@@ -178,4 +178,13 @@ class OpenCodeAdapter extends AgentAdapter {
   }
 }
 
+OpenCodeAdapter.CAPABILITIES = {
+  sessionResume: true, // opencode.js -s/--session verified working
+  structuredOutput: "best-effort", // no --schema/--json-schema CLI flag
+  toolRestrictions: true, // via materialized temp agent config + --agent
+  effortControl: true, // --variant, verified working
+  systemPromptControl: false, // no CLI flag found
+  costReporting: true, // step_finish tokens/cost already in --format json stream
+};
+
 module.exports = { OpenCodeAdapter };

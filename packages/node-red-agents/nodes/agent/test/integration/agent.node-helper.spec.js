@@ -196,3 +196,41 @@ test("agentName/agentNameType set to msg falls back to the configured Name when 
     "blank/unresolved typed-input falls back to the node's Name",
   );
 });
+
+test("a clean exit (0) with no assistant text is reported as failed with a null msg.payload (issue #21)", async () => {
+  const EMPTY_FIXTURES_DIR = path.join(FIXTURES_DIR, "empty-output");
+  const priorPath = process.env.PATH;
+  process.env.PATH = EMPTY_FIXTURES_DIR + path.delimiter + priorPath;
+
+  const flow = [
+    {
+      id: "n1",
+      type: "agent",
+      name: "agent",
+      agent: "opencode",
+      runtime: "direct",
+      invocation: "prompt",
+      prompt: "payload",
+      promptType: "msg",
+      wires: [["n2"], []],
+    },
+    { id: "n2", type: "helper" },
+  ];
+  try {
+    await helper.load(agentNode, flow);
+    const n1 = helper.getNode("n1");
+    const n2 = helper.getNode("n2");
+
+    const received = await new Promise((resolve, reject) => {
+      n2.on("input", resolve);
+      n1.receive({ payload: "say hello" });
+      setTimeout(() => reject(new Error("timed out waiting for agent node output")), 5000).unref();
+    });
+
+    assert.equal(received.payload, null, "a failed run must never leak its collected payload");
+    assert.equal(received.agentExecution.status, "failed");
+    assert.equal(received.agentExecution.exitCode, 0);
+  } finally {
+    process.env.PATH = priorPath;
+  }
+});

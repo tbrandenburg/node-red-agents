@@ -174,6 +174,14 @@ class OpenCodeAdapter extends AgentAdapter {
         errorMessage: `exited with code ${exitCode}${stderr ? ": " + String(stderr).trim() : ""}`,
       };
     }
+    if (!payload) {
+      return {
+        payload,
+        sessionID,
+        status: "failed",
+        errorMessage: "opencode produced no assistant output (silent rejection or empty response)",
+      };
+    }
     return { payload, sessionID, status: "completed" };
   }
 }

@@ -1,0 +1,14 @@
+#!/usr/bin/env node
+"use strict";
+
+// Stand-in for a `opencode` CLI run that exits cleanly (0) but produced no
+// assistant text -- e.g. a silent provider rejection. Used only by
+// node-level integration tests (see ../integration/) to verify zero-output
+// runs are classified as "failed", not "completed" (issue #21).
+process.stdout.write(
+  JSON.stringify({
+    type: "step_finish",
+    sessionID: "fake-session-id-empty",
+  }) + "\n",
+);
+process.exit(0);

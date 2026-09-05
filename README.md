@@ -37,11 +37,12 @@ specific, versioned, publishable package with three nodes.
 
 | Node | What it does |
 |---|---|
-| **agent** | Runs a coding-agent CLI (OpenCode first, `pi` also supported) — directly or sandboxed via [SRT](https://github.com/anthropics/sandbox-runtime) — once per input message. |
-| **agent-server** | Manages a long-lived `opencode serve` daemon (session-based, SRT-sandboxable) for flows that need repeated, low-latency calls instead of `agent`'s one-shot model. |
-| **gh** | Runs [GitHub CLI](https://cli.github.com) (`gh`) commands and returns parsed JSON/text output. |
+| **agent** | Runs a coding-agent CLI (OpenCode first, `pi` also supported) — directly or sandboxed via [SRT](https://github.com/anthropics/sandbox-runtime) — once per input message. Also supports: session resume, `$INPUTS.<name>` templating, per-node retry (transient/all, with session reuse), a FIFO concurrency scheduler (runtime-overridable via `msg.concurrency`), on-demand execution termination, tool allow/deny lists, MCP server configuration, structured (JSON-Schema) output with validation + reask loop, and cost/token usage reporting where the adapter supports it. |
+| **agent-server** | Manages a long-lived `opencode serve` daemon (session-based) for flows that need repeated, low-latency calls instead of `agent`'s one-shot model. Supports `message`/`status`/`abort`/`history`/`terminate` operations, auto-spawn of new daemons+sessions, an instance cap (`maxInstances`), and optional basic auth for the daemon's HTTP API. SRT sandboxing is **not functional** for this node (see its built-in help) since SRT only sandboxes outbound egress, and a daemon spawned under it can't be reached back. |
+| **gh** | Runs [GitHub CLI](https://cli.github.com) (`gh`) commands and returns parsed JSON/text output, with structured error classification (auth, rate-limit, not-found, network, timeout, etc.) and per-message overrides via `msg.gh`. |
 
-See each node's built-in help (Node-RED editor info panel), or
+See each node's built-in help (Node-RED editor info panel) for the full
+list of fields and behaviors, or
 [`packages/node-red-agents/nodes/gh/README.md`](./packages/node-red-agents/nodes/gh/README.md)
 for `gh`-specific usage and example flows.
 
@@ -63,9 +64,6 @@ for `gh`-specific usage and example flows.
 ```sh
 npm install @tbrandenburg/node-red-agents
 ```
-
-> Not yet published to npm — building from source (below) works today;
-> `npm install` will work once the first release ships.
 
 Then restart Node-RED, or install it live via the editor: **Menu ->
 Manage palette -> Install tab -> search "node-red-agents"**.

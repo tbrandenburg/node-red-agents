@@ -144,6 +144,13 @@
         allowedTools: { value: [] },
         deniedTools: { value: [] },
 
+        // Node-level retry (issue #24): opt-in-by-default at a
+        // conservative setting. retryMaxAttempts counts total attempts
+        // (1 original + retries), e.g. 2 = one retry.
+        retryMaxAttempts: { value: 2, validate: RED.validators.number() },
+        retryDelayMs: { value: 3000, validate: RED.validators.number() },
+        retryOnError: { value: "transient" },
+
         // output_format (issue #23): raw JSON-Schema text, fully opt-in
         // (default empty/disabled). Only checked for well-formed JSON
         // here (client-side) -- the actual AJV schema compile + capability
@@ -688,6 +695,36 @@
   </div>
   <div class="form-tips agent-row-mcp-hint" style="display:none;">
     Pi does not support MCP servers; switch Agent to OpenCode to use them.
+  </div>
+
+  <div class="form-row">
+    <label for="node-input-retryMaxAttempts"
+      ><i class="fa fa-refresh"></i> Retry attempts
+      <i
+        class="fa fa-info-circle"
+        style="color:#888; cursor:help; margin-left:4px;"
+        title="Total attempts for this execution, including the first (2 = one retry). Retries only happen for failed/timeout results the classifier considers retryable -- see On error below."
+      ></i>
+    </label>
+    <input
+      type="text"
+      id="node-input-retryMaxAttempts"
+      placeholder="2"
+      style="width:80px"
+    />
+  </div>
+
+  <div class="form-row">
+    <label for="node-input-retryDelayMs"><i class="fa fa-clock-o"></i> Retry delay (ms)</label>
+    <input type="text" id="node-input-retryDelayMs" placeholder="3000" style="width:80px" />
+  </div>
+
+  <div class="form-row">
+    <label for="node-input-retryOnError"><i class="fa fa-exclamation-triangle"></i> On error</label>
+    <select id="node-input-retryOnError" style="width:60%">
+      <option value="transient">Retry transient errors only (default)</option>
+      <option value="all">Retry any non-fatal error</option>
+    </select>
   </div>
 
   <div class="form-row">

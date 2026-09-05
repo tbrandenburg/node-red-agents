@@ -1,0 +1,50 @@
+#!/usr/bin/env node
+"use strict";
+
+// Stand-in for `opencode run --format json` used only by the node-level
+// retry integration test (issue #24, retry.spec.js/agent.node-helper.spec.js
+// section). Fails with a transient-looking error (exit 1 + a stderr
+// substring that lib/execution/retry.js's classifyError() recognizes as
+// TRANSIENT, e.g. "socket hang up") for RETRY_FIXTURE_FAIL_COUNT attempts
+// in a row, tracked via a state file (RETRY_FIXTURE_STATE) since each
+// attempt is a brand-new process, then succeeds on the next attempt.
+//
+// Emits a "text" event carrying a sessionID *before* failing (both on the
+// failing and the succeeding attempt) so parseResult's exitCode!==0 branch
+// still surfaces a sessionID -- this doubles as the fixture for the
+// session-reuse-on-retry assertion: attempt 2 asserts it was invoked with
+// `--session <the failed attempt's sessionID>`.
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
+
+const stateFile = process.env.RETRY_FIXTURE_STATE || path.join(os.tmpdir(), "retry-fixture-state");
+const failCount = parseInt(process.env.RETRY_FIXTURE_FAIL_COUNT || "1", 10);
+
+let count = 0;
+try {
+  count = parseInt(fs.readFileSync(stateFile, "utf8"), 10) || 0;
+} catch (err) {
+  // First invocation: no state file yet.
+}
+count += 1;
+fs.writeFileSync(stateFile, String(count));
+
+const sessionIdIndex = process.argv.indexOf("--session");
+const resumedSessionID = sessionIdIndex !== -1 ? process.argv[sessionIdIndex + 1] : undefined;
+const sessionID = resumedSessionID || `fixture-session-attempt-${count}`;
+
+if (count <= failCount) {
+  process.stdout.write(JSON.stringify({ type: "text", sessionID, part: { text: "" } }) + "\n");
+  process.stderr.write("socket hang up while streaming response\n");
+  process.exit(1);
+}
+
+process.stdout.write(
+  JSON.stringify({
+    type: "text",
+    sessionID,
+    part: { text: `hello after ${count} attempts` },
+  }) + "\n",
+);
+process.exit(0);

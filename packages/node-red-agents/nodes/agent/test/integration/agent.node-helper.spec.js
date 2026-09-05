@@ -14,6 +14,7 @@
 // covered against real recorded event shapes in
 // lib/agents/opencode.spec.js; this test only proves the node wires that
 // logic up correctly end to end.
+const fs = require("node:fs");
 const path = require("node:path");
 const { test, before, after, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
@@ -670,4 +671,271 @@ test("output_format: an invalid JSON Schema at deploy time sets a red status and
     .log()
     .args.filter((a) => a[0].level === 20 && /invalid output_format schema/.test(a[0].msg));
   assert.ok(errorLogs.length >= 1, "deploy-time bad schema logs an error");
+});
+
+// issue #24: node-level retry (max_attempts/delay_ms/on_error) with
+// transient-vs-fatal classification. Fixtures live under
+// ../fixtures/retry-transient (fails N times with a transient-looking
+// error then succeeds) and ../fixtures/retry-fatal (always fails with a
+// fatal-looking 401); see each fixture's own header comment.
+const os = require("node:os");
+
+function freshStateFile() {
+  return path.join(
+    os.tmpdir(),
+    `retry-fixture-state-${process.pid}-${Date.now()}-${Math.random()}`,
+  );
+}
+
+test("retry: a transient error is retried (default onError:'transient') until it succeeds, with an intermediate 'retrying' event", async () => {
+  const FIXTURES = path.join(FIXTURES_DIR, "retry-transient");
+  const priorPath = process.env.PATH;
+  const stateFile = freshStateFile();
+  process.env.PATH = FIXTURES + path.delimiter + priorPath;
+  process.env.RETRY_FIXTURE_STATE = stateFile;
+  process.env.RETRY_FIXTURE_FAIL_COUNT = "1";
+
+  const flow = [
+    {
+      id: "n1",
+      type: "agent",
+      name: "agent",
+      agent: "opencode",
+      runtime: "direct",
+      invocation: "prompt",
+      prompt: "payload",
+      promptType: "msg",
+      retryMaxAttempts: 2,
+      retryDelayMs: 10,
+      retryOnError: "transient",
+      wires: [["n2"], ["n3"]],
+    },
+    { id: "n2", type: "helper" },
+    { id: "n3", type: "helper" },
+  ];
+  try {
+    await helper.load(agentNode, flow);
+    const n1 = helper.getNode("n1");
+    const n2 = helper.getNode("n2");
+    const n3 = helper.getNode("n3");
+
+    const events = [];
+    n3.on("input", (msg) => events.push(msg));
+
+    const received = await new Promise((resolve, reject) => {
+      n2.on("input", resolve);
+      n1.receive({ payload: "say hello" });
+      setTimeout(() => reject(new Error("timed out waiting for agent node output")), 5000).unref();
+    });
+
+    assert.equal(received.agentExecution.status, "completed");
+    assert.equal(received.payload, "hello after 2 attempts");
+
+    const retryingEvent = events.find((m) => m.payload && m.payload.type === "retrying");
+    assert.ok(retryingEvent, "an intermediate 'retrying' lifecycle event was emitted on output 2");
+    assert.equal(retryingEvent.payload.attempt, 2);
+    assert.equal(retryingEvent.payload.maxAttempts, 2);
+
+    assert.equal(fs.readFileSync(stateFile, "utf8"), "2", "the fixture ran exactly twice");
+  } finally {
+    process.env.PATH = priorPath;
+    delete process.env.RETRY_FIXTURE_STATE;
+    delete process.env.RETRY_FIXTURE_FAIL_COUNT;
+    fs.rmSync(stateFile, { force: true });
+  }
+});
+
+test("retry: session-reuse-on-retry -- the failed attempt's sessionID is resumed (--session) on the next attempt for opencode", async () => {
+  const FIXTURES = path.join(FIXTURES_DIR, "retry-transient");
+  const priorPath = process.env.PATH;
+  const stateFile = freshStateFile();
+  process.env.PATH = FIXTURES + path.delimiter + priorPath;
+  process.env.RETRY_FIXTURE_STATE = stateFile;
+  process.env.RETRY_FIXTURE_FAIL_COUNT = "1";
+
+  const flow = [
+    {
+      id: "n1",
+      type: "agent",
+      name: "agent",
+      agent: "opencode",
+      runtime: "direct",
+      invocation: "prompt",
+      prompt: "payload",
+      promptType: "msg",
+      retryMaxAttempts: 2,
+      retryDelayMs: 10,
+      retryOnError: "transient",
+      wires: [["n2"], []],
+    },
+    { id: "n2", type: "helper" },
+  ];
+  try {
+    await helper.load(agentNode, flow);
+    const n1 = helper.getNode("n1");
+    const n2 = helper.getNode("n2");
+
+    const received = await new Promise((resolve, reject) => {
+      n2.on("input", resolve);
+      n1.receive({ payload: "say hello" });
+      setTimeout(() => reject(new Error("timed out waiting for agent node output")), 5000).unref();
+    });
+
+    // The fixture only echoes back a resumed sessionID (rather than
+    // minting a new fixture-session-attempt-<n> one) when it was invoked
+    // with --session <the-failed-attempt's-sessionID> -- see the
+    // fixture's own header comment.
+    assert.equal(received.agentExecution.status, "completed");
+    assert.equal(received.sessionID, "fixture-session-attempt-1");
+  } finally {
+    process.env.PATH = priorPath;
+    delete process.env.RETRY_FIXTURE_STATE;
+    delete process.env.RETRY_FIXTURE_FAIL_COUNT;
+    fs.rmSync(stateFile, { force: true });
+  }
+});
+
+test("retry: a fatal error (e.g. 401) is never retried, even with attempts remaining", async () => {
+  const FIXTURES = path.join(FIXTURES_DIR, "retry-fatal");
+  const priorPath = process.env.PATH;
+  const stateFile = freshStateFile();
+  process.env.PATH = FIXTURES + path.delimiter + priorPath;
+  process.env.RETRY_FIXTURE_STATE = stateFile;
+
+  const flow = [
+    {
+      id: "n1",
+      type: "agent",
+      name: "agent",
+      agent: "opencode",
+      runtime: "direct",
+      invocation: "prompt",
+      prompt: "payload",
+      promptType: "msg",
+      retryMaxAttempts: 3,
+      retryDelayMs: 10,
+      retryOnError: "transient",
+      wires: [["n2"], []],
+    },
+    { id: "n2", type: "helper" },
+  ];
+  try {
+    await helper.load(agentNode, flow);
+    const n1 = helper.getNode("n1");
+    const n2 = helper.getNode("n2");
+
+    const received = await new Promise((resolve, reject) => {
+      n2.on("input", resolve);
+      n1.receive({ payload: "say hello" });
+      setTimeout(() => reject(new Error("timed out waiting for agent node output")), 5000).unref();
+    });
+
+    assert.equal(received.agentExecution.status, "failed");
+    assert.equal(
+      fs.readFileSync(stateFile, "utf8"),
+      "1",
+      "the fatal-error fixture ran exactly once -- no retry",
+    );
+  } finally {
+    process.env.PATH = priorPath;
+    delete process.env.RETRY_FIXTURE_STATE;
+    fs.rmSync(stateFile, { force: true });
+  }
+});
+
+test("retry: retryOnError:'all' retries a non-fatal, non-transient (UNKNOWN-classified) error too", async () => {
+  const FIXTURES = path.join(FIXTURES_DIR, "retry-transient");
+  const priorPath = process.env.PATH;
+  const stateFile = freshStateFile();
+  process.env.PATH = FIXTURES + path.delimiter + priorPath;
+  process.env.RETRY_FIXTURE_STATE = stateFile;
+  process.env.RETRY_FIXTURE_FAIL_COUNT = "2";
+
+  const flow = [
+    {
+      id: "n1",
+      type: "agent",
+      name: "agent",
+      agent: "opencode",
+      runtime: "direct",
+      invocation: "prompt",
+      prompt: "payload",
+      promptType: "msg",
+      retryMaxAttempts: 3,
+      retryDelayMs: 10,
+      retryOnError: "all",
+      wires: [["n2"], []],
+    },
+    { id: "n2", type: "helper" },
+  ];
+  try {
+    await helper.load(agentNode, flow);
+    const n1 = helper.getNode("n1");
+    const n2 = helper.getNode("n2");
+
+    const received = await new Promise((resolve, reject) => {
+      n2.on("input", resolve);
+      n1.receive({ payload: "say hello" });
+      setTimeout(() => reject(new Error("timed out waiting for agent node output")), 5000).unref();
+    });
+
+    assert.equal(received.agentExecution.status, "completed");
+    assert.equal(fs.readFileSync(stateFile, "utf8"), "3", "retried twice, succeeded on attempt 3");
+  } finally {
+    process.env.PATH = priorPath;
+    delete process.env.RETRY_FIXTURE_STATE;
+    delete process.env.RETRY_FIXTURE_FAIL_COUNT;
+    fs.rmSync(stateFile, { force: true });
+  }
+});
+
+test("retry: default retryMaxAttempts (2) with a persistently transient error stops after 2 attempts and reports failed", async () => {
+  const FIXTURES = path.join(FIXTURES_DIR, "retry-transient");
+  const priorPath = process.env.PATH;
+  const stateFile = freshStateFile();
+  process.env.PATH = FIXTURES + path.delimiter + priorPath;
+  process.env.RETRY_FIXTURE_STATE = stateFile;
+  process.env.RETRY_FIXTURE_FAIL_COUNT = "99"; // always fails
+
+  const flow = [
+    {
+      id: "n1",
+      type: "agent",
+      name: "agent",
+      agent: "opencode",
+      runtime: "direct",
+      invocation: "prompt",
+      prompt: "payload",
+      promptType: "msg",
+      // retryMaxAttempts/retryDelayMs/retryOnError all left at their
+      // node.js defaults (2 / 3000 / 'transient') -- override only the
+      // delay (via a tiny override) so the test doesn't wait 3s for real.
+      retryDelayMs: 10,
+      wires: [["n2"], []],
+    },
+    { id: "n2", type: "helper" },
+  ];
+  try {
+    await helper.load(agentNode, flow);
+    const n1 = helper.getNode("n1");
+    const n2 = helper.getNode("n2");
+
+    const received = await new Promise((resolve, reject) => {
+      n2.on("input", resolve);
+      n1.receive({ payload: "say hello" });
+      setTimeout(() => reject(new Error("timed out waiting for agent node output")), 5000).unref();
+    });
+
+    assert.equal(received.agentExecution.status, "failed");
+    assert.equal(
+      fs.readFileSync(stateFile, "utf8"),
+      "2",
+      "default retryMaxAttempts=2 means 1 original + 1 retry, then give up",
+    );
+  } finally {
+    process.env.PATH = priorPath;
+    delete process.env.RETRY_FIXTURE_STATE;
+    delete process.env.RETRY_FIXTURE_FAIL_COUNT;
+    fs.rmSync(stateFile, { force: true });
+  }
 });

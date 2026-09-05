@@ -1,0 +1,30 @@
+name: Audit
+
+# Deliberately kept out of tests.yml's per-PR gate: npm audit results can
+# change with no code changes on our side (new advisories land against
+# unchanged dependency trees), which would make the PR gate flaky for
+# reasons unrelated to the diff being reviewed. Instead this runs on a
+# schedule + manual dispatch and only fails on high/critical vulnerabilities
+# in the published package's own production dependencies (see `make audit`
+# in the Makefile) -- root/data/demo dev tooling is advisory-only.
+
+on:
+  schedule:
+    - cron: "0 6 * * 1" # weekly, Monday 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: npm audit (published package)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: ".nvmrc"
+      - run: make audit STRICT=1

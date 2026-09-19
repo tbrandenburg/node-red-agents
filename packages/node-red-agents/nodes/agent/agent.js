@@ -1,6 +1,7 @@
 const fs = require("fs");
-const { OpenCodeAdapter } = require("./lib/agents/opencode");
-const { PiAdapter } = require("./lib/agents/pi");
+require("./lib/agents/opencode"); // registers "opencode" as a side effect
+require("./lib/agents/pi"); // registers "pi" as a side effect
+const { isRegisteredAgent, getAgentAdapter } = require("./lib/agents/registry");
 const { DirectRuntime } = require("./lib/runtimes/direct");
 const { SrtRuntime } = require("./lib/runtimes/srt");
 const { writeInlineSettingsFile } = require("../../shared/srt-settings");
@@ -18,15 +19,12 @@ const {
   buildReaskPrompt,
 } = require("./lib/execution/structured-output");
 
-// Registries. Adding a future adapter/runtime is just one more entry here --
+// Registries. Adding a future adapter/runtime is just one more self-
+// registration in the adapter's own module (see lib/agents/registry.js) --
 // nothing else in this file (or in lib/execution/lifecycle.js) needs to
 // change, per the spec's adapter-independence requirement. Concurrency
 // (lib/execution/scheduler.js) is likewise fully independent of both: it
 // only ever sees opaque { executionId, ... } items.
-const AGENTS = {
-  opencode: () => new OpenCodeAdapter(),
-  pi: () => new PiAdapter(),
-};
 
 function buildRuntime(node) {
   if (node.runtime === "srt") {
@@ -158,8 +156,8 @@ module.exports = function (RED) {
           node.outputFormatSchema = schema;
         }
       }
-      if (!node.outputFormatError && AGENTS[node.agent]) {
-        const capabilities = getCapabilities(AGENTS[node.agent]());
+      if (!node.outputFormatError && isRegisteredAgent(node.agent)) {
+        const capabilities = getCapabilities(getAgentAdapter(node.agent));
         if (capabilities.structuredOutput === false) {
           node.outputFormatError = `output_format not supported by ${node.agent}`;
         }
@@ -293,7 +291,7 @@ module.exports = function (RED) {
     // directly from the input handler.
     function startExecution(item) {
       const { executionId, msg, send, done, resolved } = item;
-      const adapter = AGENTS[node.agent]();
+      const adapter = getAgentAdapter(node.agent);
       const runtime = buildRuntime(node);
       const capabilities = getCapabilities(adapter);
 
@@ -772,7 +770,7 @@ module.exports = function (RED) {
         return;
       }
 
-      if (!AGENTS[node.agent]) {
+      if (!isRegisteredAgent(node.agent)) {
         node.lastTerminal = "failed";
         node.lastText = "unknown agent";
         updateStatus();

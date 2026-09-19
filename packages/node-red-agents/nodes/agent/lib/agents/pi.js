@@ -279,4 +279,7 @@ PiAdapter.CAPABILITIES = {
   costReporting: false, // pi CLI not installed/verified
 };
 
+const { registerAgent } = require("./registry");
+registerAgent({ id: "pi", factory: () => new PiAdapter() });
+
 module.exports = { PiAdapter, resolveResourcePath };

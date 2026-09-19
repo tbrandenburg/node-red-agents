@@ -1,0 +1,78 @@
+[
+  {
+    "id": "smoke-agent-resume-tab",
+    "type": "tab",
+    "label": "smoke-agent-resume"
+  },
+  {
+    "id": "smoke-agent-resume-inject",
+    "type": "inject",
+    "z": "smoke-agent-resume-tab",
+    "name": "trigger",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "payload": "reply with exactly the word: first",
+    "payloadType": "str",
+    "repeat": "",
+    "once": false,
+    "wires": [["smoke-agent-resume-node1"]],
+    "x": 100,
+    "y": 100
+  },
+  {
+    "id": "smoke-agent-resume-node1",
+    "type": "agent",
+    "z": "smoke-agent-resume-tab",
+    "name": "agent1",
+    "agent": "opencode",
+    "runtime": "direct",
+    "invocation": "prompt",
+    "prompt": "payload",
+    "promptType": "msg",
+    "model": "opencode/big-pickle",
+    "modelType": "str",
+    "timeout": 60000,
+    "timeoutType": "num",
+    "wires": [["smoke-agent-resume-node2"], []],
+    "x": 300,
+    "y": 100
+  },
+  {
+    "id": "smoke-agent-resume-node2",
+    "type": "agent",
+    "z": "smoke-agent-resume-tab",
+    "name": "agent2",
+    "agent": "opencode",
+    "runtime": "direct",
+    "invocation": "prompt",
+    "prompt": "reply with exactly the word: second",
+    "promptType": "str",
+    "model": "opencode/big-pickle",
+    "modelType": "str",
+    "timeout": 60000,
+    "timeoutType": "num",
+    "wires": [["smoke-agent-resume-debug"], []],
+    "x": 500,
+    "y": 100
+  },
+  {
+    "id": "smoke-agent-resume-debug",
+    "type": "debug",
+    "z": "smoke-agent-resume-tab",
+    "name": "smoke-agent-resume-debug",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "true",
+    "targetType": "full",
+    "statusVal": "",
+    "statusType": "auto",
+    "wires": [],
+    "x": 700,
+    "y": 100
+  }
+]

@@ -11,6 +11,7 @@ const { computeNodeStatus } = require("./lib/execution/status");
 const { getCapabilities } = require("./lib/agents/capabilities");
 const { shouldRetry } = require("./lib/execution/retry");
 const { substituteInputs } = require("./lib/execution/inputs");
+const { resumeOutcome } = require("./lib/execution/resume-outcome");
 const {
   STRUCTURED_OUTPUT_MAX_REASKS,
   compileOutputFormat,
@@ -492,6 +493,19 @@ module.exports = function (RED) {
             // Debug node to output 1 and inspect this field.
             errorDetail: result.errorDetail,
           };
+          // Explicit resume-outcome signal (issue #41): compares the
+          // ORIGINALLY-requested sessionID (resolved.sessionID, before any
+          // internal reask/retry continuity mutation) against the FINAL
+          // result.sessionID once the whole execution has settled. Omitted
+          // entirely (never emitted as undefined) when no resume was ever
+          // requested or this adapter doesn't support it -- same
+          // omit-rather-than-emit convention as costUsd/tokens below.
+          const resumed = resumeOutcome(
+            resolved.sessionID,
+            result.sessionID,
+            capabilities.sessionResume,
+          );
+          if (resumed !== undefined) agentExecution.resumed = resumed;
           if (structuredEnabled && result.structuredOutput !== undefined) {
             agentExecution.structuredOutput = result.structuredOutput;
             agentExecution.declaredFields = Object.keys(

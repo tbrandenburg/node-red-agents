@@ -1,0 +1,78 @@
+[
+  {
+    "id": "smoke-agent-copilot-resume-tab",
+    "type": "tab",
+    "label": "smoke-agent-copilot-resume"
+  },
+  {
+    "id": "smoke-agent-copilot-resume-inject",
+    "type": "inject",
+    "z": "smoke-agent-copilot-resume-tab",
+    "name": "trigger",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "payload": "The secret code word is banana. Reply with exactly the word: first",
+    "payloadType": "str",
+    "repeat": "",
+    "once": false,
+    "wires": [["smoke-agent-copilot-resume-node1"]],
+    "x": 100,
+    "y": 100
+  },
+  {
+    "id": "smoke-agent-copilot-resume-node1",
+    "type": "agent",
+    "z": "smoke-agent-copilot-resume-tab",
+    "name": "agent1",
+    "agent": "copilot",
+    "runtime": "direct",
+    "invocation": "prompt",
+    "prompt": "payload",
+    "promptType": "msg",
+    "model": "claude-sonnet-5",
+    "modelType": "str",
+    "timeout": 60000,
+    "timeoutType": "num",
+    "wires": [["smoke-agent-copilot-resume-node2"], []],
+    "x": 300,
+    "y": 100
+  },
+  {
+    "id": "smoke-agent-copilot-resume-node2",
+    "type": "agent",
+    "z": "smoke-agent-copilot-resume-tab",
+    "name": "agent2",
+    "agent": "copilot",
+    "runtime": "direct",
+    "invocation": "prompt",
+    "prompt": "What is the secret code word from earlier in this conversation? Reply with exactly that word and nothing else.",
+    "promptType": "str",
+    "model": "claude-sonnet-5",
+    "modelType": "str",
+    "timeout": 60000,
+    "timeoutType": "num",
+    "wires": [["smoke-agent-copilot-resume-debug"], []],
+    "x": 500,
+    "y": 100
+  },
+  {
+    "id": "smoke-agent-copilot-resume-debug",
+    "type": "debug",
+    "z": "smoke-agent-copilot-resume-tab",
+    "name": "smoke-agent-copilot-resume-debug",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "true",
+    "targetType": "full",
+    "statusVal": "",
+    "statusType": "auto",
+    "wires": [],
+    "x": 700,
+    "y": 100
+  }
+]

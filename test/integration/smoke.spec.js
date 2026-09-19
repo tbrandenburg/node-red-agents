@@ -87,6 +87,70 @@ test("agent resume smoke flow: two chained agent (opencode) nodes -- second resu
   );
 });
 
+// Copilot needs a real GitHub Copilot entitlement (unlike opencode's free
+// opencode/big-pickle zen model), so these two cases are skipped whenever
+// SKIP_COPILOT_E2E=1 -- set by CI on forked PRs, where the COPILOT_GITHUB_TOKEN
+// secret isn't available, so as not to fail e2e for external contributors
+// (see .github/workflows/tests.yml's e2e job). Unset/"0" (the default, incl.
+// all local runs) always executes them.
+const skipCopilot = process.env.SKIP_COPILOT_E2E === "1";
+
+test(
+  "agent smoke flow: inject -> agent (copilot) -> debug produces real output, no red status",
+  { skip: skipCopilot },
+  async () => {
+    const flow = require(path.join(FLOWS_DIR, "agent-copilot-smoke.json"));
+    await instance.deployFlow(flow);
+    const result = await waitForDebug({
+      baseUrl: instance.baseUrl,
+      injectId: "smoke-agent-copilot-inject",
+      debugId: "smoke-agent-copilot-debug",
+      maxWaitMs: 60000,
+    });
+    assert.equal(result.ok, true, `expected a debug message, got: ${JSON.stringify(result)}`);
+
+    // Assert the model actually followed the prompt's instruction, not just
+    // that *some* output arrived.
+    const msg = JSON.parse(result.data.msg);
+    assert.match(
+      String(msg.payload).toLowerCase(),
+      /\bpong\b/,
+      `expected the reply to contain "pong", got: ${JSON.stringify(msg.payload)}`,
+    );
+  },
+);
+
+test(
+  "agent resume smoke flow: two chained agent (copilot) nodes -- second resumes the first's real session",
+  { skip: skipCopilot },
+  async () => {
+    const flow = require(path.join(FLOWS_DIR, "agent-copilot-resume-smoke.json"));
+    await instance.deployFlow(flow);
+    const result = await waitForDebug({
+      baseUrl: instance.baseUrl,
+      injectId: "smoke-agent-copilot-resume-inject",
+      debugId: "smoke-agent-copilot-resume-debug",
+      maxWaitMs: 90000, // two real sequential copilot calls -- give it real headroom
+    });
+    assert.equal(result.ok, true, `expected a debug message, got: ${JSON.stringify(result)}`);
+    const msg = JSON.parse(result.data.msg);
+    assert.equal(
+      msg.agentExecution.resumed,
+      true,
+      `expected the second agent node to report resumed:true, got: ${JSON.stringify(msg.agentExecution)}`,
+    );
+    // Content-continuity check: the second agent is only asked to recall the
+    // secret word given in the first turn, so a correct reply is only
+    // possible if --resume actually restored the first turn's context (not
+    // just a false-positive resumed:true flag).
+    assert.match(
+      String(msg.payload).toLowerCase(),
+      /\bbanana\b/,
+      `expected the second agent's reply to recall "banana" from the first turn, got: ${JSON.stringify(msg.payload)}`,
+    );
+  },
+);
+
 test("agent-server smoke flow: inject -> agent-server (status) -> debug produces a real registry summary", async () => {
   const flow = require(path.join(FLOWS_DIR, "agent-server-smoke.json"));
   await instance.deployFlow(flow);

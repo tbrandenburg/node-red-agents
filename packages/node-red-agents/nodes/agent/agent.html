@@ -15,6 +15,8 @@
       "github-copilot/gpt-5.4",
       "openai/gpt-5.4",
       "openai/gpt-4.1",
+      "claude-sonnet-5",
+      "gpt-5.4",
     ];
 
     function mcpServerRow(container, data) {
@@ -312,6 +314,10 @@
             skill: "code-review (looked up under .github/skills/)",
             command: "review (looked up under .github/prompts/)",
           },
+          copilot: {
+            skill: "code-review (looked up under .github/skills/)",
+            command: "review (looked up under .github/prompts/)",
+          },
         };
 
         function updateInvocationRows() {
@@ -342,6 +348,7 @@
         const AUTO_HINTS = {
           opencode: "Maps to --auto: skips permission prompts for actions not explicitly denied.",
           pi: "Pi has no permission prompts to bypass. Off = read-only tools (read/grep/find/ls). On = full tool access (bash/edit/write too).",
+          copilot: "Maps to --allow-all-tools: skips permission prompts for all tool calls.",
         };
 
         // Grey out (rather than hide) fields an agent doesn't
@@ -444,7 +451,7 @@
           const sessionSupported = agent !== "pi";
           setSectionSupported($(".agent-row-session"), sessionSupported);
           $(".agent-row-session-hint").toggle(!sessionSupported);
-          const effortSupported = agent === "opencode";
+          const effortSupported = agent === "opencode" || agent === "copilot";
           setSectionSupported($(".agent-row-effort"), effortSupported);
           $(".agent-row-effort-hint").toggle(!effortSupported);
           updateInvocationRows();
@@ -561,6 +568,7 @@
     <select id="node-input-agent" style="width:70%">
       <option value="opencode">OpenCode</option>
       <option value="pi">Pi</option>
+      <option value="copilot">Copilot</option>
     </select>
   </div>
 
@@ -880,8 +888,8 @@
 
 <script type="text/html" data-help-name="agent">
   <p>
-    Runs a coding agent (<b>OpenCode</b> or <b>Pi</b>) non-interactively, either directly on this
-    host or sandboxed through <code>srt</code>.
+    Runs a coding agent (<b>OpenCode</b>, <b>Pi</b>, or <b>Copilot</b>) non-interactively, either
+    directly on this host or sandboxed through <code>srt</code>.
   </p>
   <h3>Inputs</h3>
   <dl class="message-properties">
@@ -898,7 +906,7 @@
     <dt class="optional">sessionID <span class="property-type">string</span></dt>
     <dd>
       Used to resume a previous session if the Session ID field is left at its default
-      (<code>msg.sessionID</code>). Empty/absent starts a new session. OpenCode only.
+      (<code>msg.sessionID</code>). Empty/absent starts a new session. OpenCode and Copilot only.
     </dd>
     <dt class="optional">operation <span class="property-type">string</span></dt>
     <dd>
@@ -994,21 +1002,27 @@
     still completes). Pi has no equivalent permission-prompt system to bypass in non-interactive
     mode -- for Pi this instead restricts the available tools to read-only
     (<code>read/grep/find/ls</code>) when off, and allows everything (including
-    <code>bash/edit/write</code>) when on.
+    <code>bash/edit/write</code>) when on. For Copilot it maps to <code>--allow-all-tools</code>: off
+    (default) leaves Copilot's own permission prompts in effect (which auto-reject in
+    non-interactive mode), on skips them entirely.
   </p>
   <p>
     <b>Skill</b>/<b>Command</b> invocation: for OpenCode this is the name of a discovered skill or a
     <code>.opencode/command(s)/&lt;name&gt;.md</code> file, dispatched deterministically via
-    <code>--command</code>. Pi has no equivalent dispatch mechanism -- the name is resolved to a
-    file under <code>.github/skills/</code> (skill) or <code>.github/prompts/</code> (command),
-    passed via <code>--skill</code>/<code>--prompt-template</code>, and the model is explicitly told
-    in the prompt to use it. Pi also does not support configuring MCP servers through this node.
+    <code>--command</code>. Pi and Copilot have no equivalent dispatch mechanism -- the name is
+    resolved to a file under <code>.github/skills/</code> (skill) or <code>.github/prompts/</code>
+    (command), passed via <code>--skill</code>/<code>--prompt-template</code> for Pi (Copilot has the
+    resolved file path spelled out in the synthesized prompt instruction instead, since it has no
+    equivalent CLI flag), and the model is explicitly told in the prompt to use it. Pi does not
+    support configuring MCP servers through this node; Copilot does.
   </p>
   <p>
     <b>Session ID</b>: leave blank to always start a fresh session (the default). Set it (typically
     from the previous result's <code>msg.sessionID</code>) to continue that conversation instead --
-    maps to OpenCode's <code>opencode run --session &lt;id&gt; ...</code>. Only the OpenCode agent
-    supports this; Pi rejects a non-empty Session ID (every Pi run uses <code>--no-session</code>).
+    maps to OpenCode's <code>opencode run --session &lt;id&gt; ...</code> or Copilot's
+    <code>copilot --resume &lt;id&gt; ...</code>. Pi rejects a non-empty Session ID (every Pi run
+    uses <code>--no-session</code>). Copilot only ever resumes via <code>--resume</code> -- it has
+    no equivalent of OpenCode's explicit "start a new session with this id" flag.
   </p>
   <p>
     <b>SRT</b> runtime shells out to the <code>srt</code> sandbox-runtime CLI already installed on
@@ -1019,13 +1033,24 @@
     <b>System prompt</b>, <b>Effort</b>, and <b>Allowed/Denied tools</b> are forwarded to the
     underlying CLI only where that adapter actually supports it -- a field set for an adapter that
     doesn't will be silently dropped with a Node-RED warning, never a hard error.
-    <b>System prompt</b> has no verified CLI flag for either adapter yet and is always dropped.
+    <b>System prompt</b> has no verified CLI flag for any adapter yet and is always dropped.
     <b>Effort</b> (reasoning depth, e.g. <code>low</code>/<code>medium</code>/<code>high</code>)
-    maps to OpenCode's <code>--variant</code>; Pi has no equivalent.
-    <b>Allowed/ Denied tools</b> are supported by both: for OpenCode they're materialized into a
-    temporary, per-run agent config (delivered the same way as MCP servers, via
+    maps to OpenCode's <code>--variant</code> or Copilot's own effort flag; Pi has no equivalent.
+    <b>Allowed/ Denied tools</b> are supported by all three: for OpenCode they're materialized into
+    a temporary, per-run agent config (delivered the same way as MCP servers, via
     <code>OPENCODE_CONFIG_CONTENT</code>) selected with <code>--agent</code>; for Pi, a non-empty
     Allowed tools list is passed as <code>--tools</code> (Pi has no deny-list mechanism, so Denied
-    tools has no effect for Pi).
+    tools has no effect for Pi); for Copilot both lists are passed as
+    <code>--allow-tool</code>/<code>--deny-tool</code> flags.
+  </p>
+  <p>
+    <b>Copilot</b> specifics: <b>Model</b> is a bare model id (e.g. <code>claude-sonnet-5</code>,
+    <code>gpt-5.4</code>) rather than OpenCode's <code>provider/model</code> form. <b>Session ID</b>
+    is always resumed with <code>--resume &lt;id&gt;</code> -- there is no equivalent of OpenCode's
+    "start a new session with this specific id" flag. MCP servers configured through this node are
+    passed via <code>--additional-mcp-config</code>, but the Copilot CLI always additionally loads
+    the user's global <code>~/.copilot/mcp-config.json</code> alongside them -- a known CLI
+    limitation, not a bug in this node, so servers defined there are always active too regardless of
+    what's configured here.
   </p>
 </script>

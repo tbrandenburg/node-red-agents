@@ -291,4 +291,7 @@ OpenCodeAdapter.CAPABILITIES = {
   costReporting: true, // step_finish tokens/cost already in --format json stream
 };
 
+const { registerAgent } = require("./registry");
+registerAgent({ id: "opencode", factory: () => new OpenCodeAdapter() });
+
 module.exports = { OpenCodeAdapter };

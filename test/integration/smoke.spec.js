@@ -53,6 +53,15 @@ test("agent smoke flow: inject -> agent (opencode) -> debug produces real output
     maxWaitMs: 60000,
   });
   assert.equal(result.ok, true, `expected a debug message, got: ${JSON.stringify(result)}`);
+
+  // Assert the model actually followed the prompt's instruction, not just
+  // that *some* output arrived.
+  const msg = JSON.parse(result.data.msg);
+  assert.match(
+    String(msg.payload).toLowerCase(),
+    /\bpong\b/,
+    `expected the reply to contain "pong", got: ${JSON.stringify(msg.payload)}`,
+  );
 });
 
 test("agent-server smoke flow: inject -> agent-server (status) -> debug produces a real registry summary", async () => {

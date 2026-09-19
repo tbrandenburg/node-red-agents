@@ -64,6 +64,29 @@ test("agent smoke flow: inject -> agent (opencode) -> debug produces real output
   );
 });
 
+test("agent resume smoke flow: two chained agent (opencode) nodes -- second resumes the first's real session", async () => {
+  const flow = require(path.join(FLOWS_DIR, "agent-resume-smoke.json"));
+  await instance.deployFlow(flow);
+  const result = await waitForDebug({
+    baseUrl: instance.baseUrl,
+    injectId: "smoke-agent-resume-inject",
+    debugId: "smoke-agent-resume-debug",
+    maxWaitMs: 90000, // two real sequential opencode calls -- give it real headroom
+  });
+  assert.equal(result.ok, true, `expected a debug message, got: ${JSON.stringify(result)}`);
+  const msg = JSON.parse(result.data.msg);
+  assert.equal(
+    msg.agentExecution.resumed,
+    true,
+    `expected the second agent node to report resumed:true, got: ${JSON.stringify(msg.agentExecution)}`,
+  );
+  assert.match(
+    String(msg.payload).toLowerCase(),
+    /\bsecond\b/,
+    `expected the second agent's reply to contain "second", got: ${JSON.stringify(msg.payload)}`,
+  );
+});
+
 test("agent-server smoke flow: inject -> agent-server (status) -> debug produces a real registry summary", async () => {
   const flow = require(path.join(FLOWS_DIR, "agent-server-smoke.json"));
   await instance.deployFlow(flow);

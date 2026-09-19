@@ -283,7 +283,15 @@ function summarizeUsage(raw) {
 }
 
 OpenCodeAdapter.CAPABILITIES = {
-  sessionResume: true, // opencode.js -s/--session verified working
+  sessionResume: true, // opencode.js -s/--session verified working: an
+  // unresolvable/bogus sessionID hard-fails the CLI (exit 1, zero JSON
+  // events, "Session not found" on stderr) rather than silently
+  // falling back to a fresh session -- verified empirically with real
+  // CLI invocations. So `resumeOutcome()` (lib/execution/resume-
+  // outcome.js) reaching `false` for this adapter today always
+  // co-occurs with a failed execution; there is no known path where
+  // OpenCode reports status:"completed" after silently discarding a
+  // requested resume.
   structuredOutput: "best-effort", // no --schema/--json-schema CLI flag
   toolRestrictions: true, // via materialized temp agent config + --agent
   effortControl: true, // --variant, verified working

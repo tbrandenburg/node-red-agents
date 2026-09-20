@@ -39,23 +39,15 @@ jobs:
   e2e:
     name: E2E
     runs-on: ubuntu-latest
-    # Shells out to the real `gh`/`opencode`/`copilot` CLIs (see AGENTS.md/README).
+    # Shells out to the real `gh`/`opencode` CLIs (see AGENTS.md/README).
     # `gh` uses the runner's default, no-setup-required GITHUB_TOKEN. The
     # agent smoke flow pins opencode/big-pickle, a free, no-API-key-needed
     # OpenCode Zen model (see https://opencode.ai/docs/zen) -- so no repo
-    # secrets are required for that part, and it runs on forked PRs too.
-    # Copilot's own smoke/resume cases are the exception: the real Copilot
-    # CLI needs an actual GitHub Copilot entitlement/token, which forked-PR
-    # runs never have access to (repo secrets aren't passed to them) -- so
-    # those two cases self-skip via SKIP_COPILOT_E2E, set below only when
-    # the PR is from a fork. Same-repo pushes/PRs always run them using the
-    # COPILOT_GITHUB_TOKEN repo secret.
+    # secrets are required at all here, and this runs on forked PRs too.
     permissions:
       contents: read
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
-      SKIP_COPILOT_E2E: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork) && '1' || '0' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -65,7 +57,4 @@ jobs:
           node-version-file: ".nvmrc"
       - name: Install opencode CLI
         run: npm install --global opencode-ai
-      - name: Install Copilot CLI
-        if: env.SKIP_COPILOT_E2E != '1'
-        run: npm install --global @github/copilot
       - run: make test-e2e

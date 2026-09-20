@@ -1,6 +1,7 @@
 const fs = require("fs");
 require("./lib/agents/opencode"); // registers "opencode" as a side effect
 require("./lib/agents/pi"); // registers "pi" as a side effect
+require("./lib/agents/copilot"); // registers "copilot" as a side effect
 const { isRegisteredAgent, getAgentAdapter } = require("./lib/agents/registry");
 const { DirectRuntime } = require("./lib/runtimes/direct");
 const { SrtRuntime } = require("./lib/runtimes/srt");

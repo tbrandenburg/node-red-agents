@@ -102,3 +102,4 @@ coverage/
 .zshrc
 .claude/
 .worktrees/
+.agents/

@@ -5,7 +5,7 @@
 // obvious error, since OPENCODE_CONFIG_CONTENT parses fine either way.
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { toOpenCodeMcp } = require("../../lib/mcp/normalize");
+const { toOpenCodeMcp, toCopilotMcp } = require("../../lib/mcp/normalize");
 
 test("normalizes a remote server to opencode's keyed mcp schema", () => {
   const out = toOpenCodeMcp([
@@ -58,4 +58,42 @@ test("non-array input returns an empty object rather than throwing", () => {
   assert.deepEqual(toOpenCodeMcp(undefined), {});
   assert.deepEqual(toOpenCodeMcp(null), {});
   assert.deepEqual(toOpenCodeMcp("not-an-array"), {});
+});
+
+test("toCopilotMcp: normalizes a local server to the mcpServers-wrapped --additional-mcp-config schema", () => {
+  const out = toCopilotMcp([
+    { name: "context7", type: "local", command: "npx", args: ["-y", "@upstash/context7-mcp"] },
+  ]);
+  assert.deepEqual(out, {
+    mcpServers: {
+      context7: {
+        type: "local",
+        command: "npx",
+        args: ["-y", "@upstash/context7-mcp"],
+        tools: ["*"],
+      },
+    },
+  });
+});
+
+test("toCopilotMcp: normalizes a remote server, defaulting tools to the wildcard filter", () => {
+  const out = toCopilotMcp([
+    { name: "github", type: "remote", url: "https://mcp.example.com/github" },
+  ]);
+  assert.deepEqual(out, {
+    mcpServers: { github: { type: "remote", url: "https://mcp.example.com/github", tools: ["*"] } },
+  });
+});
+
+test("toCopilotMcp: silently skips malformed entries and non-array input", () => {
+  const out = toCopilotMcp([
+    { name: "", type: "remote", url: "https://x" },
+    { name: "no-url", type: "remote" },
+    { name: "no-command", type: "local" },
+    null,
+    undefined,
+  ]);
+  assert.deepEqual(out, { mcpServers: {} });
+  assert.deepEqual(toCopilotMcp(undefined), { mcpServers: {} });
+  assert.deepEqual(toCopilotMcp(null), { mcpServers: {} });
 });

@@ -89,7 +89,7 @@ module.exports = function (RED) {
     // resolved arguments string before it's handed to either adapter.
     // Pure text templating, zero adapter-specific code -- see
     // lib/execution/inputs.js. Default empty list = zero behavior change.
-    node.inputs = Array.isArray(config.inputs) ? config.inputs : [];
+    node.promptArgs = Array.isArray(config.promptArgs) ? config.promptArgs : [];
 
     node.cwd = config.cwd !== undefined ? config.cwd : "cwd";
     node.cwdType = config.cwdType || "msg";
@@ -718,9 +718,9 @@ module.exports = function (RED) {
             node.invocation !== "prompt"
               ? (() => {
                   const raw = resolveTyped(node.arguments_, node.argumentsType, msg, msg.payload);
-                  if (typeof raw !== "string" || node.inputs.length === 0) return raw;
+                  if (typeof raw !== "string" || node.promptArgs.length === 0) return raw;
                   const inputsMap = {};
-                  node.inputs.forEach((entry) => {
+                  node.promptArgs.forEach((entry) => {
                     inputsMap[entry.name] = resolveTyped(
                       entry.value,
                       entry.valueType || "msg",

@@ -62,3 +62,25 @@ test("getAgentAdapter: lists '(none)' when the registry is empty", () => {
   resetRegistryForTests();
   assert.throws(() => getAgentAdapter("anything"), /\(none\)/);
 });
+
+// Issue #54: opencode.js registers three ids off the same OpenCodeAdapter
+// class. resetRegistryForTests() above wipes the registry populated by
+// require("../../lib/agents/opencode") at file-load time (agent.js's own
+// `require("./lib/agents/opencode")` side effect), so the module's
+// require-cache entry is dropped here to force its registration code to
+// re-run against the freshly reset registry.
+test("opencode.js registers opencode/opencode-v1/opencode-v2, and the v1/v2 ids never auto-detect", () => {
+  resetRegistryForTests();
+  delete require.cache[require.resolve("../../lib/agents/opencode")];
+  require("../../lib/agents/opencode");
+
+  assert.equal(isRegisteredAgent("opencode"), true);
+  assert.equal(isRegisteredAgent("opencode-v1"), true);
+  assert.equal(isRegisteredAgent("opencode-v2"), true);
+
+  // resolveVersion({}) with no openCodeVersionMode and no real `opencode`
+  // binary on PATH would throw/fall back to 1 via auto-detect for the
+  // plain "opencode" id -- v1/v2 must short-circuit before any of that.
+  assert.equal(getAgentAdapter("opencode-v1").resolveVersion({}), 1);
+  assert.equal(getAgentAdapter("opencode-v2").resolveVersion({}), 2);
+});

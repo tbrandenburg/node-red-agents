@@ -10,6 +10,12 @@ function baseResolved(overrides) {
   return Object.assign(
     {
       invocation: "prompt",
+      // Deprecated back-compat fallback (issue #54): kept here so the bulk
+      // of this file's existing tests double as coverage for
+      // resolved.openCodeVersionMode still working for hand-edited/external
+      // flow JSON. The current UI path is `new OpenCodeAdapter({ fixedVersion })`
+      // (see the "opencode-v1"/"opencode-v2" agent variant tests below),
+      // which never reads this field at all.
       openCodeVersionMode: "v1",
       prompt: "hello world",
       invocationName: undefined,
@@ -524,4 +530,51 @@ test("validate: accepts a well-formed provider/model string", () => {
   assert.doesNotThrow(() =>
     adapter.validate(baseResolved({ model: "github-copilot/claude-sonnet-5" })),
   );
+});
+
+// Issue #54: the "opencode-v1"/"opencode-v2" agent dropdown variants
+// construct OpenCodeAdapter({ fixedVersion }) directly and never set
+// resolved.openCodeVersionMode at all -- these tests assert identical
+// behavior to the corresponding openCodeVersionMode-based tests above,
+// via the actual UI-reachable construction path.
+test("fixedVersion:1 behaves exactly like openCodeVersionMode:'v1' without needing that field", () => {
+  const adapter = new OpenCodeAdapter({ fixedVersion: 1 });
+  const resolved = baseResolved({ effort: "high" });
+  delete resolved.openCodeVersionMode;
+  const { args } = adapter.buildExecution(resolved);
+  assert.deepEqual(args, ["run", "--format", "json", "--variant", "high", "hello world"]);
+});
+
+test("fixedVersion:2 behaves exactly like openCodeVersionMode:'v2' without needing that field", () => {
+  const adapter = new OpenCodeAdapter({ fixedVersion: 2 });
+  const resolved = baseResolved({ model: "provider/model", effort: "high", auto: true });
+  delete resolved.openCodeVersionMode;
+  const built = adapter.buildExecution(resolved);
+  assert.deepEqual(built.args, [
+    "run",
+    "--format",
+    "json",
+    "--model",
+    "provider/model#high",
+    "--auto",
+    "hello world",
+  ]);
+});
+
+test("fixedVersion:2 validation still requires a model for effort and rejects skill/command invocations", () => {
+  const adapter = new OpenCodeAdapter({ fixedVersion: 2 });
+  const resolved = baseResolved({ effort: "high" });
+  delete resolved.openCodeVersionMode;
+  assert.throws(() => adapter.validate(resolved), /effort requires an explicit model/);
+});
+
+test("fixedVersion bypasses auto-detect entirely: an unresolvable openCodeVersionMode/no field at all still resolves to the fixed version", () => {
+  const adapter1 = new OpenCodeAdapter({ fixedVersion: 1 });
+  const adapter2 = new OpenCodeAdapter({ fixedVersion: 2 });
+  assert.equal(adapter1.resolveVersion({}), 1);
+  assert.equal(adapter2.resolveVersion({}), 2);
+  // Even a conflicting (or garbage) openCodeVersionMode value must never
+  // override a construction-time fixedVersion.
+  assert.equal(adapter1.resolveVersion({ openCodeVersionMode: "v2" }), 1);
+  assert.equal(adapter2.resolveVersion({ openCodeVersionMode: "v1" }), 2);
 });

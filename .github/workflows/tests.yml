@@ -36,7 +36,7 @@ jobs:
           node-version-file: ".nvmrc"
       - run: make test
 
-  e2e:
+  e2e-v1:
     name: E2E
     runs-on: ubuntu-latest
     # Shells out to the real `gh`/`opencode` CLIs (see AGENTS.md/README).
@@ -56,5 +56,31 @@ jobs:
         with:
           node-version-file: ".nvmrc"
       - name: Install opencode CLI
-        run: npm install --global opencode-ai
+        # Bump manually to a verified exact npm version; global CLI installs
+        # are not tracked by Dependabot's package.json-based npm updates.
+        run: npm install --global opencode-ai@1.18.32
       - run: make test-e2e
+        env:
+          NODE_RED_AGENTS_OPENCODE_MODE: v1
+
+  e2e-v2:
+    name: E2E v2
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: ".nvmrc"
+      - name: Install opencode CLI
+        # Bump manually to a verified exact npm version; global CLI installs
+        # are not tracked by Dependabot's package.json-based npm updates.
+        run: npm install --global @opencode/cli@2.0.18
+      - run: make test-e2e
+        env:
+          NODE_RED_AGENTS_OPENCODE_MODE: v2

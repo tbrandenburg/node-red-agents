@@ -21,14 +21,24 @@ const { startSmokeInstance } = require("./lib/node-red-instance");
 const { waitForDebug } = require("../../scripts/lib/watch-debug");
 
 const FLOWS_DIR = path.join(__dirname, "flows");
+const OPENCODE_MODE = process.env.NODE_RED_AGENTS_OPENCODE_MODE || "v1";
 let instance;
+
+function withOpenCodeMode(flow) {
+  assert.ok(["v1", "v2"].includes(OPENCODE_MODE), "NODE_RED_AGENTS_OPENCODE_MODE must be v1 or v2");
+  return flow.map((node) => {
+    if (node.type === "agent") return { ...node, openCodeVersionMode: OPENCODE_MODE };
+    if (node.type === "agent-server") return { ...node, apiVersionMode: OPENCODE_MODE };
+    return node;
+  });
+}
 
 before(async () => {
   instance = await startSmokeInstance();
 });
 
-after(() => {
-  if (instance) instance.stop();
+after(async () => {
+  if (instance) await instance.stop();
 });
 
 test("gh smoke flow: inject -> gh (pr list) -> debug produces real output, no red status", async () => {
@@ -44,7 +54,7 @@ test("gh smoke flow: inject -> gh (pr list) -> debug produces real output, no re
 });
 
 test("agent smoke flow: inject -> agent (opencode) -> debug produces real output, no red status", async () => {
-  const flow = require(path.join(FLOWS_DIR, "agent-smoke.json"));
+  const flow = withOpenCodeMode(require(path.join(FLOWS_DIR, "agent-smoke.json")));
   await instance.deployFlow(flow);
   const result = await waitForDebug({
     baseUrl: instance.baseUrl,
@@ -64,8 +74,46 @@ test("agent smoke flow: inject -> agent (opencode) -> debug produces real output
   );
 });
 
+test(
+  "OpenCode v2 invokes a real local MCP tool with tool permissions configured",
+  { skip: OPENCODE_MODE !== "v2" },
+  async () => {
+    const fixture = path.join(__dirname, "fixtures", "mcp-echo.js");
+    const flow = withOpenCodeMode(require(path.join(FLOWS_DIR, "agent-smoke.json"))).map((node) =>
+      node.type === "agent"
+        ? {
+            ...node,
+            prompt:
+              "Call the available echo_marker MCP tool, then reply with exactly the text it returns.",
+            promptType: "str",
+            mcpServers: [
+              { name: "smoke", type: "local", command: process.execPath, args: [fixture] },
+            ],
+            allowedTools: ["*"],
+            deniedTools: ["shell"],
+          }
+        : node,
+    );
+    await instance.deployFlow(flow);
+    const result = await waitForDebug({
+      baseUrl: instance.baseUrl,
+      injectId: "smoke-agent-inject",
+      debugId: "smoke-agent-debug",
+      errorDebugId: "smoke-agent-error-debug",
+      maxWaitMs: 60000,
+    });
+    assert.equal(result.ok, true, `expected a debug message, got: ${JSON.stringify(result)}`);
+    const msg = JSON.parse(result.data.msg);
+    assert.match(
+      String(msg.payload),
+      /MCP_TOOL_VERIFIED_6d28a6/,
+      `expected the MCP marker, got payload=${JSON.stringify(msg.payload)} execution=${JSON.stringify(msg.agentExecution)}`,
+    );
+  },
+);
+
 test("agent resume smoke flow: two chained agent (opencode) nodes -- second resumes the first's real session", async () => {
-  const flow = require(path.join(FLOWS_DIR, "agent-resume-smoke.json"));
+  const flow = withOpenCodeMode(require(path.join(FLOWS_DIR, "agent-resume-smoke.json")));
   await instance.deployFlow(flow);
   const result = await waitForDebug({
     baseUrl: instance.baseUrl,
@@ -87,16 +135,28 @@ test("agent resume smoke flow: two chained agent (opencode) nodes -- second resu
   );
 });
 
-test("agent-server smoke flow: inject -> agent-server (status) -> debug produces a real registry summary", async () => {
-  const flow = require(path.join(FLOWS_DIR, "agent-server-smoke.json"));
+test("agent-server smoke flow: v1/v2 message, history, and terminate lifecycle", async () => {
+  const flow = withOpenCodeMode(require(path.join(FLOWS_DIR, "agent-server-smoke.json")));
   await instance.deployFlow(flow);
   const result = await waitForDebug({
     baseUrl: instance.baseUrl,
     injectId: "smoke-agent-server-inject",
     debugId: "smoke-agent-server-debug",
-    maxWaitMs: 15000,
+    errorDebugId: "smoke-agent-server-error-debug",
+    maxWaitMs: 60000,
   });
-  assert.equal(result.ok, true, `expected a debug message, got: ${JSON.stringify(result)}`);
+  assert.equal(
+    result.ok,
+    true,
+    `expected a debug message, got: ${JSON.stringify(result)}\n--- node-red stderr ---\n${instance.getStderrTail()}`,
+  );
   const msg = JSON.parse(result.data.msg);
-  assert.deepEqual(msg.payload, { total: 0, busy: 0, idle: 0, sessions: [] });
+  assert.equal(msg.payload, true, "expected the server daemon to terminate successfully");
+  assert.equal(msg.abortAcknowledged, true, "expected the server abort operation to complete");
+  assert.match(
+    String(msg.assistantOutput).toLowerCase(),
+    /\bpong\b/,
+    `expected the assistant output to contain "pong", got: ${JSON.stringify(msg.assistantOutput)}`,
+  );
+  assert.ok(Array.isArray(msg.history), "expected v1/v2 session history to be returned");
 });

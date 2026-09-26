@@ -34,12 +34,18 @@ commands (`make help`).
   after any change to `packages/node-red-agents/**`.
 - `make test-e2e` -- smoke/E2E suite (`test/integration/`): boots a real,
   throwaway Node-RED instance and shells out to the real `gh`/`opencode`
-  CLIs. Deliberately not part of `make test`; only run it when those
-  CLIs are installed and authenticated.
+  CLIs. CI runs independent, exact-version-pinned OpenCode v1 (`opencode-ai`)
+  and v2 (`@opencode/cli`) jobs against the same smoke flows, setting each
+  adapter's version mode explicitly. Bump these global CLI pins manually
+  after verifying the candidate versions and smoke behavior; Dependabot
+  cannot track global installs declared only in workflow run commands. The
+  v1 job retains the required `E2E` check name; `E2E v2` is an additional
+  check not currently required by the main-branch ruleset. Deliberately not
+  part of `make test`; local runs require installed and authenticated CLIs.
 - `make format` / `make lint` -- Prettier / ESLint (flat config,
   `eslint.config.js`); pass `FIX=1` to rewrite/auto-fix instead of just
   checking. `make ci` runs format + lint + test + test-e2e, the same
-  local gate CI enforces across its three jobs (see
+  local gate CI enforces (see
   `.github/workflows/tests.yml`).
 - `make audit` -- `npm audit` scoped to what actually matters: the
   published `packages/node-red-agents` package's production deps (fails

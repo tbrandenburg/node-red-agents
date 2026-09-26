@@ -24,6 +24,22 @@
         "env": []
     },
     {
+        "id": "advanced-chat-tab",
+        "type": "tab",
+        "label": "Advanced Chat",
+        "disabled": false,
+        "info": "",
+        "env": []
+    },
+    {
+        "id": "adt-tab",
+        "type": "tab",
+        "label": "Agentic Development Team",
+        "disabled": false,
+        "info": "Continuously watches a GitHub repository and keeps up to 3 agents per category (Issues, Pull Requests, Actions) busy via adt-task-subflow. Read-only against the remote -- see docs/260820_Agentic_Development_Team.md. Repo Settings group drives Host/Owner/Repository/Model + Update/Start/Stop; Start/Stop toggle the 30s scheduler. Test: injects/debug nodes are kept intentionally (same convention as Issue Control Center) for future debugging.",
+        "env": []
+    },
+    {
         "id": "arw-subflow",
         "type": "subflow",
         "name": "Agent Repo Workflow (clone + run agent against a prompt)",
@@ -101,6 +117,73 @@
                     {
                         "id": "arw-run-agent",
                         "port": 1
+                    }
+                ]
+            }
+        ],
+        "env": []
+    },
+    {
+        "id": "adt-task-subflow",
+        "type": "subflow",
+        "name": "ADT Task (ensure worktree + run agent against a prompt)",
+        "info": "M3 scope: the reusable per-task pipeline for the Agentic Development Team. Given a context and a prompt template, ensures an isolated git worktree exists (scripts/ensure-worktree.sh), gates on adt_running (global context -- see deviation note below) immediately before the agent node so a Stop is never raced past, renders the prompt, and runs the agent.\n\nInput msg:\n- msg.context = {host, owner, repo, model, kind, itemId, taskKey, phase}\n- msg.promptTemplate = string with {{field}} placeholders\n- msg.operation = \"terminate\" (+ msg.executionId) bypasses setup and goes straight to the agent node's terminate handling (M4 wires the caller side of this; M3 only builds the structural branch so it doesn't crash deploy).\n\nOutputs:\n1. completion {context, status, payload}\n2. raw agent events (agent node's 2nd output, verbatim)\n3. log/error rows (worktree failures, gate drops, prompt-render problems, agent errors)\n\nDEVIATION FROM PLAN: the gate uses global.get('adt_running')/global.set, not flow.get/flow.set as the plan's prose literally says -- a subflow instance gets its own flow context, separate from the tab it's placed on, so flow.adt_running set by a tab-level inject is never visible inside the subflow. global context is required for this cross-boundary flag to work at all.",
+        "category": "",
+        "in": [
+            {
+                "x": 40,
+                "y": 40,
+                "wires": [
+                    {
+                        "id": "adt-operation-router"
+                    }
+                ]
+            }
+        ],
+        "out": [
+            {
+                "x": 2100,
+                "y": 100,
+                "wires": [
+                    {
+                        "id": "adt-handle-agent-result",
+                        "port": 0
+                    }
+                ]
+            },
+            {
+                "x": 2100,
+                "y": 160,
+                "wires": [
+                    {
+                        "id": "adt-run-agent",
+                        "port": 1
+                    }
+                ]
+            },
+            {
+                "x": 2100,
+                "y": 220,
+                "wires": [
+                    {
+                        "id": "adt-build-worktree-args",
+                        "port": 1
+                    },
+                    {
+                        "id": "adt-handle-worktree-result",
+                        "port": 1
+                    },
+                    {
+                        "id": "adt-gate",
+                        "port": 1
+                    },
+                    {
+                        "id": "adt-handle-agent-result",
+                        "port": 1
+                    },
+                    {
+                        "id": "adt-handle-agent-error",
+                        "port": 0
                     }
                 ]
             }
@@ -417,8 +500,164 @@
         "id": "0e80a349b55dd9e2",
         "type": "auto_layout_config",
         "name": "AutoLayout",
-        "algorithm": "dagre_longest_path",
+        "algorithm": "dagre_lr",
         "settings": "{\"dagre_lr\":{\"rankdir\":\"LR\",\"marginx\":20,\"marginy\":20,\"nodesep\":30,\"ranksep\":50},\"dagre_longest_path\":{\"rankdir\":\"LR\",\"marginx\":2,\"marginy\":2,\"ranker\":\"longest-path\",\"nodesep\":2,\"ranksep\":2},\"elkjs_mr_tree\":{\"algorithm\":\"mrtree\",\"childAreaHeight\":4500,\"childAreaWidth\":4500,\"org.eclipse.elk.direction\":\"RIGHT\"},\"elkjs_layered_upwards\":{\"algorithm\":\"org.eclipse.elk.layered\",\"elk.direction\":\"UP\",\"cycleBreaking.strategy\":\"INTERACTIVE\",\"layering.strategy\":\"INTERACTIVE\",\"crossingMinimization.semiInteractive\":true,\"separateConnectedComponents\":true,\"nodePlacement.strategy\":\"NETWORK_SIMPLEX\",\"spacing.nodeNode\":70,\"spacing.nodeNodeBetweenLayers\":25,\"spacing.edgeNode\":25,\"spacing.edgeNodeBetweenLayers\":20,\"spacing.edgeEdge\":20,\"spacing.edgeEdgeBetweenLayers\":15,\"elk.hierarchyHandling\":\"INCLUDE_CHILDREN\",\"elk.layered.spacing.edgeNodeBetweenLayers\":40,\"elk.layered.nodePlacement.bk.fixedAlignment\":\"BALANCED\",\"layering.layerConstraint\":\"FIRST\"},\"elkjs_layered_downwards\":{\"algorithm\":\"org.eclipse.elk.layered\",\"elk.direction\":\"DOWN\",\"cycleBreaking.strategy\":\"INTERACTIVE\",\"layering.strategy\":\"INTERACTIVE\",\"crossingMinimization.semiInteractive\":true,\"separateConnectedComponents\":true,\"nodePlacement.strategy\":\"NETWORK_SIMPLEX\",\"spacing.nodeNode\":70,\"spacing.nodeNodeBetweenLayers\":25,\"spacing.edgeNode\":25,\"spacing.edgeNodeBetweenLayers\":20,\"spacing.edgeEdge\":20,\"spacing.edgeEdgeBetweenLayers\":15},\"elkjs_box\":{\"algorithm\":\"org.eclipse.elk.box\",\"org.eclipse.elk.spacing.nodeNode\":20},\"pull_request_2267\":{}}"
+    },
+    {
+        "id": "adc-page",
+        "type": "ui-page",
+        "name": "Advanced Chat",
+        "ui": "7cde684526b81393",
+        "path": "/advanced-chat",
+        "icon": "chat",
+        "layout": "grid",
+        "theme": "d0f5c6c8434eeb19",
+        "breakpoints": [
+            {
+                "name": "Default",
+                "px": "0",
+                "cols": "3"
+            },
+            {
+                "name": "Tablet",
+                "px": "576",
+                "cols": "6"
+            },
+            {
+                "name": "Small Desktop",
+                "px": "768",
+                "cols": "9"
+            },
+            {
+                "name": "Desktop",
+                "px": "1024",
+                "cols": "12"
+            }
+        ],
+        "order": 4,
+        "className": "",
+        "visible": "true",
+        "disabled": "false"
+    },
+    {
+        "id": "adc-group",
+        "type": "ui-group",
+        "name": "Advanced Chat",
+        "page": "adc-page",
+        "width": 6,
+        "height": 1,
+        "order": 1,
+        "showTitle": true,
+        "className": "",
+        "visible": "true",
+        "disabled": "false",
+        "groupType": "default"
+    },
+    {
+        "id": "adt-ui-page",
+        "type": "ui-page",
+        "name": "Agentic Development Team",
+        "ui": "7cde684526b81393",
+        "path": "/adt",
+        "icon": "smart_toy",
+        "layout": "grid",
+        "theme": "d0f5c6c8434eeb19",
+        "breakpoints": [
+            {
+                "name": "Default",
+                "px": "0",
+                "cols": "3"
+            },
+            {
+                "name": "Tablet",
+                "px": "576",
+                "cols": "6"
+            },
+            {
+                "name": "Small Desktop",
+                "px": "768",
+                "cols": "9"
+            },
+            {
+                "name": "Desktop",
+                "px": "1024",
+                "cols": "12"
+            }
+        ],
+        "order": 5,
+        "className": "",
+        "visible": "true",
+        "disabled": "false"
+    },
+    {
+        "id": "adt-ui-group-issues",
+        "type": "ui-group",
+        "name": "Issues",
+        "page": "adt-ui-page",
+        "width": 4,
+        "height": 1,
+        "order": 2,
+        "showTitle": true,
+        "className": "",
+        "visible": "true",
+        "disabled": "false",
+        "groupType": "default"
+    },
+    {
+        "id": "adt-ui-group-prs",
+        "type": "ui-group",
+        "name": "Pull Requests",
+        "page": "adt-ui-page",
+        "width": 4,
+        "height": 1,
+        "order": 3,
+        "showTitle": true,
+        "className": "",
+        "visible": "true",
+        "disabled": "false",
+        "groupType": "default"
+    },
+    {
+        "id": "adt-ui-group-actions",
+        "type": "ui-group",
+        "name": "Actions",
+        "page": "adt-ui-page",
+        "width": 4,
+        "height": 1,
+        "order": 4,
+        "showTitle": true,
+        "className": "",
+        "visible": "true",
+        "disabled": "false",
+        "groupType": "default"
+    },
+    {
+        "id": "adt-ui-group-trace",
+        "type": "ui-group",
+        "name": "Stats and Logs",
+        "page": "adt-ui-page",
+        "width": 12,
+        "height": 1,
+        "order": 5,
+        "showTitle": true,
+        "className": "",
+        "visible": "true",
+        "disabled": "false",
+        "groupType": "default"
+    },
+    {
+        "id": "adt-ui-group-settings",
+        "type": "ui-group",
+        "name": "Repo Settings",
+        "page": "adt-ui-page",
+        "width": 12,
+        "height": 1,
+        "order": 1,
+        "showTitle": true,
+        "className": "",
+        "visible": "true",
+        "disabled": "false",
+        "groupType": "default"
     },
     {
         "id": "arw-repo-gate",
@@ -689,6 +928,239 @@
         ]
     },
     {
+        "id": "adt-operation-router",
+        "type": "function",
+        "z": "adt-task-subflow",
+        "name": "Route by operation",
+        "func": "if (msg.operation === 'terminate') {\n    return [msg, null];\n}\nreturn [null, msg];\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 200,
+        "y": 100,
+        "wires": [
+            [
+                "adt-run-agent"
+            ],
+            [
+                "adt-build-worktree-args"
+            ]
+        ]
+    },
+    {
+        "id": "adt-build-worktree-args",
+        "type": "function",
+        "z": "adt-task-subflow",
+        "name": "Build worktree args",
+        "func": "const context = msg.context || {};\nconst SAFE = /^[A-Za-z0-9._-]+$/;\nif (!SAFE.test(context.host) || !SAFE.test(context.owner) ||\n    !SAFE.test(context.repo) || !SAFE.test(context.taskKey)) {\n    node.error('adt: refusing unsafe host/owner/repo/taskKey: ' +\n        context.host + '/' + context.owner + '/' + context.repo +\n        '/' + context.taskKey, msg);\n    return [null, {\n        payload: {\n            timestamp: new Date().toISOString(),\n            context: context,\n            type: 'error',\n            message: 'refusing unsafe host/owner/repo/taskKey -- see runtime log'\n        }\n    }];\n}\nmsg.payload = context.host + ' ' + context.owner + ' ' + context.repo +\n    ' ' + context.taskKey;\nreturn [msg, null];\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 460,
+        "y": 80,
+        "wires": [
+            [
+                "adt-ensure-worktree-exec"
+            ],
+            []
+        ]
+    },
+    {
+        "id": "adt-ensure-worktree-exec",
+        "type": "exec",
+        "z": "adt-task-subflow",
+        "command": "bash scripts/ensure-worktree.sh",
+        "addpay": true,
+        "append": "",
+        "useSpawn": "false",
+        "timer": "120",
+        "winHide": false,
+        "oldrc": "false",
+        "name": "ensure isolated worktree",
+        "x": 700,
+        "y": 80,
+        "wires": [
+            [
+                "adt-handle-worktree-result"
+            ],
+            [],
+            []
+        ]
+    },
+    {
+        "id": "adt-handle-worktree-result",
+        "type": "function",
+        "z": "adt-task-subflow",
+        "name": "Handle worktree result",
+        "func": "const rc = msg.rc || { code: 0 };\nif (rc.code !== 0) {\n    return [null, {\n        payload: {\n            timestamp: new Date().toISOString(),\n            context: msg.context,\n            type: 'error',\n            message: 'ensure-worktree failed (exit ' + rc.code + '): ' +\n                (rc.message || msg.payload || '')\n        }\n    }];\n}\n\nconst text = String(msg.payload || '');\nconst dirMatch = text.match(/REPO_DIR=(.+)/);\nconst branchMatch = text.match(/DEFAULT_BRANCH=(.+)/);\nmsg.cwd = dirMatch ? dirMatch[1].trim() : undefined;\nmsg.context.defaultBranch = branchMatch ? branchMatch[1].trim() : 'main';\n\nif (!msg.cwd) {\n    return [null, {\n        payload: {\n            timestamp: new Date().toISOString(),\n            context: msg.context,\n            type: 'error',\n            message: 'ensure-worktree script did not report a workspace directory'\n        }\n    }];\n}\n\nreturn [msg, null];\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 950,
+        "y": 80,
+        "wires": [
+            [
+                "adt-gate"
+            ],
+            []
+        ]
+    },
+    {
+        "id": "adt-gate",
+        "type": "function",
+        "z": "adt-task-subflow",
+        "name": "GATE: schedule still running?",
+        "func": "if (global.get('adt_running') !== true) {\n    node.warn('adt: gate dropped dispatch for ' +\n        (msg.context && msg.context.taskKey) + ' -- schedule not running');\n    return [null, {\n        payload: {\n            timestamp: new Date().toISOString(),\n            context: msg.context,\n            type: 'info',\n            message: 'gate dropped dispatch: schedule not running'\n        }\n    }];\n}\nreturn [msg, null];\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1180,
+        "y": 80,
+        "wires": [
+            [
+                "adt-render-prompt-template"
+            ],
+            []
+        ]
+    },
+    {
+        "id": "adt-render-prompt-template",
+        "type": "function",
+        "z": "adt-task-subflow",
+        "name": "Render prompt template",
+        "func": "const context = msg.context || {};\nconst vars = Object.assign({}, context, {\n    repoSlug: context.owner + '/' + context.repo,\n    issueNumber: context.itemId,\n    prNumber: context.itemId,\n    runId: context.itemId\n});\nmsg.payload = String(msg.promptTemplate || '').replace(/\\{\\{(\\w+)\\}\\}/g, function (match, key) {\n    if (Object.prototype.hasOwnProperty.call(vars, key) && vars[key] !== undefined) {\n        return vars[key];\n    }\n    node.warn('adt: unresolved prompt placeholder {{' + key + '}}');\n    return match;\n});\nmsg.model = context.model;\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1420,
+        "y": 80,
+        "wires": [
+            [
+                "adt-run-agent"
+            ]
+        ]
+    },
+    {
+        "id": "adt-run-agent",
+        "type": "agent",
+        "z": "adt-task-subflow",
+        "name": "Run Agent",
+        "agent": "opencode",
+        "runtime": "srt",
+        "invocation": "prompt",
+        "agentName": "agentName",
+        "agentNameType": "msg",
+        "model": "model",
+        "modelType": "msg",
+        "prompt": "payload",
+        "promptType": "msg",
+        "sessionIdProp": "adt_unused_session_id",
+        "sessionIdPropType": "msg",
+        "invocationName": "",
+        "invocationNameType": "str",
+        "arguments": "payload",
+        "argumentsType": "msg",
+        "cwd": "cwd",
+        "cwdType": "msg",
+        "auto": true,
+        "concurrency": 3,
+        "timeout": 1800,
+        "timeoutType": "num",
+        "mcpServers": [],
+        "srtBinary": "",
+        "srtSettingsMode": "inline",
+        "srtSettingsPath": "/tmp/opencode/adt-srt-settings.json",
+        "srtAllowedDomains": [
+            "api.githubcopilot.com",
+            "api.github.com",
+            "opencode.ai"
+        ],
+        "srtAllowedWriteDirs": [
+            ".",
+            "/tmp",
+            "~/.local/share/opencode"
+        ],
+        "srtStrictAllowlist": true,
+        "srtAdvancedJson": "",
+        "x": 1670,
+        "y": 80,
+        "wires": [
+            [
+                "adt-handle-agent-result"
+            ],
+            []
+        ]
+    },
+    {
+        "id": "adt-handle-agent-result",
+        "type": "function",
+        "z": "adt-task-subflow",
+        "name": "Handle agent result",
+        "func": "const context = msg.context;\nconst exec = msg.agentExecution || {};\nconst completion = {\n    context: context,\n    status: exec.status || 'unknown',\n    payload: msg.payload\n};\nconst logRow = {\n    payload: {\n        timestamp: new Date().toISOString(),\n        context: context,\n        type: exec.status === 'completed' ? 'success' : 'error',\n        message: (context && context.taskKey || 'task') + ' finished: ' + exec.status\n    }\n};\nreturn [completion, logRow];\n",
+        "outputs": 2,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1920,
+        "y": 80,
+        "wires": [
+            [],
+            []
+        ]
+    },
+    {
+        "id": "adt-agent-error-catch",
+        "type": "catch",
+        "z": "adt-task-subflow",
+        "name": "agent error",
+        "scope": [
+            "adt-run-agent"
+        ],
+        "uncaught": false,
+        "x": 1680,
+        "y": 200,
+        "wires": [
+            [
+                "adt-handle-agent-error"
+            ]
+        ]
+    },
+    {
+        "id": "adt-handle-agent-error",
+        "type": "function",
+        "z": "adt-task-subflow",
+        "name": "format agent error",
+        "func": "msg.payload = {\n    timestamp: new Date().toISOString(),\n    context: msg.context,\n    type: 'error',\n    message: (msg.error && msg.error.message) ? msg.error.message : 'Unknown agent error'\n};\nreturn msg;\n",
+        "outputs": 1,
+        "timeout": 0,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 1920,
+        "y": 200,
+        "wires": [
+            []
+        ]
+    },
+    {
         "id": "dff7d659d3ccd337",
         "type": "inject",
         "z": "5dbe97e09f66bb83",
@@ -720,14 +1192,19 @@
         "agent": "opencode",
         "runtime": "srt",
         "invocation": "prompt",
+        "agentName": "",
+        "agentNameType": "str",
         "model": "opencode/big-pickle",
         "modelType": "str",
         "prompt": "",
         "promptType": "str",
+        "sessionIdProp": "sessionID",
+        "sessionIdPropType": "msg",
         "invocationName": "",
         "invocationNameType": "str",
         "arguments": "payload",
         "argumentsType": "msg",
+        "promptArgs": [],
         "cwd": "",
         "cwdType": "str",
         "auto": false,
@@ -735,6 +1212,15 @@
         "timeout": 120,
         "timeoutType": "num",
         "mcpServers": [],
+        "systemPrompt": "",
+        "systemPromptType": "str",
+        "effort": "",
+        "effortType": "str",
+        "allowedTools": [],
+        "deniedTools": [],
+        "retryMaxAttempts": 2,
+        "retryDelayMs": 3000,
+        "outputFormat": "",
         "srtBinary": "",
         "srtSettingsMode": "inline",
         "srtSettingsPath": "/tmp/opencode/luna-srt-settings.json",
@@ -949,14 +1435,19 @@
         "agent": "opencode",
         "runtime": "srt",
         "invocation": "prompt",
+        "agentName": "",
+        "agentNameType": "str",
         "model": "opencode/big-pickle",
         "modelType": "str",
         "prompt": "",
         "promptType": "str",
+        "sessionIdProp": "sessionID",
+        "sessionIdPropType": "msg",
         "invocationName": "",
         "invocationNameType": "str",
         "arguments": "payload",
         "argumentsType": "msg",
+        "promptArgs": [],
         "cwd": "",
         "cwdType": "str",
         "auto": false,
@@ -964,6 +1455,15 @@
         "timeout": 120,
         "timeoutType": "num",
         "mcpServers": [],
+        "systemPrompt": "",
+        "systemPromptType": "str",
+        "effort": "",
+        "effortType": "str",
+        "allowedTools": [],
+        "deniedTools": [],
+        "retryMaxAttempts": 2,
+        "retryDelayMs": 3000,
+        "outputFormat": "",
         "srtBinary": "",
         "srtSettingsMode": "inline",
         "srtSettingsPath": "/tmp/opencode/luna-srt-settings.json",
@@ -2564,233 +3064,228 @@
         "clearable": false,
         "options": [
             {
-                "value": "opencode/big-pickle",
                 "label": "opencode/big-pickle",
+                "value": "opencode/big-pickle",
                 "type": "str"
             },
             {
-                "value": "opencode/deepseek-v4-flash-free",
                 "label": "opencode/deepseek-v4-flash-free",
+                "value": "opencode/deepseek-v4-flash-free",
                 "type": "str"
             },
             {
-                "value": "opencode/hy3-free",
                 "label": "opencode/hy3-free",
+                "value": "opencode/hy3-free",
                 "type": "str"
             },
             {
-                "value": "opencode/laguna-s-2.1-free",
                 "label": "opencode/laguna-s-2.1-free",
+                "value": "opencode/laguna-s-2.1-free",
                 "type": "str"
             },
             {
-                "value": "opencode/mimo-v2.5-free",
                 "label": "opencode/mimo-v2.5-free",
+                "value": "opencode/mimo-v2.5-free",
                 "type": "str"
             },
             {
-                "value": "opencode/nemotron-3-ultra-free",
                 "label": "opencode/nemotron-3-ultra-free",
+                "value": "opencode/nemotron-3-ultra-free",
                 "type": "str"
             },
             {
-                "value": "opencode/nemotron-3.5-lightning-free",
                 "label": "opencode/nemotron-3.5-lightning-free",
+                "value": "opencode/nemotron-3.5-lightning-free",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-haiku-4.5",
                 "label": "github-copilot/claude-haiku-4.5",
+                "value": "github-copilot/claude-haiku-4.5",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.5",
                 "label": "github-copilot/claude-opus-4.5",
+                "value": "github-copilot/claude-opus-4.5",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.6",
                 "label": "github-copilot/claude-opus-4.6",
+                "value": "github-copilot/claude-opus-4.6",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.6-fast",
                 "label": "github-copilot/claude-opus-4.6-fast",
+                "value": "github-copilot/claude-opus-4.6-fast",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.7",
                 "label": "github-copilot/claude-opus-4.7",
+                "value": "github-copilot/claude-opus-4.7",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.7-fast",
                 "label": "github-copilot/claude-opus-4.7-fast",
+                "value": "github-copilot/claude-opus-4.7-fast",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.8",
                 "label": "github-copilot/claude-opus-4.8",
+                "value": "github-copilot/claude-opus-4.8",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.8-fast",
                 "label": "github-copilot/claude-opus-4.8-fast",
+                "value": "github-copilot/claude-opus-4.8-fast",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-5",
                 "label": "github-copilot/claude-opus-5",
+                "value": "github-copilot/claude-opus-5",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-sonnet-4.5",
                 "label": "github-copilot/claude-sonnet-4.5",
+                "value": "github-copilot/claude-sonnet-4.5",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-sonnet-5",
                 "label": "github-copilot/claude-sonnet-5",
-                "type": "str"
-            },
-            {
                 "value": "github-copilot/claude-sonnet-5",
-                "label": "github-copilot/claude-sonnet-5",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gemini-3.5-flash",
                 "label": "github-copilot/gemini-3.5-flash",
+                "value": "github-copilot/gemini-3.5-flash",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gemini-3.6-flash",
                 "label": "github-copilot/gemini-3.6-flash",
+                "value": "github-copilot/gemini-3.6-flash",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5-mini",
                 "label": "github-copilot/gpt-5-mini",
+                "value": "github-copilot/gpt-5-mini",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.3-codex",
                 "label": "github-copilot/gpt-5.3-codex",
+                "value": "github-copilot/gpt-5.3-codex",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.4",
                 "label": "github-copilot/gpt-5.4",
+                "value": "github-copilot/gpt-5.4",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.4-mini",
                 "label": "github-copilot/gpt-5.4-mini",
+                "value": "github-copilot/gpt-5.4-mini",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.5",
                 "label": "github-copilot/gpt-5.5",
+                "value": "github-copilot/gpt-5.5",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.6-luna",
                 "label": "github-copilot/gpt-5.6-luna",
+                "value": "github-copilot/gpt-5.6-luna",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.6-sol",
                 "label": "github-copilot/gpt-5.6-sol",
+                "value": "github-copilot/gpt-5.6-sol",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.6-terra",
                 "label": "github-copilot/gpt-5.6-terra",
+                "value": "github-copilot/gpt-5.6-terra",
                 "type": "str"
             },
             {
-                "value": "github-copilot/kimi-k2.7-code",
                 "label": "github-copilot/kimi-k2.7-code",
+                "value": "github-copilot/kimi-k2.7-code",
                 "type": "str"
             },
             {
-                "value": "github-copilot/kimi-k3",
                 "label": "github-copilot/kimi-k3",
+                "value": "github-copilot/kimi-k3",
                 "type": "str"
             },
             {
-                "value": "github-copilot/mai-code-1-flash-picker",
                 "label": "github-copilot/mai-code-1-flash-picker",
+                "value": "github-copilot/mai-code-1-flash-picker",
                 "type": "str"
             },
             {
-                "value": "github-copilot/mai-code-1.1-flash",
                 "label": "github-copilot/mai-code-1.1-flash",
+                "value": "github-copilot/mai-code-1.1-flash",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.3-codex-spark",
                 "label": "openai/gpt-5.3-codex-spark",
+                "value": "openai/gpt-5.3-codex-spark",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.4",
                 "label": "openai/gpt-5.4",
+                "value": "openai/gpt-5.4",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.4-fast",
                 "label": "openai/gpt-5.4-fast",
+                "value": "openai/gpt-5.4-fast",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.4-mini",
                 "label": "openai/gpt-5.4-mini",
+                "value": "openai/gpt-5.4-mini",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.4-mini-fast",
                 "label": "openai/gpt-5.4-mini-fast",
+                "value": "openai/gpt-5.4-mini-fast",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.5",
                 "label": "openai/gpt-5.5",
+                "value": "openai/gpt-5.5",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.5-fast",
                 "label": "openai/gpt-5.5-fast",
+                "value": "openai/gpt-5.5-fast",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.6-luna",
                 "label": "openai/gpt-5.6-luna",
+                "value": "openai/gpt-5.6-luna",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.6-luna-fast",
                 "label": "openai/gpt-5.6-luna-fast",
+                "value": "openai/gpt-5.6-luna-fast",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.6-sol",
                 "label": "openai/gpt-5.6-sol",
+                "value": "openai/gpt-5.6-sol",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.6-sol-fast",
                 "label": "openai/gpt-5.6-sol-fast",
+                "value": "openai/gpt-5.6-sol-fast",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.6-terra",
                 "label": "openai/gpt-5.6-terra",
+                "value": "openai/gpt-5.6-terra",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.6-terra-fast",
                 "label": "openai/gpt-5.6-terra-fast",
+                "value": "openai/gpt-5.6-terra-fast",
                 "type": "str"
             }
         ],
@@ -4288,233 +4783,228 @@
         "clearable": false,
         "options": [
             {
-                "value": "opencode/big-pickle",
                 "label": "opencode/big-pickle",
+                "value": "opencode/big-pickle",
                 "type": "str"
             },
             {
-                "value": "opencode/deepseek-v4-flash-free",
                 "label": "opencode/deepseek-v4-flash-free",
+                "value": "opencode/deepseek-v4-flash-free",
                 "type": "str"
             },
             {
-                "value": "opencode/hy3-free",
                 "label": "opencode/hy3-free",
+                "value": "opencode/hy3-free",
                 "type": "str"
             },
             {
-                "value": "opencode/laguna-s-2.1-free",
                 "label": "opencode/laguna-s-2.1-free",
+                "value": "opencode/laguna-s-2.1-free",
                 "type": "str"
             },
             {
-                "value": "opencode/mimo-v2.5-free",
                 "label": "opencode/mimo-v2.5-free",
+                "value": "opencode/mimo-v2.5-free",
                 "type": "str"
             },
             {
-                "value": "opencode/nemotron-3-ultra-free",
                 "label": "opencode/nemotron-3-ultra-free",
+                "value": "opencode/nemotron-3-ultra-free",
                 "type": "str"
             },
             {
-                "value": "opencode/nemotron-3.5-lightning-free",
                 "label": "opencode/nemotron-3.5-lightning-free",
+                "value": "opencode/nemotron-3.5-lightning-free",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-haiku-4.5",
                 "label": "github-copilot/claude-haiku-4.5",
+                "value": "github-copilot/claude-haiku-4.5",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.5",
                 "label": "github-copilot/claude-opus-4.5",
+                "value": "github-copilot/claude-opus-4.5",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.6",
                 "label": "github-copilot/claude-opus-4.6",
+                "value": "github-copilot/claude-opus-4.6",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.6-fast",
                 "label": "github-copilot/claude-opus-4.6-fast",
+                "value": "github-copilot/claude-opus-4.6-fast",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.7",
                 "label": "github-copilot/claude-opus-4.7",
+                "value": "github-copilot/claude-opus-4.7",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.7-fast",
                 "label": "github-copilot/claude-opus-4.7-fast",
+                "value": "github-copilot/claude-opus-4.7-fast",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.8",
                 "label": "github-copilot/claude-opus-4.8",
+                "value": "github-copilot/claude-opus-4.8",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.8-fast",
                 "label": "github-copilot/claude-opus-4.8-fast",
+                "value": "github-copilot/claude-opus-4.8-fast",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-5",
                 "label": "github-copilot/claude-opus-5",
+                "value": "github-copilot/claude-opus-5",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-sonnet-4.5",
                 "label": "github-copilot/claude-sonnet-4.5",
+                "value": "github-copilot/claude-sonnet-4.5",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-sonnet-5",
                 "label": "github-copilot/claude-sonnet-5",
-                "type": "str"
-            },
-            {
                 "value": "github-copilot/claude-sonnet-5",
-                "label": "github-copilot/claude-sonnet-5",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gemini-3.5-flash",
                 "label": "github-copilot/gemini-3.5-flash",
+                "value": "github-copilot/gemini-3.5-flash",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gemini-3.6-flash",
                 "label": "github-copilot/gemini-3.6-flash",
+                "value": "github-copilot/gemini-3.6-flash",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5-mini",
                 "label": "github-copilot/gpt-5-mini",
+                "value": "github-copilot/gpt-5-mini",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.3-codex",
                 "label": "github-copilot/gpt-5.3-codex",
+                "value": "github-copilot/gpt-5.3-codex",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.4",
                 "label": "github-copilot/gpt-5.4",
+                "value": "github-copilot/gpt-5.4",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.4-mini",
                 "label": "github-copilot/gpt-5.4-mini",
+                "value": "github-copilot/gpt-5.4-mini",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.5",
                 "label": "github-copilot/gpt-5.5",
+                "value": "github-copilot/gpt-5.5",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.6-luna",
                 "label": "github-copilot/gpt-5.6-luna",
+                "value": "github-copilot/gpt-5.6-luna",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.6-sol",
                 "label": "github-copilot/gpt-5.6-sol",
+                "value": "github-copilot/gpt-5.6-sol",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.6-terra",
                 "label": "github-copilot/gpt-5.6-terra",
+                "value": "github-copilot/gpt-5.6-terra",
                 "type": "str"
             },
             {
-                "value": "github-copilot/kimi-k2.7-code",
                 "label": "github-copilot/kimi-k2.7-code",
+                "value": "github-copilot/kimi-k2.7-code",
                 "type": "str"
             },
             {
-                "value": "github-copilot/kimi-k3",
                 "label": "github-copilot/kimi-k3",
+                "value": "github-copilot/kimi-k3",
                 "type": "str"
             },
             {
-                "value": "github-copilot/mai-code-1-flash-picker",
                 "label": "github-copilot/mai-code-1-flash-picker",
+                "value": "github-copilot/mai-code-1-flash-picker",
                 "type": "str"
             },
             {
-                "value": "github-copilot/mai-code-1.1-flash",
                 "label": "github-copilot/mai-code-1.1-flash",
+                "value": "github-copilot/mai-code-1.1-flash",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.3-codex-spark",
                 "label": "openai/gpt-5.3-codex-spark",
+                "value": "openai/gpt-5.3-codex-spark",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.4",
                 "label": "openai/gpt-5.4",
+                "value": "openai/gpt-5.4",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.4-fast",
                 "label": "openai/gpt-5.4-fast",
+                "value": "openai/gpt-5.4-fast",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.4-mini",
                 "label": "openai/gpt-5.4-mini",
+                "value": "openai/gpt-5.4-mini",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.4-mini-fast",
                 "label": "openai/gpt-5.4-mini-fast",
+                "value": "openai/gpt-5.4-mini-fast",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.5",
                 "label": "openai/gpt-5.5",
+                "value": "openai/gpt-5.5",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.5-fast",
                 "label": "openai/gpt-5.5-fast",
+                "value": "openai/gpt-5.5-fast",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.6-luna",
                 "label": "openai/gpt-5.6-luna",
+                "value": "openai/gpt-5.6-luna",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.6-luna-fast",
                 "label": "openai/gpt-5.6-luna-fast",
+                "value": "openai/gpt-5.6-luna-fast",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.6-sol",
                 "label": "openai/gpt-5.6-sol",
+                "value": "openai/gpt-5.6-sol",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.6-sol-fast",
                 "label": "openai/gpt-5.6-sol-fast",
+                "value": "openai/gpt-5.6-sol-fast",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.6-terra",
                 "label": "openai/gpt-5.6-terra",
+                "value": "openai/gpt-5.6-terra",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.6-terra-fast",
                 "label": "openai/gpt-5.6-terra-fast",
+                "value": "openai/gpt-5.6-terra-fast",
                 "type": "str"
             }
         ],
@@ -4575,64 +5065,6 @@
         ]
     },
     {
-        "id": "advanced-chat-tab",
-        "type": "tab",
-        "label": "Advanced Chat",
-        "disabled": false,
-        "info": "",
-        "env": []
-    },
-    {
-        "id": "adc-page",
-        "type": "ui-page",
-        "name": "Advanced Chat",
-        "ui": "7cde684526b81393",
-        "path": "/advanced-chat",
-        "icon": "chat",
-        "layout": "grid",
-        "theme": "d0f5c6c8434eeb19",
-        "breakpoints": [
-            {
-                "name": "Default",
-                "px": "0",
-                "cols": "3"
-            },
-            {
-                "name": "Tablet",
-                "px": "576",
-                "cols": "6"
-            },
-            {
-                "name": "Small Desktop",
-                "px": "768",
-                "cols": "9"
-            },
-            {
-                "name": "Desktop",
-                "px": "1024",
-                "cols": "12"
-            }
-        ],
-        "order": 4,
-        "className": "",
-        "visible": "true",
-        "disabled": "false"
-    },
-    {
-        "id": "adc-group",
-        "type": "ui-group",
-        "name": "Advanced Chat",
-        "page": "adc-page",
-        "width": 6,
-        "height": 1,
-        "order": 1,
-        "showTitle": true,
-        "className": "",
-        "visible": "true",
-        "disabled": "false",
-        "groupType": "default"
-    },
-    {
         "id": "adc-header",
         "type": "ui-template",
         "z": "advanced-chat-tab",
@@ -4673,233 +5105,228 @@
         "clearable": false,
         "options": [
             {
-                "value": "opencode/big-pickle",
                 "label": "opencode/big-pickle",
+                "value": "opencode/big-pickle",
                 "type": "str"
             },
             {
-                "value": "opencode/deepseek-v4-flash-free",
                 "label": "opencode/deepseek-v4-flash-free",
+                "value": "opencode/deepseek-v4-flash-free",
                 "type": "str"
             },
             {
-                "value": "opencode/hy3-free",
                 "label": "opencode/hy3-free",
+                "value": "opencode/hy3-free",
                 "type": "str"
             },
             {
-                "value": "opencode/laguna-s-2.1-free",
                 "label": "opencode/laguna-s-2.1-free",
+                "value": "opencode/laguna-s-2.1-free",
                 "type": "str"
             },
             {
-                "value": "opencode/mimo-v2.5-free",
                 "label": "opencode/mimo-v2.5-free",
+                "value": "opencode/mimo-v2.5-free",
                 "type": "str"
             },
             {
-                "value": "opencode/nemotron-3-ultra-free",
                 "label": "opencode/nemotron-3-ultra-free",
+                "value": "opencode/nemotron-3-ultra-free",
                 "type": "str"
             },
             {
-                "value": "opencode/nemotron-3.5-lightning-free",
                 "label": "opencode/nemotron-3.5-lightning-free",
+                "value": "opencode/nemotron-3.5-lightning-free",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-haiku-4.5",
                 "label": "github-copilot/claude-haiku-4.5",
+                "value": "github-copilot/claude-haiku-4.5",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.5",
                 "label": "github-copilot/claude-opus-4.5",
+                "value": "github-copilot/claude-opus-4.5",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.6",
                 "label": "github-copilot/claude-opus-4.6",
+                "value": "github-copilot/claude-opus-4.6",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.6-fast",
                 "label": "github-copilot/claude-opus-4.6-fast",
+                "value": "github-copilot/claude-opus-4.6-fast",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.7",
                 "label": "github-copilot/claude-opus-4.7",
+                "value": "github-copilot/claude-opus-4.7",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.7-fast",
                 "label": "github-copilot/claude-opus-4.7-fast",
+                "value": "github-copilot/claude-opus-4.7-fast",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.8",
                 "label": "github-copilot/claude-opus-4.8",
+                "value": "github-copilot/claude-opus-4.8",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.8-fast",
                 "label": "github-copilot/claude-opus-4.8-fast",
+                "value": "github-copilot/claude-opus-4.8-fast",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-5",
                 "label": "github-copilot/claude-opus-5",
+                "value": "github-copilot/claude-opus-5",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-sonnet-4.5",
                 "label": "github-copilot/claude-sonnet-4.5",
+                "value": "github-copilot/claude-sonnet-4.5",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-sonnet-5",
                 "label": "github-copilot/claude-sonnet-5",
-                "type": "str"
-            },
-            {
                 "value": "github-copilot/claude-sonnet-5",
-                "label": "github-copilot/claude-sonnet-5",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gemini-3.5-flash",
                 "label": "github-copilot/gemini-3.5-flash",
+                "value": "github-copilot/gemini-3.5-flash",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gemini-3.6-flash",
                 "label": "github-copilot/gemini-3.6-flash",
+                "value": "github-copilot/gemini-3.6-flash",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5-mini",
                 "label": "github-copilot/gpt-5-mini",
+                "value": "github-copilot/gpt-5-mini",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.3-codex",
                 "label": "github-copilot/gpt-5.3-codex",
+                "value": "github-copilot/gpt-5.3-codex",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.4",
                 "label": "github-copilot/gpt-5.4",
+                "value": "github-copilot/gpt-5.4",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.4-mini",
                 "label": "github-copilot/gpt-5.4-mini",
+                "value": "github-copilot/gpt-5.4-mini",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.5",
                 "label": "github-copilot/gpt-5.5",
+                "value": "github-copilot/gpt-5.5",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.6-luna",
                 "label": "github-copilot/gpt-5.6-luna",
+                "value": "github-copilot/gpt-5.6-luna",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.6-sol",
                 "label": "github-copilot/gpt-5.6-sol",
+                "value": "github-copilot/gpt-5.6-sol",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.6-terra",
                 "label": "github-copilot/gpt-5.6-terra",
+                "value": "github-copilot/gpt-5.6-terra",
                 "type": "str"
             },
             {
-                "value": "github-copilot/kimi-k2.7-code",
                 "label": "github-copilot/kimi-k2.7-code",
+                "value": "github-copilot/kimi-k2.7-code",
                 "type": "str"
             },
             {
-                "value": "github-copilot/kimi-k3",
                 "label": "github-copilot/kimi-k3",
+                "value": "github-copilot/kimi-k3",
                 "type": "str"
             },
             {
-                "value": "github-copilot/mai-code-1-flash-picker",
                 "label": "github-copilot/mai-code-1-flash-picker",
+                "value": "github-copilot/mai-code-1-flash-picker",
                 "type": "str"
             },
             {
-                "value": "github-copilot/mai-code-1.1-flash",
                 "label": "github-copilot/mai-code-1.1-flash",
+                "value": "github-copilot/mai-code-1.1-flash",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.3-codex-spark",
                 "label": "openai/gpt-5.3-codex-spark",
+                "value": "openai/gpt-5.3-codex-spark",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.4",
                 "label": "openai/gpt-5.4",
+                "value": "openai/gpt-5.4",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.4-fast",
                 "label": "openai/gpt-5.4-fast",
+                "value": "openai/gpt-5.4-fast",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.4-mini",
                 "label": "openai/gpt-5.4-mini",
+                "value": "openai/gpt-5.4-mini",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.4-mini-fast",
                 "label": "openai/gpt-5.4-mini-fast",
+                "value": "openai/gpt-5.4-mini-fast",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.5",
                 "label": "openai/gpt-5.5",
+                "value": "openai/gpt-5.5",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.5-fast",
                 "label": "openai/gpt-5.5-fast",
+                "value": "openai/gpt-5.5-fast",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.6-luna",
                 "label": "openai/gpt-5.6-luna",
+                "value": "openai/gpt-5.6-luna",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.6-luna-fast",
                 "label": "openai/gpt-5.6-luna-fast",
+                "value": "openai/gpt-5.6-luna-fast",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.6-sol",
                 "label": "openai/gpt-5.6-sol",
+                "value": "openai/gpt-5.6-sol",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.6-sol-fast",
                 "label": "openai/gpt-5.6-sol-fast",
+                "value": "openai/gpt-5.6-sol-fast",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.6-terra",
                 "label": "openai/gpt-5.6-terra",
+                "value": "openai/gpt-5.6-terra",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.6-terra-fast",
                 "label": "openai/gpt-5.6-terra-fast",
+                "value": "openai/gpt-5.6-terra-fast",
                 "type": "str"
             }
         ],
@@ -5014,8 +5441,8 @@
         "id": "adc-chat",
         "type": "ui-chat",
         "z": "advanced-chat-tab",
-        "group": "adc-group",
         "name": "Chat",
+        "group": "adc-group",
         "order": 4,
         "width": 0,
         "height": 0,
@@ -5253,320 +5680,12 @@
         ]
     },
     {
-        "id": "adt-task-subflow",
-        "type": "subflow",
-        "name": "ADT Task (ensure worktree + run agent against a prompt)",
-        "info": "M3 scope: the reusable per-task pipeline for the Agentic Development Team. Given a context and a prompt template, ensures an isolated git worktree exists (scripts/ensure-worktree.sh), gates on adt_running (global context -- see deviation note below) immediately before the agent node so a Stop is never raced past, renders the prompt, and runs the agent.\n\nInput msg:\n- msg.context = {host, owner, repo, model, kind, itemId, taskKey, phase}\n- msg.promptTemplate = string with {{field}} placeholders\n- msg.operation = \"terminate\" (+ msg.executionId) bypasses setup and goes straight to the agent node's terminate handling (M4 wires the caller side of this; M3 only builds the structural branch so it doesn't crash deploy).\n\nOutputs:\n1. completion {context, status, payload}\n2. raw agent events (agent node's 2nd output, verbatim)\n3. log/error rows (worktree failures, gate drops, prompt-render problems, agent errors)\n\nDEVIATION FROM PLAN: the gate uses global.get('adt_running')/global.set, not flow.get/flow.set as the plan's prose literally says -- a subflow instance gets its own flow context, separate from the tab it's placed on, so flow.adt_running set by a tab-level inject is never visible inside the subflow. global context is required for this cross-boundary flag to work at all.",
-        "category": "",
-        "in": [
-            {
-                "x": 40,
-                "y": 40,
-                "wires": [
-                    {
-                        "id": "adt-operation-router"
-                    }
-                ]
-            }
-        ],
-        "out": [
-            {
-                "x": 2100,
-                "y": 100,
-                "wires": [
-                    {
-                        "id": "adt-handle-agent-result",
-                        "port": 0
-                    }
-                ]
-            },
-            {
-                "x": 2100,
-                "y": 160,
-                "wires": [
-                    {
-                        "id": "adt-run-agent",
-                        "port": 1
-                    }
-                ]
-            },
-            {
-                "x": 2100,
-                "y": 220,
-                "wires": [
-                    {
-                        "id": "adt-build-worktree-args",
-                        "port": 1
-                    },
-                    {
-                        "id": "adt-handle-worktree-result",
-                        "port": 1
-                    },
-                    {
-                        "id": "adt-gate",
-                        "port": 1
-                    },
-                    {
-                        "id": "adt-handle-agent-result",
-                        "port": 1
-                    },
-                    {
-                        "id": "adt-handle-agent-error",
-                        "port": 0
-                    }
-                ]
-            }
-        ],
-        "env": []
-    },
-    {
-        "id": "adt-operation-router",
-        "type": "function",
-        "z": "adt-task-subflow",
-        "name": "Route by operation",
-        "func": "if (msg.operation === 'terminate') {\n    return [msg, null];\n}\nreturn [null, msg];\n",
-        "outputs": 2,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 200,
-        "y": 100,
-        "wires": [
-            [
-                "adt-run-agent"
-            ],
-            [
-                "adt-build-worktree-args"
-            ]
-        ]
-    },
-    {
-        "id": "adt-build-worktree-args",
-        "type": "function",
-        "z": "adt-task-subflow",
-        "name": "Build worktree args",
-        "func": "const context = msg.context || {};\nconst SAFE = /^[A-Za-z0-9._-]+$/;\nif (!SAFE.test(context.host) || !SAFE.test(context.owner) ||\n    !SAFE.test(context.repo) || !SAFE.test(context.taskKey)) {\n    node.error('adt: refusing unsafe host/owner/repo/taskKey: ' +\n        context.host + '/' + context.owner + '/' + context.repo +\n        '/' + context.taskKey, msg);\n    return [null, {\n        payload: {\n            timestamp: new Date().toISOString(),\n            context: context,\n            type: 'error',\n            message: 'refusing unsafe host/owner/repo/taskKey -- see runtime log'\n        }\n    }];\n}\nmsg.payload = context.host + ' ' + context.owner + ' ' + context.repo +\n    ' ' + context.taskKey;\nreturn [msg, null];\n",
-        "outputs": 2,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 460,
-        "y": 80,
-        "wires": [
-            [
-                "adt-ensure-worktree-exec"
-            ],
-            []
-        ]
-    },
-    {
-        "id": "adt-ensure-worktree-exec",
-        "type": "exec",
-        "z": "adt-task-subflow",
-        "command": "bash scripts/ensure-worktree.sh",
-        "addpay": true,
-        "append": "",
-        "useSpawn": "false",
-        "timer": "120",
-        "winHide": false,
-        "oldrc": "false",
-        "name": "ensure isolated worktree",
-        "x": 700,
-        "y": 80,
-        "wires": [
-            [
-                "adt-handle-worktree-result"
-            ],
-            [],
-            []
-        ]
-    },
-    {
-        "id": "adt-handle-worktree-result",
-        "type": "function",
-        "z": "adt-task-subflow",
-        "name": "Handle worktree result",
-        "func": "const rc = msg.rc || { code: 0 };\nif (rc.code !== 0) {\n    return [null, {\n        payload: {\n            timestamp: new Date().toISOString(),\n            context: msg.context,\n            type: 'error',\n            message: 'ensure-worktree failed (exit ' + rc.code + '): ' +\n                (rc.message || msg.payload || '')\n        }\n    }];\n}\n\nconst text = String(msg.payload || '');\nconst dirMatch = text.match(/REPO_DIR=(.+)/);\nconst branchMatch = text.match(/DEFAULT_BRANCH=(.+)/);\nmsg.cwd = dirMatch ? dirMatch[1].trim() : undefined;\nmsg.context.defaultBranch = branchMatch ? branchMatch[1].trim() : 'main';\n\nif (!msg.cwd) {\n    return [null, {\n        payload: {\n            timestamp: new Date().toISOString(),\n            context: msg.context,\n            type: 'error',\n            message: 'ensure-worktree script did not report a workspace directory'\n        }\n    }];\n}\n\nreturn [msg, null];\n",
-        "outputs": 2,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 950,
-        "y": 80,
-        "wires": [
-            [
-                "adt-gate"
-            ],
-            []
-        ]
-    },
-    {
-        "id": "adt-gate",
-        "type": "function",
-        "z": "adt-task-subflow",
-        "name": "GATE: schedule still running?",
-        "func": "if (global.get('adt_running') !== true) {\n    node.warn('adt: gate dropped dispatch for ' +\n        (msg.context && msg.context.taskKey) + ' -- schedule not running');\n    return [null, {\n        payload: {\n            timestamp: new Date().toISOString(),\n            context: msg.context,\n            type: 'info',\n            message: 'gate dropped dispatch: schedule not running'\n        }\n    }];\n}\nreturn [msg, null];\n",
-        "outputs": 2,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 1180,
-        "y": 80,
-        "wires": [
-            [
-                "adt-render-prompt-template"
-            ],
-            []
-        ]
-    },
-    {
-        "id": "adt-render-prompt-template",
-        "type": "function",
-        "z": "adt-task-subflow",
-        "name": "Render prompt template",
-        "func": "const context = msg.context || {};\nconst vars = Object.assign({}, context, {\n    repoSlug: context.owner + '/' + context.repo,\n    issueNumber: context.itemId,\n    prNumber: context.itemId,\n    runId: context.itemId\n});\nmsg.payload = String(msg.promptTemplate || '').replace(/\\{\\{(\\w+)\\}\\}/g, function (match, key) {\n    if (Object.prototype.hasOwnProperty.call(vars, key) && vars[key] !== undefined) {\n        return vars[key];\n    }\n    node.warn('adt: unresolved prompt placeholder {{' + key + '}}');\n    return match;\n});\nmsg.model = context.model;\nreturn msg;\n",
-        "outputs": 1,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 1420,
-        "y": 80,
-        "wires": [
-            [
-                "adt-run-agent"
-            ]
-        ]
-    },
-    {
-        "id": "adt-run-agent",
-        "type": "agent",
-        "z": "adt-task-subflow",
-        "name": "Run Agent",
-        "agent": "opencode",
-        "runtime": "srt",
-        "invocation": "prompt",
-        "model": "model",
-        "modelType": "msg",
-        "prompt": "payload",
-        "promptType": "msg",
-        "sessionIdProp": "adt_unused_session_id",
-        "sessionIdPropType": "msg",
-        "invocationName": "",
-        "invocationNameType": "str",
-        "arguments": "payload",
-        "argumentsType": "msg",
-        "cwd": "cwd",
-        "cwdType": "msg",
-        "auto": true,
-        "concurrency": 3,
-        "timeout": 1800,
-        "timeoutType": "num",
-        "mcpServers": [],
-        "srtBinary": "",
-        "srtSettingsMode": "inline",
-        "srtSettingsPath": "/tmp/opencode/adt-srt-settings.json",
-        "srtAllowedDomains": [
-            "api.githubcopilot.com",
-            "api.github.com",
-            "opencode.ai"
-        ],
-        "srtAllowedWriteDirs": [
-            ".",
-            "/tmp",
-            "~/.local/share/opencode"
-        ],
-        "srtStrictAllowlist": true,
-        "srtAdvancedJson": "",
-        "x": 1680,
-        "y": 80,
-        "wires": [
-            [
-                "adt-handle-agent-result"
-            ],
-            []
-        ],
-        "agentName": "agentName",
-        "agentNameType": "msg"
-    },
-    {
-        "id": "adt-handle-agent-result",
-        "type": "function",
-        "z": "adt-task-subflow",
-        "name": "Handle agent result",
-        "func": "const context = msg.context;\nconst exec = msg.agentExecution || {};\nconst completion = {\n    context: context,\n    status: exec.status || 'unknown',\n    payload: msg.payload\n};\nconst logRow = {\n    payload: {\n        timestamp: new Date().toISOString(),\n        context: context,\n        type: exec.status === 'completed' ? 'success' : 'error',\n        message: (context && context.taskKey || 'task') + ' finished: ' + exec.status\n    }\n};\nreturn [completion, logRow];\n",
-        "outputs": 2,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 1920,
-        "y": 80,
-        "wires": [
-            [],
-            []
-        ]
-    },
-    {
-        "id": "adt-agent-error-catch",
-        "type": "catch",
-        "z": "adt-task-subflow",
-        "name": "agent error",
-        "scope": [
-            "adt-run-agent"
-        ],
-        "uncaught": false,
-        "x": 1680,
-        "y": 200,
-        "wires": [
-            [
-                "adt-handle-agent-error"
-            ]
-        ]
-    },
-    {
-        "id": "adt-handle-agent-error",
-        "type": "function",
-        "z": "adt-task-subflow",
-        "name": "format agent error",
-        "func": "msg.payload = {\n    timestamp: new Date().toISOString(),\n    context: msg.context,\n    type: 'error',\n    message: (msg.error && msg.error.message) ? msg.error.message : 'Unknown agent error'\n};\nreturn msg;\n",
-        "outputs": 1,
-        "timeout": 0,
-        "noerr": 0,
-        "initialize": "",
-        "finalize": "",
-        "libs": [],
-        "x": 1920,
-        "y": 200,
-        "wires": [
-            []
-        ]
-    },
-    {
-        "id": "adt-tab",
-        "type": "tab",
-        "label": "Agentic Development Team",
-        "disabled": false,
-        "info": "Continuously watches a GitHub repository and keeps up to 3 agents per category (Issues, Pull Requests, Actions) busy via adt-task-subflow. Read-only against the remote -- see docs/260820_Agentic_Development_Team.md. Repo Settings group drives Host/Owner/Repository/Model + Update/Start/Stop; Start/Stop toggle the 30s scheduler. Test: injects/debug nodes are kept intentionally (same convention as Issue Control Center) for future debugging.",
-        "env": []
-    },
-    {
         "id": "adt-test-issue-investigate-instance",
         "type": "subflow:adt-task-subflow",
         "z": "adt-tab",
         "name": "Issue Investigate (test)",
-        "x": 700,
-        "y": 160,
+        "x": 920,
+        "y": 440,
         "wires": [
             [
                 "adt-test-debug-completion",
@@ -5596,8 +5715,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 990,
-        "y": 160,
+        "x": 1210,
+        "y": 440,
         "wires": [
             []
         ]
@@ -5619,8 +5738,8 @@
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 150,
-        "y": 160,
+        "x": 370,
+        "y": 440,
         "wires": [
             [
                 "adt-test-build-terminate"
@@ -5639,8 +5758,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 380,
-        "y": 160,
+        "x": 600,
+        "y": 440,
         "wires": [
             [
                 "adt-set-agentname-issue-investigate"
@@ -5664,8 +5783,8 @@
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 130,
-        "y": 60,
+        "x": 350,
+        "y": 340,
         "wires": [
             [
                 "adt-test-start-fn"
@@ -5684,8 +5803,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 340,
-        "y": 60,
+        "x": 560,
+        "y": 340,
         "wires": [
             []
         ]
@@ -5707,8 +5826,8 @@
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 130,
-        "y": 110,
+        "x": 350,
+        "y": 390,
         "wires": [
             [
                 "adt-test-stop-fn"
@@ -5727,8 +5846,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 340,
-        "y": 110,
+        "x": 560,
+        "y": 390,
         "wires": [
             []
         ]
@@ -5750,8 +5869,8 @@
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 140,
-        "y": 200,
+        "x": 360,
+        "y": 480,
         "wires": [
             [
                 "adt-test-set-context"
@@ -5770,8 +5889,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 380,
-        "y": 200,
+        "x": 600,
+        "y": 480,
         "wires": [
             [
                 "adt-test-read-prompt"
@@ -5795,8 +5914,8 @@
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 170,
-        "y": 260,
+        "x": 390,
+        "y": 540,
         "wires": [
             [
                 "adt-test-set-context-retry"
@@ -5815,8 +5934,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 420,
-        "y": 260,
+        "x": 640,
+        "y": 540,
         "wires": [
             [
                 "adt-test-read-prompt"
@@ -5840,8 +5959,8 @@
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 170,
-        "y": 300,
+        "x": 390,
+        "y": 580,
         "wires": [
             [
                 "adt-test-set-context-m4"
@@ -5860,8 +5979,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 420,
-        "y": 300,
+        "x": 640,
+        "y": 580,
         "wires": [
             [
                 "adt-test-read-prompt"
@@ -5880,8 +5999,8 @@
         "sendError": false,
         "encoding": "none",
         "allProps": false,
-        "x": 660,
-        "y": 230,
+        "x": 880,
+        "y": 510,
         "wires": [
             [
                 "adt-test-stash-prompt"
@@ -5900,8 +6019,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 700,
-        "y": 260,
+        "x": 920,
+        "y": 540,
         "wires": [
             [
                 "adt-set-agentname-issue-investigate"
@@ -5921,8 +6040,8 @@
         "targetType": "full",
         "statusVal": "",
         "statusType": "auto",
-        "x": 970,
-        "y": 120,
+        "x": 1190,
+        "y": 400,
         "wires": []
     },
     {
@@ -5938,8 +6057,8 @@
         "targetType": "full",
         "statusVal": "",
         "statusType": "auto",
-        "x": 980,
-        "y": 160,
+        "x": 1200,
+        "y": 440,
         "wires": []
     },
     {
@@ -5955,101 +6074,9 @@
         "targetType": "full",
         "statusVal": "",
         "statusType": "auto",
-        "x": 970,
-        "y": 200,
+        "x": 1190,
+        "y": 480,
         "wires": []
-    },
-    {
-        "id": "adt-ui-page",
-        "type": "ui-page",
-        "name": "Agentic Development Team",
-        "ui": "7cde684526b81393",
-        "path": "/adt",
-        "icon": "smart_toy",
-        "layout": "grid",
-        "theme": "d0f5c6c8434eeb19",
-        "breakpoints": [
-            {
-                "name": "Default",
-                "px": "0",
-                "cols": "3"
-            },
-            {
-                "name": "Tablet",
-                "px": "576",
-                "cols": "6"
-            },
-            {
-                "name": "Small Desktop",
-                "px": "768",
-                "cols": "9"
-            },
-            {
-                "name": "Desktop",
-                "px": "1024",
-                "cols": "12"
-            }
-        ],
-        "order": 5,
-        "className": "",
-        "visible": "true",
-        "disabled": "false"
-    },
-    {
-        "id": "adt-ui-group-issues",
-        "type": "ui-group",
-        "name": "Issues",
-        "page": "adt-ui-page",
-        "width": 4,
-        "height": 1,
-        "order": 2,
-        "showTitle": true,
-        "className": "",
-        "visible": "true",
-        "disabled": "false",
-        "groupType": "default"
-    },
-    {
-        "id": "adt-ui-group-prs",
-        "type": "ui-group",
-        "name": "Pull Requests",
-        "page": "adt-ui-page",
-        "width": 4,
-        "height": 1,
-        "order": 3,
-        "showTitle": true,
-        "className": "",
-        "visible": "true",
-        "disabled": "false",
-        "groupType": "default"
-    },
-    {
-        "id": "adt-ui-group-actions",
-        "type": "ui-group",
-        "name": "Actions",
-        "page": "adt-ui-page",
-        "width": 4,
-        "height": 1,
-        "order": 4,
-        "showTitle": true,
-        "className": "",
-        "visible": "true",
-        "disabled": "false",
-        "groupType": "default"
-    },
-    {
-        "id": "adt-ui-group-trace",
-        "type": "ui-group",
-        "name": "Stats and Logs",
-        "page": "adt-ui-page",
-        "width": 12,
-        "height": 1,
-        "order": 5,
-        "showTitle": true,
-        "className": "",
-        "visible": "true",
-        "disabled": "false",
-        "groupType": "default"
     },
     {
         "id": "adt-table-issues",
@@ -6105,8 +6132,8 @@
         "mobileBreakpointType": "defaults",
         "action": "replace",
         "className": "",
-        "x": 1600,
-        "y": 40,
+        "x": 1820,
+        "y": 320,
         "wires": [
             []
         ]
@@ -6165,8 +6192,8 @@
         "mobileBreakpointType": "defaults",
         "action": "replace",
         "className": "",
-        "x": 1600,
-        "y": 340,
+        "x": 1820,
+        "y": 620,
         "wires": [
             []
         ]
@@ -6225,8 +6252,8 @@
         "mobileBreakpointType": "defaults",
         "action": "replace",
         "className": "",
-        "x": 1600,
-        "y": 640,
+        "x": 1820,
+        "y": 920,
         "wires": [
             []
         ]
@@ -6285,8 +6312,8 @@
         "mobileBreakpointType": "defaults",
         "action": "replace",
         "className": "",
-        "x": 1600,
-        "y": 920,
+        "x": 1820,
+        "y": 1200,
         "wires": [
             []
         ]
@@ -6310,8 +6337,8 @@
         "className": "",
         "value": "payload",
         "valueType": "msg",
-        "x": 1600,
-        "y": 860,
+        "x": 1820,
+        "y": 1140,
         "wires": []
     },
     {
@@ -6326,8 +6353,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 1400,
-        "y": 860,
+        "x": 1620,
+        "y": 1140,
         "wires": [
             [
                 "adt-active-workflows-text"
@@ -6351,8 +6378,8 @@
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 130,
-        "y": 20,
+        "x": 350,
+        "y": 300,
         "wires": [
             [
                 "adt-init-fn"
@@ -6371,8 +6398,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 380,
-        "y": 20,
+        "x": 600,
+        "y": 300,
         "wires": [
             []
         ]
@@ -6394,8 +6421,8 @@
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 130,
-        "y": 440,
+        "x": 350,
+        "y": 720,
         "wires": [
             [
                 "adt-build-gh-issues-list",
@@ -6416,8 +6443,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 380,
-        "y": 380,
+        "x": 600,
+        "y": 660,
         "wires": [
             [
                 "adt-gh-issues-list"
@@ -6437,8 +6464,8 @@
         "repoType": "str",
         "host": "",
         "timeoutMs": 60000,
-        "x": 620,
-        "y": 380,
+        "x": 840,
+        "y": 660,
         "wires": [
             [
                 "adt-reconcile-issues"
@@ -6457,8 +6484,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 380,
-        "y": 440,
+        "x": 600,
+        "y": 720,
         "wires": [
             [
                 "adt-gh-prs-list"
@@ -6478,8 +6505,8 @@
         "repoType": "str",
         "host": "",
         "timeoutMs": 60000,
-        "x": 620,
-        "y": 440,
+        "x": 840,
+        "y": 720,
         "wires": [
             [
                 "adt-reconcile-prs"
@@ -6498,8 +6525,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 380,
-        "y": 500,
+        "x": 600,
+        "y": 780,
         "wires": [
             [
                 "adt-gh-actions-list"
@@ -6519,8 +6546,8 @@
         "repoType": "str",
         "host": "",
         "timeoutMs": 60000,
-        "x": 620,
-        "y": 500,
+        "x": 840,
+        "y": 780,
         "wires": [
             [
                 "adt-reconcile-actions"
@@ -6538,8 +6565,8 @@
             "adt-gh-actions-list"
         ],
         "uncaught": false,
-        "x": 620,
-        "y": 560,
+        "x": 840,
+        "y": 840,
         "wires": [
             [
                 "adt-gh-error-fn"
@@ -6558,8 +6585,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 860,
-        "y": 560,
+        "x": 1080,
+        "y": 840,
         "wires": [
             [
                 "adt-gh-error-debug"
@@ -6579,8 +6606,8 @@
         "targetType": "full",
         "statusVal": "",
         "statusType": "auto",
-        "x": 1100,
-        "y": 560,
+        "x": 1320,
+        "y": 840,
         "wires": []
     },
     {
@@ -6595,8 +6622,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 880,
-        "y": 380,
+        "x": 1100,
+        "y": 660,
         "wires": [
             [
                 "adt-render-issues",
@@ -6616,8 +6643,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 880,
-        "y": 440,
+        "x": 1100,
+        "y": 720,
         "wires": [
             [
                 "adt-render-prs",
@@ -6637,8 +6664,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 880,
-        "y": 500,
+        "x": 1100,
+        "y": 780,
         "wires": [
             [
                 "adt-render-actions",
@@ -6658,8 +6685,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 1140,
-        "y": 380,
+        "x": 1360,
+        "y": 660,
         "wires": [
             [
                 "adt-table-issues"
@@ -6678,8 +6705,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 1140,
-        "y": 440,
+        "x": 1360,
+        "y": 720,
         "wires": [
             [
                 "adt-table-prs"
@@ -6698,8 +6725,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 1140,
-        "y": 500,
+        "x": 1360,
+        "y": 780,
         "wires": [
             [
                 "adt-table-actions"
@@ -6723,8 +6750,8 @@
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 130,
-        "y": 700,
+        "x": 350,
+        "y": 980,
         "wires": [
             [
                 "adt-dispatch-issues",
@@ -6745,8 +6772,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 380,
-        "y": 700,
+        "x": 600,
+        "y": 980,
         "wires": [
             [
                 "adt-read-investigate-issue",
@@ -6766,8 +6793,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 380,
-        "y": 760,
+        "x": 600,
+        "y": 1040,
         "wires": [
             [
                 "adt-read-review-pr",
@@ -6787,8 +6814,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 380,
-        "y": 820,
+        "x": 600,
+        "y": 1100,
         "wires": [
             [
                 "adt-read-investigate-action",
@@ -6808,8 +6835,8 @@
         "sendError": false,
         "encoding": "none",
         "allProps": false,
-        "x": 660,
-        "y": 700,
+        "x": 880,
+        "y": 980,
         "wires": [
             [
                 "adt-stash-investigate-issue"
@@ -6828,8 +6855,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 900,
-        "y": 700,
+        "x": 1120,
+        "y": 980,
         "wires": [
             [
                 "adt-set-agentname-issue-investigate"
@@ -6848,8 +6875,8 @@
         "sendError": false,
         "encoding": "none",
         "allProps": false,
-        "x": 660,
-        "y": 1000,
+        "x": 880,
+        "y": 1280,
         "wires": [
             [
                 "adt-stash-fix-issue"
@@ -6868,8 +6895,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 900,
-        "y": 1000,
+        "x": 1120,
+        "y": 1280,
         "wires": [
             [
                 "adt-set-agentname-issue-fix"
@@ -6888,8 +6915,8 @@
         "sendError": false,
         "encoding": "none",
         "allProps": false,
-        "x": 660,
-        "y": 760,
+        "x": 880,
+        "y": 1040,
         "wires": [
             [
                 "adt-stash-review-pr"
@@ -6908,8 +6935,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 900,
-        "y": 760,
+        "x": 1120,
+        "y": 1040,
         "wires": [
             [
                 "adt-set-agentname-pr-review"
@@ -6928,8 +6955,8 @@
         "sendError": false,
         "encoding": "none",
         "allProps": false,
-        "x": 660,
-        "y": 820,
+        "x": 880,
+        "y": 1100,
         "wires": [
             [
                 "adt-stash-investigate-action"
@@ -6948,8 +6975,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 900,
-        "y": 820,
+        "x": 1120,
+        "y": 1100,
         "wires": [
             [
                 "adt-set-agentname-action-investigate"
@@ -6961,8 +6988,8 @@
         "type": "subflow:adt-task-subflow",
         "z": "adt-tab",
         "name": "Issue Fix",
-        "x": 1140,
-        "y": 1000,
+        "x": 1360,
+        "y": 1280,
         "wires": [
             [
                 "adt-completion-issue-fix"
@@ -6983,8 +7010,8 @@
         "type": "subflow:adt-task-subflow",
         "z": "adt-tab",
         "name": "PR Review",
-        "x": 1140,
-        "y": 760,
+        "x": 1360,
+        "y": 1040,
         "wires": [
             [
                 "adt-completion-pr-review"
@@ -7005,8 +7032,8 @@
         "type": "subflow:adt-task-subflow",
         "z": "adt-tab",
         "name": "Action Investigate",
-        "x": 1140,
-        "y": 820,
+        "x": 1360,
+        "y": 1100,
         "wires": [
             [
                 "adt-completion-action-investigate"
@@ -7035,8 +7062,8 @@
         "targetType": "full",
         "statusVal": "",
         "statusType": "auto",
-        "x": 1400,
-        "y": 1060,
+        "x": 1620,
+        "y": 1340,
         "wires": []
     },
     {
@@ -7051,8 +7078,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 1400,
-        "y": 700,
+        "x": 1620,
+        "y": 980,
         "wires": [
             []
         ]
@@ -7069,8 +7096,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 1400,
-        "y": 1000,
+        "x": 1620,
+        "y": 1280,
         "wires": [
             []
         ]
@@ -7087,8 +7114,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 1400,
-        "y": 760,
+        "x": 1620,
+        "y": 1040,
         "wires": [
             []
         ]
@@ -7105,8 +7132,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 1400,
-        "y": 820,
+        "x": 1620,
+        "y": 1100,
         "wires": [
             []
         ]
@@ -7123,8 +7150,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 1400,
-        "y": 920,
+        "x": 1620,
+        "y": 1200,
         "wires": [
             [
                 "adt-table-trace"
@@ -7143,8 +7170,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 1140,
-        "y": 880,
+        "x": 1360,
+        "y": 1160,
         "wires": [
             [
                 "adt-read-fix-issue",
@@ -7164,8 +7191,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 1400,
-        "y": 1000,
+        "x": 1620,
+        "y": 1280,
         "wires": [
             [
                 "adt-compute-active-count"
@@ -7184,8 +7211,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 1400,
-        "y": 760,
+        "x": 1620,
+        "y": 1040,
         "wires": [
             [
                 "adt-compute-active-count"
@@ -7204,8 +7231,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 1400,
-        "y": 820,
+        "x": 1620,
+        "y": 1100,
         "wires": [
             [
                 "adt-compute-active-count"
@@ -7229,8 +7256,8 @@
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 130,
-        "y": 900,
+        "x": 350,
+        "y": 1180,
         "wires": [
             [
                 "adt-test-dump-state-fn"
@@ -7249,8 +7276,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 380,
-        "y": 900,
+        "x": 600,
+        "y": 1180,
         "wires": [
             [
                 "adt-test-dump-state-debug"
@@ -7270,8 +7297,8 @@
         "targetType": "full",
         "statusVal": "",
         "statusType": "auto",
-        "x": 660,
-        "y": 900,
+        "x": 880,
+        "y": 1180,
         "wires": []
     },
     {
@@ -7291,8 +7318,8 @@
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 130,
-        "y": 960,
+        "x": 350,
+        "y": 1240,
         "wires": [
             [
                 "adt-tmp-lower-max-fn"
@@ -7311,8 +7338,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 380,
-        "y": 960,
+        "x": 600,
+        "y": 1240,
         "wires": [
             []
         ]
@@ -7334,8 +7361,8 @@
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 150,
-        "y": 1000,
+        "x": 370,
+        "y": 1280,
         "wires": [
             [
                 "adt-test-lower-issue-max-fn"
@@ -7354,25 +7381,11 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 420,
-        "y": 1000,
+        "x": 640,
+        "y": 1280,
         "wires": [
             []
         ]
-    },
-    {
-        "id": "adt-ui-group-settings",
-        "type": "ui-group",
-        "name": "Repo Settings",
-        "page": "adt-ui-page",
-        "width": 12,
-        "height": 1,
-        "order": 1,
-        "showTitle": true,
-        "className": "",
-        "visible": "true",
-        "disabled": "false",
-        "groupType": "default"
     },
     {
         "id": "adt-host-input",
@@ -7399,8 +7412,8 @@
         "icon": "",
         "iconPosition": "left",
         "iconInnerPosition": "inside",
-        "x": 200,
-        "y": -260,
+        "x": 420,
+        "y": 20,
         "wires": [
             [
                 "adt-store-host"
@@ -7432,8 +7445,8 @@
         "icon": "",
         "iconPosition": "left",
         "iconInnerPosition": "inside",
-        "x": 200,
-        "y": -220,
+        "x": 420,
+        "y": 60,
         "wires": [
             [
                 "adt-store-owner"
@@ -7465,8 +7478,8 @@
         "icon": "",
         "iconPosition": "left",
         "iconInnerPosition": "inside",
-        "x": 200,
-        "y": -180,
+        "x": 420,
+        "y": 100,
         "wires": [
             [
                 "adt-store-repo"
@@ -7490,233 +7503,228 @@
         "clearable": false,
         "options": [
             {
-                "value": "opencode/big-pickle",
                 "label": "opencode/big-pickle",
+                "value": "opencode/big-pickle",
                 "type": "str"
             },
             {
-                "value": "opencode/deepseek-v4-flash-free",
                 "label": "opencode/deepseek-v4-flash-free",
+                "value": "opencode/deepseek-v4-flash-free",
                 "type": "str"
             },
             {
-                "value": "opencode/hy3-free",
                 "label": "opencode/hy3-free",
+                "value": "opencode/hy3-free",
                 "type": "str"
             },
             {
-                "value": "opencode/laguna-s-2.1-free",
                 "label": "opencode/laguna-s-2.1-free",
+                "value": "opencode/laguna-s-2.1-free",
                 "type": "str"
             },
             {
-                "value": "opencode/mimo-v2.5-free",
                 "label": "opencode/mimo-v2.5-free",
+                "value": "opencode/mimo-v2.5-free",
                 "type": "str"
             },
             {
-                "value": "opencode/nemotron-3-ultra-free",
                 "label": "opencode/nemotron-3-ultra-free",
+                "value": "opencode/nemotron-3-ultra-free",
                 "type": "str"
             },
             {
-                "value": "opencode/nemotron-3.5-lightning-free",
                 "label": "opencode/nemotron-3.5-lightning-free",
+                "value": "opencode/nemotron-3.5-lightning-free",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-haiku-4.5",
                 "label": "github-copilot/claude-haiku-4.5",
+                "value": "github-copilot/claude-haiku-4.5",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.5",
                 "label": "github-copilot/claude-opus-4.5",
+                "value": "github-copilot/claude-opus-4.5",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.6",
                 "label": "github-copilot/claude-opus-4.6",
+                "value": "github-copilot/claude-opus-4.6",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.6-fast",
                 "label": "github-copilot/claude-opus-4.6-fast",
+                "value": "github-copilot/claude-opus-4.6-fast",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.7",
                 "label": "github-copilot/claude-opus-4.7",
+                "value": "github-copilot/claude-opus-4.7",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.7-fast",
                 "label": "github-copilot/claude-opus-4.7-fast",
+                "value": "github-copilot/claude-opus-4.7-fast",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.8",
                 "label": "github-copilot/claude-opus-4.8",
+                "value": "github-copilot/claude-opus-4.8",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-4.8-fast",
                 "label": "github-copilot/claude-opus-4.8-fast",
+                "value": "github-copilot/claude-opus-4.8-fast",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-opus-5",
                 "label": "github-copilot/claude-opus-5",
+                "value": "github-copilot/claude-opus-5",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-sonnet-4.5",
                 "label": "github-copilot/claude-sonnet-4.5",
+                "value": "github-copilot/claude-sonnet-4.5",
                 "type": "str"
             },
             {
-                "value": "github-copilot/claude-sonnet-5",
                 "label": "github-copilot/claude-sonnet-5",
-                "type": "str"
-            },
-            {
                 "value": "github-copilot/claude-sonnet-5",
-                "label": "github-copilot/claude-sonnet-5",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gemini-3.5-flash",
                 "label": "github-copilot/gemini-3.5-flash",
+                "value": "github-copilot/gemini-3.5-flash",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gemini-3.6-flash",
                 "label": "github-copilot/gemini-3.6-flash",
+                "value": "github-copilot/gemini-3.6-flash",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5-mini",
                 "label": "github-copilot/gpt-5-mini",
+                "value": "github-copilot/gpt-5-mini",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.3-codex",
                 "label": "github-copilot/gpt-5.3-codex",
+                "value": "github-copilot/gpt-5.3-codex",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.4",
                 "label": "github-copilot/gpt-5.4",
+                "value": "github-copilot/gpt-5.4",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.4-mini",
                 "label": "github-copilot/gpt-5.4-mini",
+                "value": "github-copilot/gpt-5.4-mini",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.5",
                 "label": "github-copilot/gpt-5.5",
+                "value": "github-copilot/gpt-5.5",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.6-luna",
                 "label": "github-copilot/gpt-5.6-luna",
+                "value": "github-copilot/gpt-5.6-luna",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.6-sol",
                 "label": "github-copilot/gpt-5.6-sol",
+                "value": "github-copilot/gpt-5.6-sol",
                 "type": "str"
             },
             {
-                "value": "github-copilot/gpt-5.6-terra",
                 "label": "github-copilot/gpt-5.6-terra",
+                "value": "github-copilot/gpt-5.6-terra",
                 "type": "str"
             },
             {
-                "value": "github-copilot/kimi-k2.7-code",
                 "label": "github-copilot/kimi-k2.7-code",
+                "value": "github-copilot/kimi-k2.7-code",
                 "type": "str"
             },
             {
-                "value": "github-copilot/kimi-k3",
                 "label": "github-copilot/kimi-k3",
+                "value": "github-copilot/kimi-k3",
                 "type": "str"
             },
             {
-                "value": "github-copilot/mai-code-1-flash-picker",
                 "label": "github-copilot/mai-code-1-flash-picker",
+                "value": "github-copilot/mai-code-1-flash-picker",
                 "type": "str"
             },
             {
-                "value": "github-copilot/mai-code-1.1-flash",
                 "label": "github-copilot/mai-code-1.1-flash",
+                "value": "github-copilot/mai-code-1.1-flash",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.3-codex-spark",
                 "label": "openai/gpt-5.3-codex-spark",
+                "value": "openai/gpt-5.3-codex-spark",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.4",
                 "label": "openai/gpt-5.4",
+                "value": "openai/gpt-5.4",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.4-fast",
                 "label": "openai/gpt-5.4-fast",
+                "value": "openai/gpt-5.4-fast",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.4-mini",
                 "label": "openai/gpt-5.4-mini",
+                "value": "openai/gpt-5.4-mini",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.4-mini-fast",
                 "label": "openai/gpt-5.4-mini-fast",
+                "value": "openai/gpt-5.4-mini-fast",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.5",
                 "label": "openai/gpt-5.5",
+                "value": "openai/gpt-5.5",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.5-fast",
                 "label": "openai/gpt-5.5-fast",
+                "value": "openai/gpt-5.5-fast",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.6-luna",
                 "label": "openai/gpt-5.6-luna",
+                "value": "openai/gpt-5.6-luna",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.6-luna-fast",
                 "label": "openai/gpt-5.6-luna-fast",
+                "value": "openai/gpt-5.6-luna-fast",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.6-sol",
                 "label": "openai/gpt-5.6-sol",
+                "value": "openai/gpt-5.6-sol",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.6-sol-fast",
                 "label": "openai/gpt-5.6-sol-fast",
+                "value": "openai/gpt-5.6-sol-fast",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.6-terra",
                 "label": "openai/gpt-5.6-terra",
+                "value": "openai/gpt-5.6-terra",
                 "type": "str"
             },
             {
-                "value": "openai/gpt-5.6-terra-fast",
                 "label": "openai/gpt-5.6-terra-fast",
+                "value": "openai/gpt-5.6-terra-fast",
                 "type": "str"
             }
         ],
@@ -7726,8 +7734,8 @@
         "className": "",
         "typeIsComboBox": true,
         "msgTrigger": "onChange",
-        "x": 200,
-        "y": -140,
+        "x": 420,
+        "y": 140,
         "wires": [
             [
                 "adt-store-model"
@@ -7765,8 +7773,8 @@
         "enablePointerup": false,
         "pointerupPayload": "",
         "pointerupPayloadType": "str",
-        "x": 200,
-        "y": -100,
+        "x": 420,
+        "y": 180,
         "wires": [
             [
                 "adt-build-gh-issues-list",
@@ -7806,8 +7814,8 @@
         "enablePointerup": false,
         "pointerupPayload": "",
         "pointerupPayloadType": "str",
-        "x": 200,
-        "y": -60,
+        "x": 420,
+        "y": 220,
         "wires": [
             [
                 "adt-prime-fn"
@@ -7826,8 +7834,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 460,
-        "y": -100,
+        "x": 680,
+        "y": 180,
         "wires": [
             [
                 "adt-prime-exec"
@@ -7849,8 +7857,8 @@
         "winHide": false,
         "oldrc": "false",
         "name": "prime base clone",
-        "x": 720,
-        "y": -100,
+        "x": 940,
+        "y": 180,
         "wires": [
             [
                 "adt-prime-done-fn"
@@ -7871,8 +7879,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 950,
-        "y": -100,
+        "x": 1170,
+        "y": 180,
         "wires": [
             [
                 "adt-prime-toast"
@@ -7897,8 +7905,8 @@
         "raw": false,
         "className": "",
         "name": "Prime Base status",
-        "x": 1200,
-        "y": -100,
+        "x": 1420,
+        "y": 180,
         "wires": []
     },
     {
@@ -7932,8 +7940,8 @@
         "enablePointerup": false,
         "pointerupPayload": "",
         "pointerupPayloadType": "str",
-        "x": 200,
-        "y": -20,
+        "x": 420,
+        "y": 260,
         "wires": [
             [
                 "adt-start-fn"
@@ -7971,8 +7979,8 @@
         "enablePointerup": false,
         "pointerupPayload": "",
         "pointerupPayloadType": "str",
-        "x": 200,
-        "y": 20,
+        "x": 420,
+        "y": 300,
         "wires": [
             [
                 "adt-stop-fn"
@@ -7991,8 +7999,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 460,
-        "y": -260,
+        "x": 680,
+        "y": 20,
         "wires": [
             []
         ]
@@ -8009,8 +8017,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 460,
-        "y": -220,
+        "x": 680,
+        "y": 60,
         "wires": [
             []
         ]
@@ -8027,8 +8035,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 460,
-        "y": -180,
+        "x": 680,
+        "y": 100,
         "wires": [
             []
         ]
@@ -8045,8 +8053,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 460,
-        "y": -140,
+        "x": 680,
+        "y": 140,
         "wires": [
             []
         ]
@@ -8063,8 +8071,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 460,
-        "y": -60,
+        "x": 680,
+        "y": 220,
         "wires": [
             [
                 "adt-prune-exec"
@@ -8083,8 +8091,8 @@
         "winHide": false,
         "oldrc": "false",
         "name": "prune worktrees",
-        "x": 720,
-        "y": -60,
+        "x": 940,
+        "y": 220,
         "wires": [
             [
                 "adt-build-gh-issues-list",
@@ -8110,8 +8118,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 460,
-        "y": -20,
+        "x": 680,
+        "y": 260,
         "wires": [
             [
                 "adt-test-issue-investigate-instance",
@@ -8156,8 +8164,8 @@
         "icon": "",
         "iconPosition": "left",
         "iconInnerPosition": "inside",
-        "x": 1350,
-        "y": 300,
+        "x": 1570,
+        "y": 580,
         "wires": [
             [
                 "adt-max-issue-fn"
@@ -8176,8 +8184,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 1600,
-        "y": 300,
+        "x": 1820,
+        "y": 580,
         "wires": [
             []
         ]
@@ -8207,8 +8215,8 @@
         "icon": "",
         "iconPosition": "left",
         "iconInnerPosition": "inside",
-        "x": 1350,
-        "y": 600,
+        "x": 1570,
+        "y": 880,
         "wires": [
             [
                 "adt-max-pr-fn"
@@ -8227,8 +8235,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 1600,
-        "y": 600,
+        "x": 1820,
+        "y": 880,
         "wires": [
             []
         ]
@@ -8258,8 +8266,8 @@
         "icon": "",
         "iconPosition": "left",
         "iconInnerPosition": "inside",
-        "x": 1350,
-        "y": 900,
+        "x": 1570,
+        "y": 1180,
         "wires": [
             [
                 "adt-max-action-fn"
@@ -8278,8 +8286,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 1600,
-        "y": 900,
+        "x": 1820,
+        "y": 1180,
         "wires": [
             []
         ]
@@ -8301,8 +8309,8 @@
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 150,
-        "y": 100,
+        "x": 370,
+        "y": 380,
         "wires": [
             [
                 "adt-scheduler-gate-fn"
@@ -8321,8 +8329,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 380,
-        "y": 100,
+        "x": 600,
+        "y": 380,
         "wires": [
             [
                 "adt-build-gh-issues-list",
@@ -8347,8 +8355,8 @@
         "targetType": "full",
         "statusVal": "",
         "statusType": "auto",
-        "x": 1700,
-        "y": 1203,
+        "x": 1920,
+        "y": 1483,
         "wires": []
     },
     {
@@ -8364,8 +8372,8 @@
         "targetType": "full",
         "statusVal": "",
         "statusType": "auto",
-        "x": 1700,
-        "y": 1204,
+        "x": 1920,
+        "y": 1484,
         "wires": []
     },
     {
@@ -8381,8 +8389,8 @@
         "targetType": "full",
         "statusVal": "",
         "statusType": "auto",
-        "x": 1700,
-        "y": 1205,
+        "x": 1920,
+        "y": 1485,
         "wires": []
     },
     {
@@ -8397,8 +8405,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 300,
-        "y": 970,
+        "x": 520,
+        "y": 1250,
         "wires": [
             []
         ]
@@ -8420,8 +8428,8 @@
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 120,
-        "y": 970,
+        "x": 340,
+        "y": 1250,
         "wires": [
             [
                 "tmp-set-luna-fn"
@@ -8440,8 +8448,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 300,
-        "y": 1030,
+        "x": 520,
+        "y": 1310,
         "wires": [
             [
                 "adt-read-review-pr"
@@ -8465,8 +8473,8 @@
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 120,
-        "y": 1030,
+        "x": 340,
+        "y": 1310,
         "wires": [
             [
                 "tmp-pr-review-fn"
@@ -8485,8 +8493,8 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 300,
-        "y": 1090,
+        "x": 520,
+        "y": 1370,
         "wires": [
             [
                 "tmp-pr-review-fn"
@@ -8510,8 +8518,8 @@
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 120,
-        "y": 1090,
+        "x": 340,
+        "y": 1370,
         "wires": [
             [
                 "tmp-set-running-fn"
@@ -8537,8 +8545,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 900,
-        "y": 160,
+        "x": 1120,
+        "y": 440,
         "wires": [
             [
                 "adt-test-issue-investigate-instance"
@@ -8564,8 +8572,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 1120,
-        "y": 1000,
+        "x": 1340,
+        "y": 1280,
         "wires": [
             [
                 "adt-issue-fix-instance"
@@ -8591,8 +8599,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 1120,
-        "y": 760,
+        "x": 1340,
+        "y": 1040,
         "wires": [
             [
                 "adt-pr-review-instance"
@@ -8618,8 +8626,8 @@
         "from": "",
         "to": "",
         "reg": false,
-        "x": 1120,
-        "y": 820,
+        "x": 1340,
+        "y": 1100,
         "wires": [
             [
                 "adt-action-investigate-instance"
@@ -8643,8 +8651,8 @@
         "topic": "",
         "payload": "",
         "payloadType": "date",
-        "x": 1900,
-        "y": 1000,
+        "x": 2120,
+        "y": 1280,
         "wires": [
             [
                 "adt-pixelagents-read-serverjson"
@@ -8663,8 +8671,8 @@
         "winHide": false,
         "oldrc": false,
         "name": "cat ~/.pixel-agents/server.json",
-        "x": 2150,
-        "y": 1000,
+        "x": 2370,
+        "y": 1280,
         "wires": [
             [
                 "adt-pixelagents-set-global"
@@ -8685,142 +8693,143 @@
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 2400,
-        "y": 1000,
+        "x": 2620,
+        "y": 1280,
         "wires": [
             []
         ]
     },
     {
-        "finalize": "",
-        "func": "// Normalizes the Agent node's output-2 lifecycle envelope (msg.payload =\n// {type, sessionID, data}, from either the opencode or pi adapter -- see\n// packages/node-red-agents/nodes/agent/lib/agents/{opencode,pi}.js TYPE_MAP)\n// into zero or more pixel-agents `web` hook-provider event bodies\n// (POST /api/hooks/web). One pixel-agents \"agent\" = one ADT agent-node\n// execution, keyed by executionId (present on every output-2 envelope msg,\n// including the terminal completed/failed/timeout event -- see agent.js\n// onSettled -> emitEvent(..., item.finalStatus, ...)).\nconst p = msg.payload || {};\nconst sessionId = \"adt-\" + msg.executionId;\nconst events = [];\n\nfunction toolStart(toolId, toolName, status) {\n    events.push({ hook_event_name: \"toolStart\", session_id: sessionId, tool_id: toolId, tool_name: toolName, status: status });\n}\nfunction toolEnd(toolId) {\n    events.push({ hook_event_name: \"toolEnd\", session_id: sessionId, tool_id: toolId });\n}\n\n// opencode never reports a separate start boundary (tool_use/spawn/thinking\n// all arrive as a single already-completed event -- see the branches below),\n// so those cases synthesize a toolStart+toolEnd pair with no real elapsed\n// time between them. Sending both in the same batch (as this used to do)\n// landed the pixel-agents webview's agentToolStart+agentToolDone broadcasts\n// in the same tick -- verified against a real running server: successive\n// hook requests arrived 2-16ms apart, far faster than any render/paint, so\n// the status label was set and cleared before it could ever be seen. Only\n// spawn (SessionStart) and vanish (SessionEnd) are genuinely held open for\n// the task's duration, which is why those were the only visible states.\n// Fix: hold the synthesized toolEnd back by TOOL_VISIBLE_MS. Real pi\n// start/end pairs (tool_execution_start/end, genuinely separate envelope\n// messages) are untouched.\nconst TOOL_VISIBLE_MS = 600;\nfunction toolPulse(toolId, toolName, status) {\n    toolStart(toolId, toolName, status);\n    setTimeout(function () {\n        node.send({ ...msg, payload: [{ hook_event_name: \"toolEnd\", session_id: sessionId, tool_id: toolId }] });\n    }, TOOL_VISIBLE_MS);\n}\n\nif (p.type === \"running\") {\n    // First lifecycle event for this execution (onStatus('running')) --\n    // spawn the character. msg.cwd is the Agent node's resolved.cwd, threaded\n    // through lifecycleEnvelope() in agent.js -- required so the pixel-agents\n    // server can store this as a pending session (SessionStart with neither\n    // cwd nor transcriptPath is dropped, never confirmed by later events).\n    events.push({ hook_event_name: \"sessionStart\", session_id: sessionId, cwd: msg.cwd });\n    toolPulse(sessionId + \"-spawn\", \"Task\", msg.agentName ? (\"Working: \" + msg.agentName) : \"Working\");\n} else if (p.type === \"tool\") {\n    const raw = p.data || {};\n    if (raw.type === \"tool_execution_start\") {\n        // pi: real start/end pair, correlated by toolCallId.\n        toolStart(raw.toolCallId, raw.toolName);\n    } else if (raw.type === \"tool_execution_end\") {\n        toolEnd(raw.toolCallId);\n    } else if (raw.type === \"tool_execution_update\") {\n        // pi: intermediate progress -- no pixel-agents equivalent, drop.\n    } else if (raw.type === \"tool_use\") {\n        // opencode: single already-completed event (verified empirically --\n        // opencode never streams a separate boundary), synthesize a pulse.\n        const part = raw.part || {};\n        const toolId = part.callID || (sessionId + \"-\" + msg._msgid);\n        toolPulse(toolId, part.tool || \"tool\");\n    }\n} else if (p.type === \"agent\") {\n    // Finished text/reasoning chunk (both adapters only surface the *_end\n    // variant, per lib/agents/pi.js's explicit *_start/*_delta skip) --\n    // show a brief \"Thinking\" pulse.\n    const toolId = sessionId + \"-think-\" + msg._msgid;\n    toolPulse(toolId, \"Thinking\");\n} else if (p.type === \"completed\" || p.type === \"failed\" || p.type === \"timeout\") {\n    // Terminal lifecycle event (onSettled -> emitEvent(..., finalStatus, ...))\n    // -- close the turn and despawn the character.\n    events.push({ hook_event_name: \"turnEnd\", session_id: sessionId, awaiting_input: false });\n    events.push({ hook_event_name: \"sessionEnd\", session_id: sessionId, reason: p.type });\n}\n// \"started\" (opencode step_start, fires once per LLM turn), \"queued\",\n// \"progress\", \"cancelled\"/\"terminating\" (sent on output 1, different msg\n// shape, out of scope here) carry no pixel-agents-visible state change from\n// this branch -- dropped.\n\nif (events.length === 0) return null;\nmsg.payload = events;\nreturn msg;",
         "id": "adt-pixelagents-map-events",
-        "initialize": "",
-        "libs": [],
+        "type": "function",
+        "z": "adt-tab",
         "name": "PixelAgents: map agent events",
-        "noerr": 0,
+        "func": "// Normalizes the Agent node's output-2 lifecycle envelope (msg.payload =\n// {type, sessionID, data}, from either the opencode or pi adapter -- see\n// packages/node-red-agents/nodes/agent/lib/agents/{opencode,pi}.js TYPE_MAP)\n// into zero or more pixel-agents `web` hook-provider event bodies\n// (POST /api/hooks/web). One pixel-agents \"agent\" = one ADT agent-node\n// execution, keyed by executionId (present on every output-2 envelope msg,\n// including the terminal completed/failed/timeout event -- see agent.js\n// onSettled -> emitEvent(..., item.finalStatus, ...)).\nconst p = msg.payload || {};\nconst sessionId = \"adt-\" + msg.executionId;\nconst events = [];\n\nfunction toolStart(toolId, toolName, status) {\n    events.push({ hook_event_name: \"toolStart\", session_id: sessionId, tool_id: toolId, tool_name: toolName, status: status });\n}\nfunction toolEnd(toolId) {\n    events.push({ hook_event_name: \"toolEnd\", session_id: sessionId, tool_id: toolId });\n}\n\n// opencode never reports a separate start boundary (tool_use/spawn/thinking\n// all arrive as a single already-completed event -- see the branches below),\n// so those cases synthesize a toolStart+toolEnd pair with no real elapsed\n// time between them. Sending both in the same batch (as this used to do)\n// landed the pixel-agents webview's agentToolStart+agentToolDone broadcasts\n// in the same tick -- verified against a real running server: successive\n// hook requests arrived 2-16ms apart, far faster than any render/paint, so\n// the status label was set and cleared before it could ever be seen. Only\n// spawn (SessionStart) and vanish (SessionEnd) are genuinely held open for\n// the task's duration, which is why those were the only visible states.\n// Fix: hold the synthesized toolEnd back by TOOL_VISIBLE_MS. Real pi\n// start/end pairs (tool_execution_start/end, genuinely separate envelope\n// messages) are untouched.\nconst TOOL_VISIBLE_MS = 600;\nfunction toolPulse(toolId, toolName, status) {\n    toolStart(toolId, toolName, status);\n    setTimeout(function () {\n        node.send({ ...msg, payload: [{ hook_event_name: \"toolEnd\", session_id: sessionId, tool_id: toolId }] });\n    }, TOOL_VISIBLE_MS);\n}\n\nif (p.type === \"running\") {\n    // First lifecycle event for this execution (onStatus('running')) --\n    // spawn the character. msg.cwd is the Agent node's resolved.cwd, threaded\n    // through lifecycleEnvelope() in agent.js -- required so the pixel-agents\n    // server can store this as a pending session (SessionStart with neither\n    // cwd nor transcriptPath is dropped, never confirmed by later events).\n    events.push({ hook_event_name: \"sessionStart\", session_id: sessionId, cwd: msg.cwd });\n    toolPulse(sessionId + \"-spawn\", \"Task\", msg.agentName ? (\"Working: \" + msg.agentName) : \"Working\");\n} else if (p.type === \"tool\") {\n    const raw = p.data || {};\n    if (raw.type === \"tool_execution_start\") {\n        // pi: real start/end pair, correlated by toolCallId.\n        toolStart(raw.toolCallId, raw.toolName);\n    } else if (raw.type === \"tool_execution_end\") {\n        toolEnd(raw.toolCallId);\n    } else if (raw.type === \"tool_execution_update\") {\n        // pi: intermediate progress -- no pixel-agents equivalent, drop.\n    } else if (raw.type === \"tool_use\") {\n        // opencode: single already-completed event (verified empirically --\n        // opencode never streams a separate boundary), synthesize a pulse.\n        const part = raw.part || {};\n        const toolId = part.callID || (sessionId + \"-\" + msg._msgid);\n        toolPulse(toolId, part.tool || \"tool\");\n    }\n} else if (p.type === \"agent\") {\n    // Finished text/reasoning chunk (both adapters only surface the *_end\n    // variant, per lib/agents/pi.js's explicit *_start/*_delta skip) --\n    // show a brief \"Thinking\" pulse.\n    const toolId = sessionId + \"-think-\" + msg._msgid;\n    toolPulse(toolId, \"Thinking\");\n} else if (p.type === \"completed\" || p.type === \"failed\" || p.type === \"timeout\") {\n    // Terminal lifecycle event (onSettled -> emitEvent(..., finalStatus, ...))\n    // -- close the turn and despawn the character.\n    events.push({ hook_event_name: \"turnEnd\", session_id: sessionId, awaiting_input: false });\n    events.push({ hook_event_name: \"sessionEnd\", session_id: sessionId, reason: p.type });\n}\n// \"started\" (opencode step_start, fires once per LLM turn), \"queued\",\n// \"progress\", \"cancelled\"/\"terminating\" (sent on output 1, different msg\n// shape, out of scope here) carry no pixel-agents-visible state change from\n// this branch -- dropped.\n\nif (events.length === 0) return null;\nmsg.payload = events;\nreturn msg;",
         "outputs": 1,
         "timeout": 0,
-        "type": "function",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 2180,
+        "y": 1380,
         "wires": [
             [
                 "adt-pixelagents-split"
             ]
-        ],
-        "x": 1960,
-        "y": 1100,
-        "z": "adt-tab"
+        ]
     },
     {
-        "addname": "",
-        "arraySplt": 1,
-        "arraySpltType": "len",
         "id": "adt-pixelagents-split",
+        "type": "split",
+        "z": "adt-tab",
         "name": "one hook event per msg",
         "splt": "\\n",
         "spltType": "str",
+        "arraySplt": 1,
+        "arraySpltType": "len",
         "stream": false,
-        "type": "split",
+        "addname": "",
+        "x": 2380,
+        "y": 1380,
         "wires": [
             [
                 "adt-pixelagents-build-request"
             ]
-        ],
-        "x": 2160,
-        "y": 1100,
-        "z": "adt-tab"
+        ]
     },
     {
-        "finalize": "",
-        "func": "const cfg = global.get(\"pixelAgents\") || { baseUrl: \"http://127.0.0.1:3100\", authToken: \"\" };\nmsg.url = cfg.baseUrl + \"/api/hooks/web\";\nmsg.headers = { \"content-type\": \"application/json\", \"authorization\": \"Bearer \" + cfg.authToken };\n// msg.payload is already one hook-event body object (from the split node);\n// the http request node serializes an object payload to JSON automatically.\n// Method is fixed to POST on the node itself (setting msg.method too would\n// just trigger Node-RED's \"cannot override set node properties\" warning).\nreturn msg;",
         "id": "adt-pixelagents-build-request",
-        "initialize": "",
-        "libs": [],
+        "type": "function",
+        "z": "adt-tab",
         "name": "build POST /api/hooks/web request",
-        "noerr": 0,
+        "func": "const cfg = global.get(\"pixelAgents\") || { baseUrl: \"http://127.0.0.1:3100\", authToken: \"\" };\nmsg.url = cfg.baseUrl + \"/api/hooks/web\";\nmsg.headers = { \"content-type\": \"application/json\", \"authorization\": \"Bearer \" + cfg.authToken };\n// msg.payload is already one hook-event body object (from the split node);\n// the http request node serializes an object payload to JSON automatically.\n// Method is fixed to POST on the node itself (setting msg.method too would\n// just trigger Node-RED's \"cannot override set node properties\" warning).\nreturn msg;",
         "outputs": 1,
         "timeout": 0,
-        "type": "function",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 2600,
+        "y": 1380,
         "wires": [
             [
                 "adt-pixelagents-http"
             ]
-        ],
-        "x": 2380,
-        "y": 1100,
-        "z": "adt-tab"
+        ]
     },
     {
-        "authType": "",
         "id": "adt-pixelagents-http",
-        "insecureHTTPParser": false,
-        "method": "POST",
+        "type": "http request",
+        "z": "adt-tab",
         "name": "POST pixel-agents web hook (fire-and-forget)",
+        "method": "POST",
+        "ret": "txt",
         "paytoqs": "ignore",
+        "url": "",
         "persist": false,
         "proxy": "",
-        "ret": "txt",
+        "insecureHTTPParser": false,
+        "authType": "",
         "senderr": true,
-        "type": "http request",
-        "url": "",
+        "x": 2840,
+        "y": 1380,
         "wires": [
             [
                 "adt-pixelagents-debug"
             ]
-        ],
-        "x": 2620,
-        "y": 1100,
-        "z": "adt-tab"
+        ]
     },
     {
-        "active": true,
-        "complete": "true",
-        "console": false,
         "id": "adt-pixelagents-debug",
-        "name": "PixelAgents: response (dev only)",
-        "statusType": "auto",
-        "statusVal": "",
-        "targetType": "full",
-        "tosidebar": true,
-        "tostatus": false,
         "type": "debug",
-        "x": 2890,
-        "y": 1100,
-        "z": "adt-tab"
+        "z": "adt-tab",
+        "name": "PixelAgents: response (dev only)",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 3110,
+        "y": 1380,
+        "wires": []
     },
     {
         "id": "adt-pixelagents-catch",
+        "type": "catch",
+        "z": "adt-tab",
         "name": "pixel-agents unreachable",
         "scope": [
             "adt-pixelagents-http"
         ],
-        "type": "catch",
         "uncaught": false,
+        "x": 2840,
+        "y": 1440,
         "wires": [
             [
                 "adt-pixelagents-catch-fn"
             ]
-        ],
-        "x": 2620,
-        "y": 1160,
-        "z": "adt-tab"
+        ]
     },
     {
-        "finalize": "",
-        "func": "// pixel-agents down/unreachable is expected and must never affect the real\n// ADT pipeline (worktree/agent/gh flows) -- log once at debug level and drop.\nnode.debug(\"adt: pixel-agents notify failed (best-effort, ignored): \" + (msg.error && msg.error.message));\nreturn null;",
         "id": "adt-pixelagents-catch-fn",
-        "initialize": "",
-        "libs": [],
+        "type": "function",
+        "z": "adt-tab",
         "name": "log + drop",
-        "noerr": 0,
+        "func": "// pixel-agents down/unreachable is expected and must never affect the real\n// ADT pipeline (worktree/agent/gh flows) -- log once at debug level and drop.\nnode.debug(\"adt: pixel-agents notify failed (best-effort, ignored): \" + (msg.error && msg.error.message));\nreturn null;",
         "outputs": 1,
         "timeout": 0,
-        "type": "function",
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 2840,
+        "y": 1500,
         "wires": [
             []
-        ],
-        "x": 2620,
-        "y": 1220,
-        "z": "adt-tab"
+        ]
     }
 ]

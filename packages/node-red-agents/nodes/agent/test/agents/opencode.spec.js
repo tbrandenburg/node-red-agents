@@ -215,6 +215,7 @@ test("v2 MCP and tool restriction config uses v2 schema", () => {
   );
   assert.deepEqual(args, [
     "run",
+    "--standalone",
     "--format",
     "json",
     "hello world",

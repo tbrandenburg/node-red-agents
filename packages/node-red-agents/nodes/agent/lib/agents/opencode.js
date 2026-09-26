@@ -180,6 +180,10 @@ class OpenCodeAdapter extends AgentAdapter {
 
     if (Object.keys(opencodeConfig).length > 0) {
       env.OPENCODE_CONFIG_CONTENT = JSON.stringify(opencodeConfig);
+      // v2's default shared service owns configuration and won't see this
+      // per-process environment value. Isolate only executions that need
+      // ephemeral MCP/permission config so the child loads its own config.
+      if (version === 2) args.splice(1, 0, "--standalone");
     }
 
     return { command: "opencode", args, env };

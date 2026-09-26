@@ -12,10 +12,15 @@
     "props": [
       {
         "p": "payload"
+      },
+      {
+        "p": "operation"
       }
     ],
-    "payload": "",
-    "payloadType": "date",
+    "payload": "reply with exactly the word: pong",
+    "payloadType": "str",
+    "operation": "message",
+    "operationType": "str",
     "repeat": "",
     "once": false,
     "wires": [["smoke-agent-server-node"]],
@@ -27,10 +32,71 @@
     "type": "agent-server",
     "z": "smoke-agent-server-tab",
     "name": "agent-server",
-    "operation": "status",
-    "wires": [["smoke-agent-server-debug"], []],
+    "operation": "message",
+    "model": "opencode/big-pickle",
+    "wires": [["smoke-agent-server-lifecycle"], ["smoke-agent-server-events-debug"]],
     "x": 300,
     "y": 100
+  },
+  {
+    "id": "smoke-agent-server-lifecycle",
+    "type": "function",
+    "z": "smoke-agent-server-tab",
+    "name": "exercise history and terminate",
+    "func": "if (typeof msg.payload === 'string') {\n    msg.assistantOutput = msg.payload;\n    msg.operation = 'history';\n    return [msg, null];\n}\nif (Array.isArray(msg.payload)) {\n    msg.history = msg.payload;\n    msg.operation = 'abort';\n    return [msg, null];\n}\nif (typeof msg.payload === 'boolean' && msg.operation === 'abort') {\n    msg.abortAcknowledged = msg.payload;\n    msg.operation = 'terminate';\n    return [msg, null];\n}\nreturn [null, msg];",
+    "outputs": 2,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "wires": [["smoke-agent-server-node"], ["smoke-agent-server-debug"]],
+    "x": 500,
+    "y": 100
+  },
+  {
+    "id": "smoke-agent-server-catch",
+    "type": "catch",
+    "z": "smoke-agent-server-tab",
+    "name": "agent-server errors",
+    "scope": ["smoke-agent-server-node"],
+    "uncaught": false,
+    "wires": [["smoke-agent-server-error-debug"]],
+    "x": 500,
+    "y": 220
+  },
+  {
+    "id": "smoke-agent-server-error-debug",
+    "type": "debug",
+    "z": "smoke-agent-server-tab",
+    "name": "smoke-agent-server-error-debug",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "true",
+    "targetType": "full",
+    "statusVal": "",
+    "statusType": "auto",
+    "wires": [],
+    "x": 700,
+    "y": 220
+  },
+  {
+    "id": "smoke-agent-server-events-debug",
+    "type": "debug",
+    "z": "smoke-agent-server-tab",
+    "name": "smoke-agent-server-events-debug",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "true",
+    "targetType": "full",
+    "statusVal": "",
+    "statusType": "auto",
+    "wires": [],
+    "x": 700,
+    "y": 160
   },
   {
     "id": "smoke-agent-server-debug",
@@ -46,7 +112,7 @@
     "statusVal": "",
     "statusType": "auto",
     "wires": [],
-    "x": 500,
+    "x": 900,
     "y": 100
   }
 ]

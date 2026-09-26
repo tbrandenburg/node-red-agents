@@ -137,6 +137,7 @@
       defaults: {
         name: { value: "" },
         agent: { value: "opencode" },
+        openCodeVersionMode: { value: "auto" },
         runtime: { value: "direct" },
         invocation: { value: "prompt" },
 
@@ -444,6 +445,7 @@
 
         function updateAgentRows() {
           const agent = $("#node-input-agent").val();
+          $(".agent-row-opencode-version").toggle(agent === "opencode");
           $("#agent-auto-hint").attr("title", AUTO_HINTS[agent] || "");
           const mcpSupported = agent !== "pi";
           setSectionSupported($(".agent-row-mcp"), mcpSupported);
@@ -570,6 +572,18 @@
       <option value="pi">Pi</option>
       <option value="copilot">Copilot</option>
     </select>
+  </div>
+
+  <div class="form-row agent-row-opencode-version">
+    <label for="node-input-openCodeVersionMode">OpenCode CLI version</label>
+    <select id="node-input-openCodeVersionMode" style="width:60%">
+      <option value="auto">Auto-detect</option>
+      <option value="v1">v1</option>
+      <option value="v2">v2</option>
+    </select>
+  </div>
+  <div class="form-tips agent-row-opencode-version">
+    Auto-detection runs <code>opencode --version</code> once per Node-RED process. v2 does not yet support this node's Skill/Command invocation.
   </div>
 
   <div class="form-row">
@@ -830,7 +844,7 @@
       <i
         class="fa fa-info-circle"
         style="color:#888; cursor:help; margin-left:4px;"
-        title="Reasoning depth, e.g. low/medium/high/max -- maps to OpenCode's --variant. Not validated against a fixed enum; whatever string is entered is passed through."
+        title="Reasoning depth, e.g. low/medium/high/max -- maps to OpenCode v1 --variant or v2 provider/model#effort. v2 requires an explicit model."
       ></i>
     </label>
     <input
@@ -1007,7 +1021,7 @@
     non-interactive mode), on skips them entirely.
   </p>
   <p>
-    <b>Skill</b>/<b>Command</b> invocation: for OpenCode this is the name of a discovered skill or a
+    <b>Skill</b>/<b>Command</b> invocation: for OpenCode v1 this is the name of a discovered skill or a
     <code>.opencode/command(s)/&lt;name&gt;.md</code> file, dispatched deterministically via
     <code>--command</code>. Pi and Copilot have no equivalent dispatch mechanism -- the name is
     resolved to a file under <code>.github/skills/</code> (skill) or <code>.github/prompts/</code>
@@ -1035,7 +1049,9 @@
     doesn't will be silently dropped with a Node-RED warning, never a hard error.
     <b>System prompt</b> has no verified CLI flag for any adapter yet and is always dropped.
     <b>Effort</b> (reasoning depth, e.g. <code>low</code>/<code>medium</code>/<code>high</code>)
-    maps to OpenCode's <code>--variant</code> or Copilot's own effort flag; Pi has no equivalent.
+    maps to OpenCode v1's <code>--variant</code>, OpenCode v2's <code>provider/model#effort</code>
+    (which requires an explicit model), or Copilot's own effort flag; Pi has no equivalent. Select
+    OpenCode CLI version as Auto-detect (default), v1, or v2; detection failures warn and use v1 behavior.
     <b>Allowed/ Denied tools</b> are supported by all three: for OpenCode they're materialized into
     a temporary, per-run agent config (delivered the same way as MCP servers, via
     <code>OPENCODE_CONFIG_CONTENT</code>) selected with <code>--agent</code>; for Pi, a non-empty

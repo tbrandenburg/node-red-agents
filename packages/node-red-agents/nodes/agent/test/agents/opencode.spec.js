@@ -4,11 +4,13 @@ const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const os = require("node:os");
 const { OpenCodeAdapter } = require("../../lib/agents/opencode");
+const { runAgent } = require("../../lib/execution/lifecycle");
 
 function baseResolved(overrides) {
   return Object.assign(
     {
       invocation: "prompt",
+      openCodeVersionMode: "v1",
       prompt: "hello world",
       invocationName: undefined,
       args: undefined,
@@ -122,6 +124,115 @@ test("buildExecution: cwd, model, and auto map to --dir/--model/--auto", () => {
     "--auto",
     "hello world",
   ]);
+});
+
+test("v2 prompt omits CLI cwd flags; lifecycle passes cwd to the runtime and effort uses model#effort", async () => {
+  const adapter = new OpenCodeAdapter();
+  const built = adapter.buildExecution(
+    baseResolved({
+      openCodeVersionMode: "v2",
+      cwd: "/workspace/repo",
+      model: "provider/model",
+      effort: "high",
+      auto: true,
+    }),
+  );
+  assert.deepEqual(built.args, [
+    "run",
+    "--format",
+    "json",
+    "--model",
+    "provider/model#high",
+    "--auto",
+    "hello world",
+  ]);
+  let executionRequest;
+  await runAgent({
+    adapter,
+    runtime: {
+      execute(request) {
+        executionRequest = request;
+        return { exitCode: 0, signal: null, stderr: "", timedOut: false };
+      },
+    },
+    resolved: baseResolved({ openCodeVersionMode: "v2", cwd: os.tmpdir() }),
+    executionId: "cwd-check",
+  });
+  assert.equal(executionRequest.cwd, os.tmpdir());
+});
+
+test("v2 without effort keeps the exact positional prompt and supported flags", () => {
+  const adapter = new OpenCodeAdapter();
+  assert.deepEqual(
+    adapter.buildExecution(
+      baseResolved({
+        openCodeVersionMode: "v2",
+        sessionID: "ses_1",
+        model: "provider/model",
+        auto: true,
+      }),
+    ).args,
+    [
+      "run",
+      "--format",
+      "json",
+      "--session",
+      "ses_1",
+      "--model",
+      "provider/model",
+      "--auto",
+      "hello world",
+    ],
+  );
+});
+
+test("v2 validation requires a model for effort and rejects skill/command invocations", () => {
+  const adapter = new OpenCodeAdapter();
+  assert.throws(
+    () => adapter.validate(baseResolved({ openCodeVersionMode: "v2", effort: "high" })),
+    /effort requires an explicit model/,
+  );
+  for (const invocation of ["skill", "command"]) {
+    assert.throws(
+      () =>
+        adapter.validate(
+          baseResolved({ openCodeVersionMode: "v2", invocation, invocationName: "review" }),
+        ),
+      /not yet supported for OpenCode v2.*CAPABILITIES.commandInvocation/,
+    );
+  }
+});
+
+test("v2 MCP and tool restriction config uses v2 schema", () => {
+  const adapter = new OpenCodeAdapter();
+  const { env, args } = adapter.buildExecution(
+    baseResolved({
+      openCodeVersionMode: "v2",
+      mcpServers: [{ name: "github", type: "remote", url: "https://x" }],
+      allowedTools: ["read"],
+      deniedTools: ["bash"],
+    }),
+  );
+  assert.deepEqual(args, [
+    "run",
+    "--format",
+    "json",
+    "hello world",
+    "--agent",
+    "node-red-agent-tools",
+  ]);
+  assert.deepEqual(JSON.parse(env.OPENCODE_CONFIG_CONTENT), {
+    mcp: { servers: { github: { type: "remote", url: "https://x", disabled: false } } },
+    agents: {
+      "node-red-agent-tools": {
+        mode: "primary",
+        permissions: [
+          { action: "shell", resource: "*", effect: "deny" },
+          { action: "read", resource: "*", effect: "allow" },
+        ],
+      },
+    },
+  });
 });
 
 test("buildExecution: sets OPENCODE_CONFIG_CONTENT only when mcpServers is non-empty", () => {
@@ -245,6 +356,22 @@ test("parseEvent: maps real opencode event types onto the generic vocabulary", (
   assert.equal(toolUse.type, "tool");
   assert.equal(text.type, "agent");
   assert.equal(error.type, "failed");
+});
+
+test("parseEvent: v2 JSONL retains event type and sessionID", () => {
+  const adapter = new OpenCodeAdapter();
+  const event = adapter.parseEvent(
+    JSON.stringify({
+      type: "text",
+      sessionID: "ses_v2",
+      part: { id: "prt_v2", partID: "prt_v2", type: "text", text: "hello from v2" },
+    }),
+  );
+  assert.equal(event.type, "agent");
+  assert.equal(event.sessionID, "ses_v2");
+  assert.equal(event.data.type, "text");
+  assert.equal(event.data.sessionID, "ses_v2");
+  assert.equal(adapter.parseResult([event], 0, null, "").payload, "hello from v2");
 });
 
 test("parseResult: joins text parts, carries sessionID, completed on clean exit", () => {

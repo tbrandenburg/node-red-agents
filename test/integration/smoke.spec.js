@@ -53,26 +53,54 @@ test("gh smoke flow: inject -> gh (pr list) -> debug produces real output, no re
   assert.equal(result.ok, true, `expected a debug message, got: ${JSON.stringify(result)}`);
 });
 
-test("agent smoke flow: inject -> agent (opencode) -> debug produces real output, no red status", async () => {
-  const flow = withOpenCodeMode(require(path.join(FLOWS_DIR, "agent-smoke.json")));
+test("agent resume smoke flow: two chained agent (opencode) nodes -- second resumes the first's real session", async () => {
+  const flow = withOpenCodeMode(require(path.join(FLOWS_DIR, "agent-resume-smoke.json")));
   await instance.deployFlow(flow);
   const result = await waitForDebug({
     baseUrl: instance.baseUrl,
-    injectId: "smoke-agent-inject",
-    debugId: "smoke-agent-debug",
-    maxWaitMs: 60000,
+    injectId: "smoke-agent-resume-inject",
+    debugId: "smoke-agent-resume-debug",
+    maxWaitMs: 90000, // two real sequential opencode calls -- give it real headroom
   });
   assert.equal(result.ok, true, `expected a debug message, got: ${JSON.stringify(result)}`);
-
-  // Assert the model actually followed the prompt's instruction, not just
-  // that *some* output arrived.
   const msg = JSON.parse(result.data.msg);
+  assert.equal(
+    msg.agentExecution.resumed,
+    true,
+    `expected the second agent node to report resumed:true, got: ${JSON.stringify(msg.agentExecution)}`,
+  );
   assert.match(
     String(msg.payload).toLowerCase(),
-    /\bpong\b/,
-    `expected the reply to contain "pong", got: ${JSON.stringify(msg.payload)}`,
+    /\bsecond\b/,
+    `expected the second agent's reply to contain "second", got: ${JSON.stringify(msg.payload)}`,
   );
 });
+
+// v2 exercises its prompt path in the two-request resume flow below; omit
+// this redundant single-turn call there to leave headroom for the provider's
+// unmetered-model rate limit.
+test(
+  "agent smoke flow: inject -> agent (opencode) -> debug produces real output, no red status",
+  { skip: OPENCODE_MODE === "v2" },
+  async () => {
+    const flow = withOpenCodeMode(require(path.join(FLOWS_DIR, "agent-smoke.json")));
+    await instance.deployFlow(flow);
+    const result = await waitForDebug({
+      baseUrl: instance.baseUrl,
+      injectId: "smoke-agent-inject",
+      debugId: "smoke-agent-debug",
+      maxWaitMs: 60000,
+    });
+    assert.equal(result.ok, true, `expected a debug message, got: ${JSON.stringify(result)}`);
+
+    const msg = JSON.parse(result.data.msg);
+    assert.match(
+      String(msg.payload).toLowerCase(),
+      /\bpong\b/,
+      `expected the reply to contain "pong", got: ${JSON.stringify(msg.payload)}`,
+    );
+  },
+);
 
 test(
   "OpenCode v2 invokes a real local MCP tool with tool permissions configured",
@@ -111,29 +139,6 @@ test(
     );
   },
 );
-
-test("agent resume smoke flow: two chained agent (opencode) nodes -- second resumes the first's real session", async () => {
-  const flow = withOpenCodeMode(require(path.join(FLOWS_DIR, "agent-resume-smoke.json")));
-  await instance.deployFlow(flow);
-  const result = await waitForDebug({
-    baseUrl: instance.baseUrl,
-    injectId: "smoke-agent-resume-inject",
-    debugId: "smoke-agent-resume-debug",
-    maxWaitMs: 90000, // two real sequential opencode calls -- give it real headroom
-  });
-  assert.equal(result.ok, true, `expected a debug message, got: ${JSON.stringify(result)}`);
-  const msg = JSON.parse(result.data.msg);
-  assert.equal(
-    msg.agentExecution.resumed,
-    true,
-    `expected the second agent node to report resumed:true, got: ${JSON.stringify(msg.agentExecution)}`,
-  );
-  assert.match(
-    String(msg.payload).toLowerCase(),
-    /\bsecond\b/,
-    `expected the second agent's reply to contain "second", got: ${JSON.stringify(msg.payload)}`,
-  );
-});
 
 test("agent-server smoke flow: v1/v2 message, history, and terminate lifecycle", async () => {
   const flow = withOpenCodeMode(require(path.join(FLOWS_DIR, "agent-server-smoke.json")));

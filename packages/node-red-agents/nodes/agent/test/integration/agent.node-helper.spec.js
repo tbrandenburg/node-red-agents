@@ -1195,3 +1195,102 @@ test("runtime:'direct' + pi adapter: a minimal inject -> agent -> output flow ru
     process.env.PATH = priorPath;
   }
 });
+
+// Issue #54: "opencode-v1"/"opencode-v2" are now first-class Agent dropdown
+// variants (OpenCodeAdapter constructed with a fixed version) -- these
+// deploy flows using those ids directly, with no openCodeVersionMode
+// config field at all, and assert the resulting CLI invocation carries the
+// right version-specific flags (echo-args' fixture echoes back its own argv).
+test("agent:'opencode-v1' forces v1 CLI flags (--dir, --variant) without any openCodeVersionMode config (issue #54)", async () => {
+  const ECHO_ARGS_FIXTURES_DIR = path.join(FIXTURES_DIR, "echo-args");
+  const priorPath = process.env.PATH;
+  process.env.PATH = ECHO_ARGS_FIXTURES_DIR + path.delimiter + priorPath;
+
+  const flow = [
+    {
+      id: "n1",
+      type: "agent",
+      name: "agent",
+      agent: "opencode-v1",
+      runtime: "direct",
+      invocation: "prompt",
+      prompt: "payload",
+      promptType: "msg",
+      cwd: "/",
+      cwdType: "str",
+      effort: "high",
+      effortType: "str",
+      wires: [["n2"], []],
+    },
+    { id: "n2", type: "helper" },
+  ];
+  try {
+    await helper.load(agentNode, flow);
+    const n1 = helper.getNode("n1");
+    const n2 = helper.getNode("n2");
+
+    const received = await new Promise((resolve, reject) => {
+      n2.on("input", resolve);
+      n1.receive({ payload: "say hello" });
+      setTimeout(() => reject(new Error("timed out waiting for agent node output")), 5000).unref();
+    });
+
+    const echoedArgv = JSON.parse(received.payload);
+    assert.ok(echoedArgv.includes("--dir"), "v1-only --dir flag must be present");
+    assert.equal(echoedArgv[echoedArgv.indexOf("--dir") + 1], "/");
+    assert.ok(echoedArgv.includes("--variant"), "v1-only --variant flag must be present");
+    assert.equal(echoedArgv[echoedArgv.indexOf("--variant") + 1], "high");
+  } finally {
+    process.env.PATH = priorPath;
+  }
+});
+
+test("agent:'opencode-v2' forces v2 CLI flags (model#effort, no --dir) without any openCodeVersionMode config (issue #54)", async () => {
+  const ECHO_ARGS_FIXTURES_DIR = path.join(FIXTURES_DIR, "echo-args");
+  const priorPath = process.env.PATH;
+  process.env.PATH = ECHO_ARGS_FIXTURES_DIR + path.delimiter + priorPath;
+
+  const flow = [
+    {
+      id: "n1",
+      type: "agent",
+      name: "agent",
+      agent: "opencode-v2",
+      runtime: "direct",
+      invocation: "prompt",
+      prompt: "payload",
+      promptType: "msg",
+      cwd: "/",
+      cwdType: "str",
+      model: "provider/model",
+      modelType: "str",
+      effort: "high",
+      effortType: "str",
+      wires: [["n2"], []],
+    },
+    { id: "n2", type: "helper" },
+  ];
+  try {
+    await helper.load(agentNode, flow);
+    const n1 = helper.getNode("n1");
+    const n2 = helper.getNode("n2");
+
+    const received = await new Promise((resolve, reject) => {
+      n2.on("input", resolve);
+      n1.receive({ payload: "say hello" });
+      setTimeout(() => reject(new Error("timed out waiting for agent node output")), 5000).unref();
+    });
+
+    const echoedArgv = JSON.parse(received.payload);
+    assert.ok(!echoedArgv.includes("--dir"), "v1-only --dir flag must be absent for v2");
+    assert.ok(!echoedArgv.includes("--variant"), "v1-only --variant flag must be absent for v2");
+    assert.ok(echoedArgv.includes("--model"), "--model flag must be present");
+    assert.equal(
+      echoedArgv[echoedArgv.indexOf("--model") + 1],
+      "provider/model#high",
+      "v2 folds effort into model#effort",
+    );
+  } finally {
+    process.env.PATH = priorPath;
+  }
+});

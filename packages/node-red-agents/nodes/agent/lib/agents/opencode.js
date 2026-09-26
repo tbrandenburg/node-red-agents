@@ -21,6 +21,14 @@ const TYPE_MAP = {
 };
 
 class OpenCodeAdapter extends AgentAdapter {
+  constructor({ fixedVersion } = {}) {
+    super();
+    // 1 | 2 | undefined (undefined = auto-detect at runtime, unchanged
+    // default behavior). Set by the "opencode-v1"/"opencode-v2" agent
+    // dropdown variants (issue #54); "opencode" leaves this undefined.
+    this.fixedVersion = fixedVersion;
+  }
+
   validate(resolved) {
     assertModelFormat(resolved.model);
     const version = this.resolveVersion(resolved);
@@ -190,6 +198,10 @@ class OpenCodeAdapter extends AgentAdapter {
   }
 
   resolveVersion(resolved) {
+    if (this.fixedVersion === 1 || this.fixedVersion === 2) return this.fixedVersion;
+    // Deprecated back-compat fallback (issue #54): only reachable via
+    // hand-edited/scripted flow JSON that still sets this field directly --
+    // there is no UI path to it anymore. Remove after node-red-agents@0.6.0.
     if (resolved.openCodeVersionMode === "v1") return 1;
     if (resolved.openCodeVersionMode === "v2") return 2;
     const binary = "opencode";
@@ -379,5 +391,7 @@ OpenCodeAdapter.CAPABILITIES = {
 
 const { registerAgent } = require("./registry");
 registerAgent({ id: "opencode", factory: () => new OpenCodeAdapter() });
+registerAgent({ id: "opencode-v1", factory: () => new OpenCodeAdapter({ fixedVersion: 1 }) });
+registerAgent({ id: "opencode-v2", factory: () => new OpenCodeAdapter({ fixedVersion: 2 }) });
 
 module.exports = { OpenCodeAdapter };

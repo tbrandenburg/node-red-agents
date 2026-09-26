@@ -52,9 +52,6 @@ module.exports = function (RED) {
     const node = this;
 
     node.agent = config.agent || "opencode";
-    node.openCodeVersionMode = ["v1", "v2"].includes(config.openCodeVersionMode)
-      ? config.openCodeVersionMode
-      : "auto";
     node.runtime = config.runtime || "direct";
     node.invocation = config.invocation || "prompt";
 
@@ -708,7 +705,6 @@ module.exports = function (RED) {
       try {
         resolved = {
           agentName: resolveAgentName(msg),
-          openCodeVersionMode: node.openCodeVersionMode,
           onWarning: (warning) => node.warn(warning),
           invocation: node.invocation,
           prompt:

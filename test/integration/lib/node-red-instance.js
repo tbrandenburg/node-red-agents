@@ -7,6 +7,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const net = require("net");
 const { spawn } = require("child_process");
 
 const REPO_ROOT = path.join(__dirname, "..", "..", "..");
@@ -31,12 +32,25 @@ async function waitForReady(baseUrl, timeoutMs) {
   );
 }
 
+async function findFreePort() {
+  const server = net.createServer();
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const { port } = server.address();
+  await new Promise((resolve, reject) => {
+    server.close((err) => (err ? reject(err) : resolve()));
+  });
+  return port;
+}
+
 // Starts a real `node-red` child process against a fresh temp userDir that
 // has `@tbrandenburg/node-red-agents` available (via a symlinked
 // node_modules pointing at the repo's own package -- see
 // packages/node-red-agents). Returns { baseUrl, deployFlow(flow), stop() }.
 async function startSmokeInstance({ port, readyTimeoutMs = 20000 } = {}) {
-  const actualPort = port || 1900 + Math.floor(Math.random() * 500);
+  const actualPort = port || (await findFreePort());
   const userDir = fs.mkdtempSync(path.join(os.tmpdir(), "nra-e2e-"));
   const baseUrl = `http://127.0.0.1:${actualPort}`;
 
@@ -99,12 +113,19 @@ async function startSmokeInstance({ port, readyTimeoutMs = 20000 } = {}) {
     }
   }
 
-  function stop() {
-    child.kill("SIGTERM");
+  async function stop() {
+    if (child.exitCode === null && child.signalCode === null) {
+      const exited = new Promise((resolve, reject) => {
+        child.once("exit", resolve);
+        child.once("error", reject);
+      });
+      child.kill("SIGTERM");
+      await exited;
+    }
     fs.rmSync(userDir, { recursive: true, force: true });
   }
 
-  return { baseUrl, deployFlow, stop };
+  return { baseUrl, deployFlow, stop, getStderrTail: () => stderrTail };
 }
 
 module.exports = { startSmokeInstance };

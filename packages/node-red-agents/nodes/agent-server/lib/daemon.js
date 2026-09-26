@@ -2,6 +2,7 @@
 
 const { spawn } = require("child_process");
 const { request } = require("./http");
+const { health } = require("./api");
 
 const GRACE_PERIOD_MS = 2000;
 const DEFAULT_HEALTH_POLL_INTERVAL_MS = 200;
@@ -85,7 +86,7 @@ function spawnDaemon(config) {
 // whatever stderr the daemon produced, if any) on timeout.
 async function waitForHealthy(
   baseUrl,
-  { timeoutMs, intervalMs, username, password, diagnostics } = {},
+  { timeoutMs, intervalMs, username, password, diagnostics, apiVersion = "v1" } = {},
 ) {
   const deadline = Date.now() + (timeoutMs || 15000);
   const interval = intervalMs || DEFAULT_HEALTH_POLL_INTERVAL_MS;
@@ -93,11 +94,17 @@ async function waitForHealthy(
 
   while (Date.now() < deadline) {
     try {
-      return await request(`${baseUrl}/global/health`, {
+      const check =
+        apiVersion === "v2" ? health : (url, opts) => request(`${url}/global/health`, opts);
+      const result = await check(baseUrl, {
         timeoutMs: interval * 4,
         username,
         password,
       });
+      if (apiVersion === "v2" && !result.healthy && !result.version && !result.status) {
+        throw new Error("v2 health endpoint returned no recognized health fields");
+      }
+      return result;
     } catch (err) {
       lastError = err;
       await new Promise((r) => setTimeout(r, interval));

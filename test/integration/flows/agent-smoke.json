@@ -41,6 +41,34 @@
     "y": 100
   },
   {
+    "id": "smoke-agent-catch",
+    "type": "catch",
+    "z": "smoke-agent-tab",
+    "name": "agent errors",
+    "scope": ["smoke-agent-node"],
+    "uncaught": false,
+    "wires": [["smoke-agent-error-debug"]],
+    "x": 500,
+    "y": 200
+  },
+  {
+    "id": "smoke-agent-error-debug",
+    "type": "debug",
+    "z": "smoke-agent-tab",
+    "name": "smoke-agent-error-debug",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "true",
+    "targetType": "full",
+    "statusVal": "",
+    "statusType": "auto",
+    "wires": [],
+    "x": 700,
+    "y": 200
+  },
+  {
     "id": "smoke-agent-debug",
     "type": "debug",
     "z": "smoke-agent-tab",

@@ -25,6 +25,7 @@
 
                 hostname: { value: '127.0.0.1' },
                 opencodeBinary: { value: '' },
+                apiVersionMode: { value: 'auto' },
 
                 sessionIdProp: { value: 'sessionID' },
                 sessionIdPropType: { value: 'msg' },
@@ -256,6 +257,14 @@
         <input type="text" id="node-input-opencodeBinary" placeholder="opencode" style="width:60%">
     </div>
     <div class="form-row agent-server-row-spawn">
+        <label for="node-input-apiVersionMode"><i class="fa fa-code-fork"></i> Server API</label>
+        <select id="node-input-apiVersionMode" style="width:60%">
+            <option value="auto">Auto-detect</option>
+            <option value="v1">v1</option>
+            <option value="v2">v2</option>
+        </select>
+    </div>
+    <div class="form-row agent-server-row-spawn">
         <label for="node-input-maxInstances"><i class="fa fa-tasks"></i> Max instances</label>
         <input type="text" id="node-input-maxInstances" placeholder="5" style="width:80px">
         <i class="fa fa-info-circle" style="color:#888; cursor:help; margin-left:4px;"
@@ -376,6 +385,11 @@
        forwarding), and <code>opencode serve</code> has no <code>--fd</code>/socket-
        activation flag to accept a pre-bound socket even if one arrived.</p>
     <h3>Operations</h3>
+    <p><b>Server API</b> defaults to auto-detection; choose v1 or v2 to override it. v2 prompt
+       requests are admitted asynchronously and this node waits for the completed assistant message,
+       up to the configured Request timeout. Basic Auth applies to either API; v2 uses OpenCode's
+       fixed <code>opencode</code> Basic Auth username and generates a private per-daemon password
+       when Password is left blank.</p>
     <ul>
         <li><b>Send message</b>: no Session ID on the trigger &rarr; spawns a new daemon +
             session; a tracked Session ID &rarr; reuses that same daemon. An unknown/foreign

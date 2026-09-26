@@ -15,10 +15,12 @@
 // message, or { ok: false, reason: 'timeout' | 'red-status', data? } on
 // timeout or an error status -- never rejects, so callers don't need a
 // try/catch just to distinguish "no result" from a real thrown error.
-function waitForDebug({ baseUrl, injectId, debugId, maxWaitMs = 60000 }) {
+function waitForDebug({ baseUrl, injectId, debugId, errorDebugId, maxWaitMs = 60000 }) {
   return new Promise((resolve) => {
     const ws = new WebSocket(baseUrl.replace(/^http/, "ws") + "/comms");
     let settled = false;
+    let lastStatus;
+    const recentDebugs = [];
 
     function finish(result) {
       if (settled) return;
@@ -28,7 +30,10 @@ function waitForDebug({ baseUrl, injectId, debugId, maxWaitMs = 60000 }) {
       resolve(result);
     }
 
-    const timer = setTimeout(() => finish({ ok: false, reason: "timeout" }), maxWaitMs);
+    const timer = setTimeout(
+      () => finish({ ok: false, reason: "timeout", lastStatus, recentDebugs }),
+      maxWaitMs,
+    );
 
     ws.addEventListener("open", async () => {
       ws.send(JSON.stringify({ subscribe: "debug" }));
@@ -50,10 +55,40 @@ function waitForDebug({ baseUrl, injectId, debugId, maxWaitMs = 60000 }) {
         return;
       }
       for (const e of events) {
+        if (e.topic && e.topic.startsWith("status/")) lastStatus = { topic: e.topic, data: e.data };
+        if (e.topic === "debug" && e.data && typeof e.data.id === "string") {
+          let debugMessage;
+          try {
+            debugMessage = typeof e.data.msg === "string" ? JSON.parse(e.data.msg) : e.data.msg;
+          } catch (_err) {
+            debugMessage = undefined;
+          }
+          recentDebugs.push({
+            id: e.data.id,
+            messageType: typeof debugMessage,
+            messageKeys:
+              debugMessage && typeof debugMessage === "object"
+                ? Object.keys(debugMessage).slice(0, 12)
+                : undefined,
+            operation: debugMessage && debugMessage.operation,
+            payloadValueType: debugMessage && typeof debugMessage.payload,
+            payloadType: debugMessage && debugMessage.payload && debugMessage.payload.type,
+          });
+          if (recentDebugs.length > 20) recentDebugs.shift();
+        }
         if (e.topic === "debug" && e.data && e.data.id === debugId) {
           finish({ ok: true, data: e.data });
         }
-        if (e.topic && e.topic.startsWith("status/") && e.data && e.data.fill === "red") {
+        if (errorDebugId && e.topic === "debug" && e.data && e.data.id === errorDebugId) {
+          finish({ ok: false, reason: "node-error", data: e.data });
+        }
+        if (
+          !errorDebugId &&
+          e.topic &&
+          e.topic.startsWith("status/") &&
+          e.data &&
+          e.data.fill === "red"
+        ) {
           finish({ ok: false, reason: "red-status", topic: e.topic, data: e.data });
         }
       }

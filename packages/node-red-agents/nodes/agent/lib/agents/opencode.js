@@ -4,6 +4,9 @@ const fs = require("fs");
 const { AgentAdapter } = require("./base");
 const { toOpenCodeMcp } = require("../mcp/normalize");
 const { assertModelFormat } = require("../../../../shared/model-format");
+const { detectOpenCodeMajorVersion } = require("../../../../shared/opencode-version");
+
+const detectedVersions = new Map();
 
 // Maps opencode's real `--format json` event stream types (verified against
 // packages/opencode/src/cli/cmd/run.ts) onto the Agent node's generic event
@@ -20,6 +23,11 @@ const TYPE_MAP = {
 class OpenCodeAdapter extends AgentAdapter {
   validate(resolved) {
     assertModelFormat(resolved.model);
+    const version = this.resolveVersion(resolved);
+
+    if (version === 2 && resolved.effort && !resolved.model) {
+      throw new Error("OpenCode v2 effort requires an explicit model (provider/model)");
+    }
 
     if (resolved.cwd) {
       let stat;
@@ -40,6 +48,11 @@ class OpenCodeAdapter extends AgentAdapter {
         );
       }
     } else if (resolved.invocation === "skill" || resolved.invocation === "command") {
+      if (version === 2) {
+        throw new Error(
+          "skill/command invocation is not yet supported for OpenCode v2 (see CAPABILITIES.commandInvocation)",
+        );
+      }
       if (!resolved.invocationName || !String(resolved.invocationName).trim()) {
         throw new Error(`${resolved.invocation} invocation requires a non-empty name`);
       }
@@ -64,6 +77,12 @@ class OpenCodeAdapter extends AgentAdapter {
   }
 
   buildExecution(resolved) {
+    const version = this.resolveVersion(resolved);
+    if (version === 2 && resolved.invocation !== "prompt") {
+      throw new Error(
+        "skill/command invocation is not yet supported for OpenCode v2 (see CAPABILITIES.commandInvocation)",
+      );
+    }
     const args = ["run", "--format", "json"];
 
     // Resuming an existing session (opencode run -s <id> ...) rather
@@ -71,8 +90,12 @@ class OpenCodeAdapter extends AgentAdapter {
     // --help`: -s/--session takes the id to continue.
     if (resolved.sessionID) args.push("--session", String(resolved.sessionID));
 
-    if (resolved.cwd) args.push("--dir", resolved.cwd);
-    if (resolved.model) args.push("--model", resolved.model);
+    if (resolved.cwd && version === 1) args.push("--dir", resolved.cwd);
+    const model =
+      resolved.model && version === 2 && resolved.effort
+        ? `${resolved.model}#${resolved.effort}`
+        : resolved.model;
+    if (model) args.push("--model", model);
     if (resolved.auto) args.push("--auto");
 
     // --variant <effort> -- verified working against a real `opencode run`
@@ -80,7 +103,7 @@ class OpenCodeAdapter extends AgentAdapter {
     // no verified CLI flag for this adapter (CAPABILITIES.systemPromptControl
     // is false), so it's never forwarded here -- agent.js already warns and
     // drops it before this is even called.
-    if (OpenCodeAdapter.CAPABILITIES.effortControl && resolved.effort) {
+    if (version === 1 && OpenCodeAdapter.CAPABILITIES.effortControl && resolved.effort) {
       args.push("--variant", resolved.effort);
     }
 
@@ -98,7 +121,18 @@ class OpenCodeAdapter extends AgentAdapter {
     const env = {};
     const opencodeConfig = {};
     if (Array.isArray(resolved.mcpServers) && resolved.mcpServers.length > 0) {
-      opencodeConfig.mcp = toOpenCodeMcp(resolved.mcpServers);
+      const mcp = toOpenCodeMcp(resolved.mcpServers);
+      opencodeConfig.mcp =
+        version === 2
+          ? {
+              servers: Object.fromEntries(
+                Object.entries(mcp).map(([name, server]) => {
+                  const { enabled, ...settings } = server;
+                  return [name, Object.assign(settings, { disabled: enabled === false })];
+                }),
+              ),
+            }
+          : mcp;
     }
 
     // allowed_tools/denied_tools (issue #25): opencode has no direct
@@ -116,19 +150,63 @@ class OpenCodeAdapter extends AgentAdapter {
     const hasAllow = Array.isArray(resolved.allowedTools) && resolved.allowedTools.length > 0;
     const hasDeny = Array.isArray(resolved.deniedTools) && resolved.deniedTools.length > 0;
     if (OpenCodeAdapter.CAPABILITIES.toolRestrictions && (hasAllow || hasDeny)) {
-      const tools = {};
-      for (const name of resolved.deniedTools || []) tools[name] = false;
-      for (const name of resolved.allowedTools || []) tools[name] = true;
       const agentName = "node-red-agent-tools";
-      opencodeConfig.agent = { [agentName]: { mode: "primary", tools } };
+      if (version === 2) {
+        const permissions = [];
+        const v2Action = (name) => ({ bash: "shell", write: "edit", patch: "edit" })[name] || name;
+        for (const name of resolved.deniedTools || []) {
+          permissions.push({
+            action: v2Action(name),
+            resource: "*",
+            effect: "deny",
+          });
+        }
+        for (const name of resolved.allowedTools || []) {
+          permissions.push({
+            action: v2Action(name),
+            resource: "*",
+            effect: "allow",
+          });
+        }
+        opencodeConfig.agents = { [agentName]: { mode: "primary", permissions } };
+      } else {
+        const tools = {};
+        for (const name of resolved.deniedTools || []) tools[name] = false;
+        for (const name of resolved.allowedTools || []) tools[name] = true;
+        opencodeConfig.agent = { [agentName]: { mode: "primary", tools } };
+      }
       args.push("--agent", agentName);
     }
 
     if (Object.keys(opencodeConfig).length > 0) {
       env.OPENCODE_CONFIG_CONTENT = JSON.stringify(opencodeConfig);
+      // v2's default shared service owns configuration and won't see this
+      // per-process environment value. Isolate only executions that need
+      // ephemeral MCP/permission config so the child loads its own config.
+      if (version === 2) args.splice(1, 0, "--standalone");
     }
 
     return { command: "opencode", args, env };
+  }
+
+  resolveVersion(resolved) {
+    if (resolved.openCodeVersionMode === "v1") return 1;
+    if (resolved.openCodeVersionMode === "v2") return 2;
+    const binary = "opencode";
+    if (detectedVersions.has(binary)) return detectedVersions.get(binary);
+    try {
+      const version = detectOpenCodeMajorVersion({ binary });
+      detectedVersions.set(binary, version);
+      return version;
+    } catch (err) {
+      detectedVersions.set(binary, 1);
+      if (typeof resolved.onWarning === "function") {
+        resolved.onWarning(
+          `could not detect OpenCode CLI version; using v1 behavior: ${err.message}`,
+        );
+      }
+      return 1;
+    }
   }
 
   parseEvent(line) {

@@ -1,6 +1,7 @@
 "use strict";
 
 const fs = require("fs");
+const { execFileSync } = require("child_process");
 const { findFreePort } = require("./lib/port");
 const { InstanceRegistry } = require("./lib/registry");
 const { spawnDaemon, waitForHealthy, killDaemon } = require("./lib/daemon");
@@ -8,6 +9,9 @@ const { computeNodeStatus } = require("./lib/status");
 const { writeInlineSettingsFile } = require("../../shared/srt-settings");
 const { request } = require("./lib/http");
 const { parseModel } = require("./lib/model");
+const { createDaemonAuth } = require("./lib/auth");
+const apiV2 = require("./lib/api");
+const { detectOpenCodeMajorVersion } = require("../../shared/opencode-version");
 
 module.exports = function (RED) {
   "use strict";
@@ -18,6 +22,9 @@ module.exports = function (RED) {
 
     node.hostname = config.hostname || "127.0.0.1";
     node.opencodeBinary = config.opencodeBinary || "";
+    node.apiVersionMode = config.apiVersionMode || "auto";
+    let detectedApiVersion;
+    let versionDetectionWarningSent = false;
 
     node.operation = config.operation || "message";
 
@@ -140,16 +147,31 @@ module.exports = function (RED) {
       return resolveTyped(node.serverName, node.serverNameType, msg || {}, node.name);
     }
 
-    function authOptions() {
-      return node.authUsername || node.authPassword
-        ? { username: node.authUsername, password: node.authPassword }
-        : {};
+    function apiVersion() {
+      if (node.apiVersionMode === "v1" || node.apiVersionMode === "v2") return node.apiVersionMode;
+      if (detectedApiVersion) return detectedApiVersion;
+      try {
+        detectedApiVersion =
+          detectOpenCodeMajorVersion({
+            binary: node.opencodeBinary || "opencode",
+            execFileSync,
+          }) >= 2
+            ? "v2"
+            : "v1";
+      } catch (err) {
+        detectedApiVersion = "v1";
+        if (!versionDetectionWarningSent) {
+          versionDetectionWarningSent = true;
+          node.warn(`could not detect OpenCode CLI version; using v1 server API: ${err.message}`);
+        }
+      }
+      return detectedApiVersion;
     }
 
     // Extracts the assistant's text reply the same way the `agent`
     // node's OpenCodeAdapter does: join every text-type part.
     function extractText(messageResponse) {
-      const parts = (messageResponse && messageResponse.parts) || [];
+      const parts = (messageResponse && (messageResponse.parts || messageResponse.content)) || [];
       return parts
         .filter((p) => p.type === "text" && typeof p.text === "string")
         .map((p) => p.text)
@@ -170,10 +192,17 @@ module.exports = function (RED) {
 
       const port = await findFreePort(node.hostname);
       const baseUrl = `http://${node.hostname}:${port}`;
-      const auth = authOptions();
+      const version = apiVersion();
+      const auth = createDaemonAuth(version, {
+        username: node.authUsername,
+        password: node.authPassword,
+      });
 
       const env = Object.assign({}, process.env);
-      if (node.authUsername || node.authPassword) {
+      if (version === "v2") {
+        env.OPENCODE_SERVER_USERNAME = auth.username;
+        env.OPENCODE_SERVER_PASSWORD = auth.password;
+      } else if (node.authUsername || node.authPassword) {
         env.OPENCODE_SERVER_PASSWORD = node.authPassword;
         if (node.authUsername) env.OPENCODE_SERVER_USERNAME = node.authUsername;
       }
@@ -194,6 +223,7 @@ module.exports = function (RED) {
         await waitForHealthy(baseUrl, {
           timeoutMs: node.startupTimeoutMs,
           diagnostics,
+          apiVersion: version,
           ...auth,
         });
       } catch (err) {
@@ -203,19 +233,32 @@ module.exports = function (RED) {
 
       let session;
       try {
-        session = await request(`${baseUrl}/session`, {
-          method: "POST",
-          body: { title: (msg && msg.topic) || "agent-server" },
-          timeoutMs: node.requestTimeoutMs,
-          ...auth,
-        });
+        session =
+          version === "v2"
+            ? await apiV2.createSession(baseUrl, (msg && msg.topic) || "agent-server", {
+                timeoutMs: node.requestTimeoutMs,
+                ...auth,
+              })
+            : await request(`${baseUrl}/session`, {
+                method: "POST",
+                body: { title: (msg && msg.topic) || "agent-server" },
+                timeoutMs: node.requestTimeoutMs,
+                ...auth,
+              });
       } catch (err) {
         await killDaemon(child);
         throw err;
       }
 
       const sessionID = session.id;
-      node.registry.register(sessionID, { child, host: node.hostname, port, baseUrl });
+      node.registry.register(sessionID, {
+        child,
+        host: node.hostname,
+        port,
+        baseUrl,
+        apiVersion: version,
+        auth,
+      });
       emitEvent(sessionID, "spawned", msg);
       updateStatus();
       return { sessionID, baseUrl };
@@ -227,7 +270,8 @@ module.exports = function (RED) {
       emitEvent(sessionID, "running", msg);
       updateStatus();
 
-      const auth = authOptions();
+      const record = node.registry.get(sessionID);
+      const auth = record.auth || {};
       // process.hrtime.bigint() rather than Date.now() for the
       // duration measurement specifically: it's monotonic, so it
       // can't ever go negative from a wall-clock adjustment mid-call
@@ -241,15 +285,32 @@ module.exports = function (RED) {
           parts: [{ type: "text", text: String(prompt) }],
         };
         if (model) body.model = model;
-        const response = await request(`${baseUrl}/session/${sessionID}/message`, {
-          method: "POST",
-          body,
-          timeoutMs: node.requestTimeoutMs,
-          ...auth,
-        });
+        const remainingMs = () =>
+          Math.max(
+            1,
+            node.requestTimeoutMs - Number((process.hrtime.bigint() - startedAtNs) / 1000000n),
+          );
+        const response =
+          record.apiVersion === "v2"
+            ? await (async () => {
+                const deadlineOptions = () => ({ timeoutMs: remainingMs(), ...auth });
+                await apiV2.switchAgent(baseUrl, sessionID, body.agent, deadlineOptions());
+                if (model) {
+                  await apiV2.switchModel(baseUrl, sessionID, model, deadlineOptions());
+                }
+                const admission = await apiV2.prompt(baseUrl, sessionID, prompt, deadlineOptions());
+                return apiV2.waitForCompletion(baseUrl, sessionID, admission.id, {
+                  ...deadlineOptions(),
+                });
+              })()
+            : await request(`${baseUrl}/session/${sessionID}/message`, {
+                method: "POST",
+                body,
+                timeoutMs: node.requestTimeoutMs,
+                ...auth,
+              });
 
         node.registry.setBusy(sessionID, false);
-        const record = node.registry.get(sessionID);
         const durationMs = Number((process.hrtime.bigint() - startedAtNs) / 1000000n);
         const resultMsg = Object.assign({}, msg, {
           payload: extractText(response),
@@ -408,13 +469,20 @@ module.exports = function (RED) {
       }
 
       const record = node.registry.get(sessionID);
-      request(`${record.baseUrl}/session/${sessionID}/abort`, {
-        method: "POST",
-        timeoutMs: node.requestTimeoutMs,
-        ...authOptions(),
-      })
+      const operation =
+        record.apiVersion === "v2"
+          ? apiV2.abort(record.baseUrl, sessionID, {
+              timeoutMs: node.requestTimeoutMs,
+              ...(record.auth || {}),
+            })
+          : request(`${record.baseUrl}/session/${sessionID}/abort`, {
+              method: "POST",
+              timeoutMs: node.requestTimeoutMs,
+              ...(record.auth || {}),
+            });
+      operation
         .then(() => {
-          node.registry.setBusy(sessionID, false);
+          if (record.apiVersion !== "v2") node.registry.setBusy(sessionID, false);
           updateStatus();
           send([
             Object.assign({}, msg, {
@@ -448,10 +516,17 @@ module.exports = function (RED) {
       }
 
       const record = node.registry.get(sessionID);
-      request(`${record.baseUrl}/session/${sessionID}/message`, {
-        timeoutMs: node.requestTimeoutMs,
-        ...authOptions(),
-      })
+      const historyRequest =
+        record.apiVersion === "v2"
+          ? apiV2.messages(record.baseUrl, sessionID, {
+              timeoutMs: node.requestTimeoutMs,
+              ...(record.auth || {}),
+            })
+          : request(`${record.baseUrl}/session/${sessionID}/message`, {
+              timeoutMs: node.requestTimeoutMs,
+              ...(record.auth || {}),
+            });
+      historyRequest
         .then((history) => {
           send([
             Object.assign({}, msg, {

@@ -388,7 +388,8 @@
     <p><b>Server API</b> defaults to auto-detection; choose v1 or v2 to override it. v2 prompt
        requests are admitted asynchronously and this node waits for the completed assistant message,
        up to the configured Request timeout. Basic Auth applies to either API; v2 uses OpenCode's
-       fixed <code>opencode</code> Basic Auth username and the configured password.</p>
+       fixed <code>opencode</code> Basic Auth username and generates a private per-daemon password
+       when Password is left blank.</p>
     <ul>
         <li><b>Send message</b>: no Session ID on the trigger &rarr; spawns a new daemon +
             session; a tracked Session ID &rarr; reuses that same daemon. An unknown/foreign

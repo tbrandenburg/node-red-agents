@@ -9,6 +9,7 @@ const { computeNodeStatus } = require("./lib/status");
 const { writeInlineSettingsFile } = require("../../shared/srt-settings");
 const { request } = require("./lib/http");
 const { parseModel } = require("./lib/model");
+const { createDaemonAuth } = require("./lib/auth");
 const apiV2 = require("./lib/api");
 const { detectOpenCodeMajorVersion } = require("../../shared/opencode-version");
 
@@ -146,15 +147,6 @@ module.exports = function (RED) {
       return resolveTyped(node.serverName, node.serverNameType, msg || {}, node.name);
     }
 
-    function authOptions(version = "v1") {
-      return node.authUsername || node.authPassword
-        ? {
-            username: version === "v2" ? "opencode" : node.authUsername,
-            password: node.authPassword,
-          }
-        : {};
-    }
-
     function apiVersion() {
       if (node.apiVersionMode === "v1" || node.apiVersionMode === "v2") return node.apiVersionMode;
       if (detectedApiVersion) return detectedApiVersion;
@@ -201,12 +193,18 @@ module.exports = function (RED) {
       const port = await findFreePort(node.hostname);
       const baseUrl = `http://${node.hostname}:${port}`;
       const version = apiVersion();
-      const auth = authOptions(version);
+      const auth = createDaemonAuth(version, {
+        username: node.authUsername,
+        password: node.authPassword,
+      });
 
       const env = Object.assign({}, process.env);
-      if (node.authUsername || node.authPassword) {
+      if (version === "v2") {
+        env.OPENCODE_SERVER_USERNAME = auth.username;
+        env.OPENCODE_SERVER_PASSWORD = auth.password;
+      } else if (node.authUsername || node.authPassword) {
         env.OPENCODE_SERVER_PASSWORD = node.authPassword;
-        if (node.authUsername && version !== "v2") env.OPENCODE_SERVER_USERNAME = node.authUsername;
+        if (node.authUsername) env.OPENCODE_SERVER_USERNAME = node.authUsername;
       }
 
       const { child, diagnostics } = spawnDaemon({
@@ -259,6 +257,7 @@ module.exports = function (RED) {
         port,
         baseUrl,
         apiVersion: version,
+        auth,
       });
       emitEvent(sessionID, "spawned", msg);
       updateStatus();
@@ -272,7 +271,7 @@ module.exports = function (RED) {
       updateStatus();
 
       const record = node.registry.get(sessionID);
-      const auth = authOptions(record.apiVersion);
+      const auth = record.auth || {};
       // process.hrtime.bigint() rather than Date.now() for the
       // duration measurement specifically: it's monotonic, so it
       // can't ever go negative from a wall-clock adjustment mid-call
@@ -474,12 +473,12 @@ module.exports = function (RED) {
         record.apiVersion === "v2"
           ? apiV2.abort(record.baseUrl, sessionID, {
               timeoutMs: node.requestTimeoutMs,
-              ...authOptions(record.apiVersion),
+              ...(record.auth || {}),
             })
           : request(`${record.baseUrl}/session/${sessionID}/abort`, {
               method: "POST",
               timeoutMs: node.requestTimeoutMs,
-              ...authOptions(record.apiVersion),
+              ...(record.auth || {}),
             });
       operation
         .then(() => {
@@ -521,11 +520,11 @@ module.exports = function (RED) {
         record.apiVersion === "v2"
           ? apiV2.messages(record.baseUrl, sessionID, {
               timeoutMs: node.requestTimeoutMs,
-              ...authOptions(record.apiVersion),
+              ...(record.auth || {}),
             })
           : request(`${record.baseUrl}/session/${sessionID}/message`, {
               timeoutMs: node.requestTimeoutMs,
-              ...authOptions(record.apiVersion),
+              ...(record.auth || {}),
             });
       historyRequest
         .then((history) => {

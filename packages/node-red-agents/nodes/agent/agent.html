@@ -1058,7 +1058,8 @@
     <b>System prompt</b> has no verified CLI flag for any adapter yet and is always dropped.
     <b>Effort</b> (reasoning depth, e.g. <code>low</code>/<code>medium</code>/<code>high</code>)
     maps to OpenCode v1's <code>--variant</code>, OpenCode v2's <code>provider/model#effort</code>
-    (which requires an explicit model), or Copilot's own effort flag; Pi has no equivalent.     <b>Allowed/ Denied tools</b> are supported by all three: for OpenCode they're materialized into
+    (which requires an explicit model), or Copilot's own effort flag; Pi has no equivalent.
+    <b>Allowed/ Denied tools</b> are supported by all three: for OpenCode they're materialized into
     a temporary, per-run agent config (delivered the same way as MCP servers, via
     <code>OPENCODE_CONFIG_CONTENT</code>) selected with <code>--agent</code>; for Pi, a non-empty
     Allowed tools list is passed as <code>--tools</code> (Pi has no deny-list mechanism, so Denied

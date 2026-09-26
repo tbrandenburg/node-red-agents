@@ -253,3 +253,4 @@ meant to read stdin.
 ## Lessons Learned
 
 - 2026-09-05: Pitfall: a subagent task can report "user rejected permission" and appear failed even though it already `git commit`ed real, complete work first. Prevention rule/countermeasure: before retrying/redoing, always check the worktree's `git log`/`git status` for prior commits; instruct subagents to commit before their final message.
+- 2026-09-26: Pitfall: duplicated a repository prefix in a nested worktree path, triggering avoidable permission errors. Prevention: copy the canonical path from `git worktree list` and use it verbatim in subsequent tool calls.

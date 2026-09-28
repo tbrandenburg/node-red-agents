@@ -948,6 +948,11 @@
       affects future scheduling (already-running executions are never cancelled).
       Non-numeric/non-positive values are ignored.
     </dd>
+    <dt class="optional">agentObservation <span class="property-type">JSON value</span></dt>
+    <dd>
+      Opaque correlation copied into the optional host execution observer's terminal record.
+      Must be JSON-serializable; the rest of the input message is not forwarded to the observer.
+    </dd>
   </dl>
   <h3>Outputs</h3>
   <ol class="node-ports">
@@ -996,6 +1001,23 @@
       </dl>
     </li>
   </ol>
+  <p>
+    <b>Host execution observer</b>: a Node-RED host may configure
+    <code>nodeRedAgentsExecutionObserver: async (record) =&gt; { ... }</code> in its runtime
+    <code>settings.js</code>. This function is not available in exported flows or the editor.
+    One version-1 record per started execution is awaited after retries and structured-output
+    reasks settle, before delivering the final result. It includes a unique UUID
+    <code>eventId</code>, <code>executionId</code>, <code>nodeId</code>, agent type/name, terminal
+    <code>status</code> and ISO <code>timestamp</code>, resolved <code>input</code> (prompt or
+    skill/command name and arguments), <code>output</code> (final payload, diagnostics, exit
+    details and optional structured output), final <code>sessionID</code> and confirmed
+    <code>resumed</code> when available, plus optional <code>agentObservation</code> from the input.
+    The observer also receives failed/timeout outcomes. If it rejects, no final result is sent,
+    the agent is not retried, and a Catch node receives an error with the actual outcome in
+    <code>error.cause.agentOutcome</code>. The terminal lifecycle event retains the agent's status.
+    Prompt, reply and diagnostic content may be sensitive; only an explicitly configured host
+    observer receives it. Without an observer, existing outputs are unchanged.
+  </p>
   <p>
     <b>Concurrency</b> bounds how many executions this node runs at once (default 1 = sequential).
     Extra incoming messages wait in an internal FIFO queue -- each waiting message emits a

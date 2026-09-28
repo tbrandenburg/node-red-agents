@@ -23,6 +23,7 @@ specific, versioned, publishable package with three nodes.
 - [Nodes](#nodes)
 - [Prerequisites](#prerequisites)
 - [Quick start](#quick-start)
+- [Observing agent executions](#observing-agent-executions)
 - [Project layout](#project-layout)
 - [Testing](#testing)
 - [Code style](#code-style)
@@ -88,6 +89,55 @@ Want to see the nodes in action without touching your own dev flows?
 agents each busy on a repo's open issues, PRs, and Actions runs on a
 30s schedule (see `docs/260820_Agentic_Development_Team.md`). `make
 demo-stop` stops it. It never reads or writes `data/flows.json`.
+
+## Observing agent executions
+
+An embedding application can opt into one acknowledged terminal observation per
+started `agent` execution by defining a function in its Node-RED runtime
+`settings.js` (not in the node's editor configuration or exported flows):
+
+```js
+module.exports = {
+  nodeRedAgentsExecutionObserver: async (record) => {
+    await saveOutcome(record); // resolve only after the outcome is committed
+  },
+};
+```
+
+The observer receives a **version 1** record shaped as follows (optional fields
+may be undefined when unavailable):
+
+```js
+{
+  version: 1,
+  eventId: "<globally unique UUID>",
+  executionId: "exec-...", nodeId: "<Node-RED node id>",
+  agent: "opencode", agentName: "worker", status: "completed", // or failed/timeout
+  timestamp: "<ISO 8601 terminal time>",
+  input: { invocation: "prompt", prompt: "resolved prompt" },
+  // For skill/command: { invocation: "skill" | "command", name: "...", args: "resolved arguments" }
+  output: {
+    payload: "final reply", errorMessage: undefined, errorDetail: undefined,
+    exitCode: 0, signal: null, timedOut: false, structuredOutput: undefined,
+  },
+  sessionID: "<final session id>", resumed: true,
+  agentObservation: { correlation: "your opaque value" },
+}
+```
+
+Pass optional JSON-serializable correlation data as `msg.agentObservation`;
+the value is copied at submission and is the only input-message property
+forwarded beyond the resolved prompt/arguments. A non-serializable value is
+rejected before an execution starts. The observer is called once after internal
+retries and structured-output reasks finish, including failed and timed-out
+runs. Its Promise must resolve before the final result is delivered downstream.
+If it rejects, the agent is **not retried**, no result is sent on output 1,
+and Node-RED Catch nodes receive an error with `executionId`, actual terminal
+`status`, and `error.cause.agentOutcome` (payload, error diagnostics and session ID) for
+diagnostics. The terminal lifecycle event still reflects the actual agent
+outcome. With no observer configured, outputs behave as before. The record may
+contain sensitive prompt/reply/error content; configure the observer only in a
+trusted host runtime and handle its storage accordingly.
 
 ## Project layout
 

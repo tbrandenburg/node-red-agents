@@ -49,7 +49,12 @@ async function findFreePort() {
 // has `@tbrandenburg/node-red-agents` available (via a symlinked
 // node_modules pointing at the repo's own package -- see
 // packages/node-red-agents). Returns { baseUrl, deployFlow(flow), stop() }.
-async function startSmokeInstance({ port, readyTimeoutMs = 20000 } = {}) {
+async function startSmokeInstance({
+  port,
+  readyTimeoutMs = 20000,
+  settingsExtra = "",
+  env = {},
+} = {}) {
   const actualPort = port || (await findFreePort());
   const userDir = fs.mkdtempSync(path.join(os.tmpdir(), "nra-e2e-"));
   const baseUrl = `http://127.0.0.1:${actualPort}`;
@@ -80,13 +85,14 @@ async function startSmokeInstance({ port, readyTimeoutMs = 20000 } = {}) {
   );
   fs.writeFileSync(
     path.join(userDir, "settings.js"),
-    `module.exports = { flowFile: 'flows.json', uiPort: ${actualPort}, logging: { console: { level: 'warn' } } };\n`,
+    `module.exports = { flowFile: 'flows.json', uiPort: ${actualPort}, logging: { console: { level: 'warn' } }, ${settingsExtra} };\n`,
   );
   fs.writeFileSync(path.join(userDir, "flows.json"), "[]");
 
   const child = spawn(NODE_RED_BIN, ["--userDir", userDir, "--port", String(actualPort)], {
     stdio: ["ignore", "pipe", "pipe"],
     cwd: REPO_ROOT,
+    env: { ...process.env, ...env },
   });
 
   let stderrTail = "";

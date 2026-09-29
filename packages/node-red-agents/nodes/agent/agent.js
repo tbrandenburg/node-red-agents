@@ -15,6 +15,13 @@ const { shouldRetry } = require("./lib/execution/retry");
 const { substituteInputs } = require("./lib/execution/inputs");
 const { resumeOutcome } = require("./lib/execution/resume-outcome");
 const {
+  ACK_TIMEOUT_MS,
+  bounded,
+  inputRecord,
+  inventoryNotice,
+  lifecycleRecord,
+} = require("./lib/execution/observer");
+const {
   STRUCTURED_OUTPUT_MAX_REASKS,
   compileOutputFormat,
   tryParseStructuredOutput,
@@ -39,10 +46,8 @@ function buildRuntime(node) {
   return new DirectRuntime();
 }
 
-let executionCounter = 0;
 function nextExecutionId() {
-  executionCounter += 1;
-  return `exec-${Date.now()}-${executionCounter}`;
+  return `exec-${randomUUID()}`;
 }
 
 module.exports = function (RED) {
@@ -53,6 +58,9 @@ module.exports = function (RED) {
     const node = this;
 
     node.agent = config.agent || "opencode";
+    const deploymentId = randomUUID();
+    const lifecycleObserver = RED.settings.nodeRedAgentsLifecycleObserver;
+    let closing = false;
     node.runtime = config.runtime || "direct";
     node.invocation = config.invocation || "prompt";
 
@@ -294,6 +302,8 @@ module.exports = function (RED) {
     // directly from the input handler.
     function startExecution(item) {
       const { executionId, msg, send, done, resolved } = item;
+      let startAcknowledged = false;
+      let startRejected = false;
       const adapter = getAgentAdapter(node.agent);
       const runtime = buildRuntime(node);
       const capabilities = getCapabilities(adapter);
@@ -459,7 +469,92 @@ module.exports = function (RED) {
         }
       }
 
-      return executeWithRetry()
+      async function observeTerminal(result, resumed) {
+        const observer = RED.settings.nodeRedAgentsExecutionObserver;
+        const observation = {
+          version: 1,
+          eventId: randomUUID(),
+          executionId,
+          nodeId: node.id,
+          agent: node.agent,
+          agentName: resolved.agentName,
+          status: result.status,
+          timestamp: new Date().toISOString(),
+          input: inputRecord(resolved),
+          output: {
+            payload: result.payload,
+            errorMessage: result.errorMessage,
+            errorDetail: result.errorDetail,
+            exitCode: result.exitCode,
+            signal: result.signal,
+            timedOut: result.timedOut,
+            structuredOutput: result.structuredOutput,
+          },
+          sessionID: result.sessionID,
+        };
+        if (resumed !== undefined) observation.resumed = resumed;
+        if (item.observation !== undefined) observation.agentObservation = item.observation;
+
+        const attempts = [];
+        if (typeof observer === "function")
+          attempts.push(Promise.resolve().then(() => observer(observation)));
+        if (typeof lifecycleObserver === "function") {
+          const record = lifecycleRecord("execution.terminal", node, deploymentId, {
+            executionId,
+            agentName: resolved.agentName,
+            status: result.status,
+            input: inputRecord(resolved),
+            output: observation.output,
+            sessionID: result.sessionID,
+          });
+          if (item.observation !== undefined) record.agentObservation = item.observation;
+          attempts.push(bounded(lifecycleObserver, record, ACK_TIMEOUT_MS, "execution.terminal"));
+        }
+        const outcomes = await Promise.allSettled(attempts);
+        const failure = outcomes.find((outcome) => outcome.status === "rejected");
+        if (failure) {
+          const err = failure.reason;
+          const agentOutcome = {
+            status: result.status,
+            payload: result.payload,
+            errorMessage: result.errorMessage,
+            errorDetail: result.errorDetail,
+            sessionID: result.sessionID,
+          };
+          const error = new Error(
+            `agent execution observer failed [executionId=${executionId}, status=${result.status}]: ${err instanceof Error ? err.message : String(err)}`,
+            { cause: { observerError: String(err), agentOutcome } },
+          );
+          error.agentOutcome = agentOutcome;
+          throw error;
+        }
+      }
+
+      const start =
+        typeof lifecycleObserver === "function"
+          ? bounded(
+              lifecycleObserver,
+              lifecycleRecord("execution.started", node, deploymentId, {
+                executionId,
+                agentName: resolved.agentName,
+                input: inputRecord(resolved),
+                ...(item.observation !== undefined ? { agentObservation: item.observation } : {}),
+              }),
+              ACK_TIMEOUT_MS,
+              "execution.started",
+            )
+          : Promise.resolve();
+
+      return start
+        .catch((err) => {
+          startRejected = true;
+          throw err;
+        })
+        .then(() => {
+          startAcknowledged = true;
+          if (closing) throw new Error("node closed before agent invocation");
+          return executeWithRetry();
+        })
         .then(async (result) => {
           node.lastTerminal = result.status;
           node.lastText = undefined;
@@ -537,58 +632,12 @@ module.exports = function (RED) {
           // item.finalUsage is guaranteed to be set.
           item.finalUsage = usage;
 
-          const observer = RED.settings.nodeRedAgentsExecutionObserver;
-          if (typeof observer === "function") {
-            const observation = {
-              version: 1,
-              eventId: randomUUID(),
-              executionId,
-              nodeId: node.id,
-              agent: node.agent,
-              agentName: resolved.agentName,
-              status: result.status,
-              timestamp: new Date().toISOString(),
-              input:
-                resolved.invocation === "prompt"
-                  ? { invocation: "prompt", prompt: resolved.prompt }
-                  : {
-                      invocation: resolved.invocation,
-                      name: resolved.invocationName,
-                      args: resolved.args,
-                    },
-              output: {
-                payload: result.payload,
-                errorMessage: result.errorMessage,
-                errorDetail: result.errorDetail,
-                exitCode: result.exitCode,
-                signal: result.signal,
-                timedOut: result.timedOut,
-                structuredOutput: result.structuredOutput,
-              },
-              sessionID: result.sessionID,
-            };
-            if (resumed !== undefined) observation.resumed = resumed;
-            if (item.observation !== undefined) observation.agentObservation = item.observation;
-
-            try {
-              await observer(observation);
-            } catch (err) {
-              node.lastText = "observer error";
-              const agentOutcome = {
-                status: result.status,
-                payload: result.payload,
-                errorMessage: result.errorMessage,
-                errorDetail: result.errorDetail,
-                sessionID: result.sessionID,
-              };
-              const failure = new Error(
-                `agent execution observer failed [executionId=${executionId}, status=${result.status}]: ${err instanceof Error ? err.message : String(err)}`,
-                { cause: { observerError: String(err), agentOutcome } },
-              );
-              failure.agentOutcome = agentOutcome;
-              done(failure);
-              return;
-            }
+          try {
+            await observeTerminal(result, resumed);
+          } catch (err) {
+            node.lastText = "observer error";
+            done(err);
+            return;
           }
 
           const resultMsg = Object.assign({}, msg, {
@@ -617,7 +666,7 @@ module.exports = function (RED) {
             done();
           }
         })
-        .catch((err) => {
+        .catch(async (err) => {
           node.lastTerminal = "failed";
           node.lastText = "error";
           // Covers e.g. adapter.validate() throwing synchronously,
@@ -625,6 +674,18 @@ module.exports = function (RED) {
           // terminal lifecycle event for anything tracking this
           // execution by executionId/topic.
           item.finalStatus = "failed";
+          if (
+            !startRejected &&
+            (startAcknowledged || typeof RED.settings.nodeRedAgentsExecutionObserver === "function")
+          ) {
+            try {
+              await observeTerminal({ status: "failed", errorMessage: err.message });
+            } catch (observerError) {
+              node.lastText = "observer error";
+              done(observerError);
+              return;
+            }
+          }
           done(
             new Error(
               `agent (${node.agent}/${node.runtime}) [executionId=${executionId}]: ${err.message}`,
@@ -657,6 +718,12 @@ module.exports = function (RED) {
         updateStatus();
       },
     });
+
+    inventoryNotice(
+      lifecycleObserver,
+      lifecycleRecord("node.deployed", node, deploymentId),
+      (message) => node.warn(message),
+    );
 
     // On-demand termination of one in-flight (or still-queued) execution
     // of *this* node instance, addressed by the executionId a previous
@@ -851,7 +918,8 @@ module.exports = function (RED) {
 
       let observation;
       if (
-        typeof RED.settings.nodeRedAgentsExecutionObserver === "function" &&
+        (typeof RED.settings.nodeRedAgentsExecutionObserver === "function" ||
+          typeof lifecycleObserver === "function") &&
         msg.agentObservation !== undefined
       ) {
         try {
@@ -870,6 +938,12 @@ module.exports = function (RED) {
     });
 
     node.on("close", function (done) {
+      closing = true;
+      inventoryNotice(
+        lifecycleObserver,
+        lifecycleRecord("node.closed", node, deploymentId),
+        (message) => node.warn(message),
+      );
       // Stop accepting further work first: drop anything still
       // waiting in the queue with a clean done()/cancelled event,
       // then terminate whatever's still actively running. No child

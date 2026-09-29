@@ -64,6 +64,13 @@ module.exports = [
     },
   },
   {
+    // Node 22 exposes WebSocket without a flag, including its experimental releases.
+    files: ["test/integration/lifecycle.spec.js"],
+    rules: {
+      "n/no-unsupported-features/node-builtins": "off",
+    },
+  },
+  {
     // Global fetch is experimental (not yet "stable") on Node 20, which
     // this package's engines.node (>=20) now targets, but it works fine in
     // practice: verified live under a real Node 20 runtime (see

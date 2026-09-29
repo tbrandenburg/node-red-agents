@@ -92,6 +92,54 @@ demo-stop` stops it. It never reads or writes `data/flows.json`.
 
 ## Observing agent executions
 
+For deployment inventory and acknowledged execution starts, configure the
+separate opt-in lifecycle callback in the host runtime's `settings.js`:
+
+```js
+module.exports = {
+  nodeRedAgentsLifecycleObserver: async (record) => {
+    if (record.type === "node.deployed" || record.type === "node.closed") {
+      await updateInventory(record);
+    } else if (record.type === "execution.started") {
+      await allocateConversation(record); // acknowledge before the CLI starts
+    } else if (record.type === "execution.terminal") {
+      await saveOutcome(record);
+    }
+  },
+};
+```
+
+Each version-1 lifecycle record has `type`, UUID `eventId`, ISO `timestamp`,
+`nodeId`, UUID `deploymentId`, `agent`, and `agentName`. Inventory notices
+(`node.deployed` / `node.closed`) describe availability only, without prompt,
+credentials, conversation, or run ID. `deploymentId` changes on redeploy;
+hosts should ignore a close for an older generation and reconcile inventory
+after reconnect. Disabled nodes are not instantiated and therefore are not
+announced as available. Inventory calls run in the background: one immediate
+retry on rejection, at most 1 second per attempt, with warning on failure;
+timed-out attempts are not retried because they may still commit remotely.
+Hosts should deduplicate by `eventId`. A hung callback cannot hold up Node-RED
+deployment/close; notices can be missed.
+
+`execution.started` has `executionId`, resolved `input` (prompt or command/
+skill name and args), and optional copied JSON `agentObservation`. It runs
+after a scheduler slot becomes available and input resolution succeeds;
+its acknowledgment is required before the CLI is invoked. This is the
+authoritative moment to create a run-linked conversation using the external
+correlation. It may also upsert the node if inventory was missed. Each
+acknowledged start produces one `execution.terminal` attempt with the same
+execution/deployment IDs, `status` (`completed`, `failed`, `timeout`), `input`,
+`output`, `sessionID`, and optional correlation, including thrown post-start
+errors. Each execution waits only for its own callback. Start/terminal
+acknowledgments have a 60-second transport-safety bound (independent of the
+agent's execution timeout); configure callback networking accordingly. A
+start rejection or timeout fails the message through Catch without invoking
+the CLI. A terminal rejection or timeout likewise fails through Catch without
+re-running the agent or delivering a normal result. There is no buffered
+event queue or required text stream; output 2 still carries progress events.
+Without the lifecycle callback, execution and outputs retain their prior
+behavior.
+
 An embedding application can opt into one acknowledged terminal observation per
 started `agent` execution by defining a function in its Node-RED runtime
 `settings.js` (not in the node's editor configuration or exported flows):

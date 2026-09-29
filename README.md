@@ -129,8 +129,11 @@ authoritative moment to create a run-linked conversation using the external
 correlation. It may also upsert the node if inventory was missed. Each
 acknowledged start produces one `execution.terminal` attempt with the same
 execution/deployment IDs, `status` (`completed`, `failed`, `timeout`), `input`,
-`output`, `sessionID`, and optional correlation, including thrown post-start
-errors. Each execution waits only for its own callback. Start/terminal
+`output`, `sessionID`, optional confirmed `resumed` (same semantics and value
+as `agentExecution.resumed` on the normal result -- omitted when no resume was
+requested or the adapter doesn't support it), and optional correlation,
+including thrown post-start errors. Each execution waits only for its own
+callback. Start/terminal
 acknowledgments have a 60-second transport-safety bound (independent of the
 agent's execution timeout); configure callback networking accordingly. A
 start rejection or timeout fails the message through Catch without invoking

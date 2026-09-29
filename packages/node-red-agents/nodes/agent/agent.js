@@ -507,6 +507,7 @@ module.exports = function (RED) {
             output: observation.output,
             sessionID: result.sessionID,
           });
+          if (resumed !== undefined) record.resumed = resumed;
           if (item.observation !== undefined) record.agentObservation = item.observation;
           attempts.push(bounded(lifecycleObserver, record, ACK_TIMEOUT_MS, "execution.terminal"));
         }

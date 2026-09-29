@@ -234,6 +234,19 @@ test("deploy outage does not prevent execution and start acknowledgment is outsi
   assert.equal(notices.filter((record) => record.type === "execution.terminal").length, 1);
 });
 
+test("lifecycle execution.terminal carries the confirmed resume outcome like the v1 observer", async () => {
+  const records = [];
+  helper.settings({ nodeRedAgentsLifecycleObserver: (record) => records.push(record) });
+  await helper.load(agentNode, flow());
+  const result = await receive(helper.getNode("output"), {
+    payload: "hello",
+    sessionID: "fake-session-id",
+  });
+  const terminal = records.find((record) => record.type === "execution.terminal");
+  assert.equal(terminal.resumed, true);
+  assert.equal(terminal.resumed, result.agentExecution.resumed);
+});
+
 test("observer acknowledgment precedes delivery; parallel nodes and overlapping inputs have distinct records", async () => {
   const observations = [];
   const acknowledgments = [];

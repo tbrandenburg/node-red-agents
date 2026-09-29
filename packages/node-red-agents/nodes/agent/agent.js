@@ -1,4 +1,5 @@
 const fs = require("fs");
+const { randomUUID } = require("node:crypto");
 require("./lib/agents/opencode"); // registers "opencode" as a side effect
 require("./lib/agents/pi"); // registers "pi" as a side effect
 require("./lib/agents/copilot"); // registers "copilot" as a side effect
@@ -459,7 +460,7 @@ module.exports = function (RED) {
       }
 
       return executeWithRetry()
-        .then((result) => {
+        .then(async (result) => {
           node.lastTerminal = result.status;
           node.lastText = undefined;
 
@@ -535,6 +536,60 @@ module.exports = function (RED) {
           // time onSettled fires this Promise has already resolved, so
           // item.finalUsage is guaranteed to be set.
           item.finalUsage = usage;
+
+          const observer = RED.settings.nodeRedAgentsExecutionObserver;
+          if (typeof observer === "function") {
+            const observation = {
+              version: 1,
+              eventId: randomUUID(),
+              executionId,
+              nodeId: node.id,
+              agent: node.agent,
+              agentName: resolved.agentName,
+              status: result.status,
+              timestamp: new Date().toISOString(),
+              input:
+                resolved.invocation === "prompt"
+                  ? { invocation: "prompt", prompt: resolved.prompt }
+                  : {
+                      invocation: resolved.invocation,
+                      name: resolved.invocationName,
+                      args: resolved.args,
+                    },
+              output: {
+                payload: result.payload,
+                errorMessage: result.errorMessage,
+                errorDetail: result.errorDetail,
+                exitCode: result.exitCode,
+                signal: result.signal,
+                timedOut: result.timedOut,
+                structuredOutput: result.structuredOutput,
+              },
+              sessionID: result.sessionID,
+            };
+            if (resumed !== undefined) observation.resumed = resumed;
+            if (item.observation !== undefined) observation.agentObservation = item.observation;
+
+            try {
+              await observer(observation);
+            } catch (err) {
+              node.lastText = "observer error";
+              const agentOutcome = {
+                status: result.status,
+                payload: result.payload,
+                errorMessage: result.errorMessage,
+                errorDetail: result.errorDetail,
+                sessionID: result.sessionID,
+              };
+              const failure = new Error(
+                `agent execution observer failed [executionId=${executionId}, status=${result.status}]: ${err instanceof Error ? err.message : String(err)}`,
+                { cause: { observerError: String(err), agentOutcome } },
+              );
+              failure.agentOutcome = agentOutcome;
+              done(failure);
+              return;
+            }
+          }
 
           const resultMsg = Object.assign({}, msg, {
             payload: result.status === "completed" ? result.payload : null,
@@ -794,8 +849,23 @@ module.exports = function (RED) {
         return;
       }
 
+      let observation;
+      if (
+        typeof RED.settings.nodeRedAgentsExecutionObserver === "function" &&
+        msg.agentObservation !== undefined
+      ) {
+        try {
+          const json = JSON.stringify(msg.agentObservation);
+          if (json === undefined) throw new TypeError("not a JSON value");
+          observation = JSON.parse(json);
+        } catch (err) {
+          done(new Error("agent: msg.agentObservation must be JSON-serializable", { cause: err }));
+          return;
+        }
+      }
+
       const executionId = nextExecutionId();
-      node.scheduler.submit({ executionId, msg, send, done, resolved });
+      node.scheduler.submit({ executionId, msg, send, done, resolved, observation });
       updateStatus();
     });
 

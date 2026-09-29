@@ -49,7 +49,202 @@ after(async () => {
 
 afterEach(async () => {
   await helper.unload();
-  helper.settings({ nodeRedAgentsExecutionObserver: undefined });
+  helper.settings({
+    nodeRedAgentsExecutionObserver: undefined,
+    nodeRedAgentsLifecycleObserver: undefined,
+  });
+});
+
+test("inventory deploy/redeploy/close identifies generations without holding deployment", async () => {
+  const records = [];
+  helper.settings({ nodeRedAgentsLifecycleObserver: (record) => records.push(record) });
+  await helper.load(agentNode, flow());
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(records[0].type, "node.deployed");
+  assert.equal(records[0].nodeId, "n1");
+  assert.equal(records[0].agentName, "worker");
+  assert.equal(records[0].agent, "opencode");
+  await helper.unload();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(records[1].type, "node.closed");
+  assert.equal(records[1].deploymentId, records[0].deploymentId);
+  await helper.load(agentNode, flow());
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.notEqual(records[2].deploymentId, records[0].deploymentId);
+  assert.equal(records[2].type, "node.deployed");
+});
+
+test("acknowledged starts gate independent parallel invocations and terminal attempts", async () => {
+  const starts = [];
+  const records = [];
+  helper.settings({
+    nodeRedAgentsLifecycleObserver: (record) => {
+      records.push(record);
+      if (record.type === "execution.started") {
+        return new Promise((resolve) => starts.push({ record, resolve }));
+      }
+    },
+  });
+  await helper.load(agentNode, flow({ concurrency: 2 }));
+  const node = helper.getNode("n1");
+  const results = [];
+  helper.getNode("output").on("input", (msg) => results.push(msg));
+  node.receive({ payload: "first", agentObservation: { correlation: "one" } });
+  node.receive({ payload: "second", agentObservation: { correlation: "two" } });
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(starts.length, 2);
+  assert.equal(results.length, 0);
+  assert.notEqual(starts[0].record.executionId, starts[1].record.executionId);
+  assert.deepEqual(
+    starts.map(({ record }) => record.input.prompt),
+    ["first", "second"],
+  );
+  starts[1].resolve();
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("second execution blocked")), 5000);
+    helper.getNode("output").once("input", (msg) => {
+      clearTimeout(timer);
+      assert.equal(msg.agentExecution.id, starts[1].record.executionId);
+      resolve();
+    });
+  });
+  assert.equal(records.filter((record) => record.type === "execution.terminal").length, 1);
+  starts[0].resolve();
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("first execution blocked")), 5000);
+    helper.getNode("output").once("input", (msg) => {
+      clearTimeout(timer);
+      assert.equal(msg.agentExecution.id, starts[0].record.executionId);
+      resolve();
+    });
+  });
+  assert.equal(records.filter((record) => record.type === "execution.terminal").length, 2);
+});
+
+test("start rejection is catchable and prevents CLI; terminal rejection blocks result", async () => {
+  const previousPath = process.env.PATH;
+  process.env.PATH = path.join(fixtures, "retry-transient") + path.delimiter + previousPath;
+  const stateFile = path.join(os.tmpdir(), `lifecycle-${process.pid}-${Date.now()}`);
+  process.env.RETRY_FIXTURE_STATE = stateFile;
+  process.env.RETRY_FIXTURE_FAIL_COUNT = "0";
+  let rejectStart = true;
+  const records = [];
+  helper.settings({
+    nodeRedAgentsLifecycleObserver: (record) => {
+      records.push(record);
+      if (record.type === "execution.started" && rejectStart) throw new Error("start offline");
+      if (record.type === "execution.terminal") throw new Error("terminal offline");
+    },
+  });
+  try {
+    await helper.load(agentNode, flow({ retryMaxAttempts: 3, retryOnError: "all" }));
+    const node = helper.getNode("n1");
+    const errors = [];
+    node.on("call:error", (entry) => errors.push(entry.args[0]));
+    const output = [];
+    helper.getNode("output").on("input", (msg) => output.push(msg));
+    node.receive({ payload: "first" });
+    await new Promise((resolve) => node.once("call:error", resolve));
+    assert.match(errors[0].message, /start offline/);
+    assert.equal(fs.existsSync(stateFile), false);
+    rejectStart = false;
+    node.receive({ payload: "second" });
+    await new Promise((resolve) => node.once("call:error", resolve));
+    assert.match(errors[1].message, /observer failed.*terminal offline/);
+    assert.equal(fs.readFileSync(stateFile, "utf8"), "1");
+    assert.equal(output.length, 0);
+    assert.equal(records.filter((record) => record.type === "execution.terminal").length, 1);
+  } finally {
+    process.env.PATH = previousPath;
+    delete process.env.RETRY_FIXTURE_STATE;
+    delete process.env.RETRY_FIXTURE_FAIL_COUNT;
+    fs.rmSync(stateFile, { force: true });
+  }
+});
+
+test("post-start validation and missing executable produce one failed terminal attempt", async () => {
+  const records = [];
+  helper.settings({ nodeRedAgentsLifecycleObserver: (record) => records.push(record) });
+  await helper.load(
+    agentNode,
+    flow({ invocation: "command", invocationName: "", retryMaxAttempts: 1 }),
+  );
+  const node = helper.getNode("n1");
+  const caught = new Promise((resolve) => node.once("call:error", resolve));
+  node.receive({ payload: "bad command" });
+  await caught;
+  assert.equal(records.filter((record) => record.type === "execution.started").length, 1);
+  assert.equal(records.filter((record) => record.type === "execution.terminal").length, 1);
+  assert.equal(records.find((record) => record.type === "execution.terminal").status, "failed");
+  await helper.unload();
+  const previousPath = process.env.PATH;
+  process.env.PATH = "/nonexistent";
+  try {
+    await helper.load(agentNode, flow({ retryMaxAttempts: 1 }));
+    const missing = helper.getNode("n1");
+    const error = new Promise((resolve) => missing.once("call:error", resolve));
+    missing.receive({ payload: "hello" });
+    await error;
+    assert.equal(records.filter((record) => record.type === "execution.terminal").length, 2);
+  } finally {
+    process.env.PATH = previousPath;
+  }
+});
+
+test("v1 observer sees thrown post-start failure; both terminal observers are attempted", async () => {
+  const legacy = [];
+  const lifecycle = [];
+  helper.settings({
+    nodeRedAgentsExecutionObserver: (record) => legacy.push(record),
+    nodeRedAgentsLifecycleObserver: (record) => {
+      lifecycle.push(record);
+      if (record.type === "execution.terminal") throw new Error("lifecycle offline");
+    },
+  });
+  await helper.load(
+    agentNode,
+    flow({ invocation: "command", invocationName: "", retryMaxAttempts: 1 }),
+  );
+  const node = helper.getNode("n1");
+  const caught = new Promise((resolve) => node.once("call:error", resolve));
+  node.receive({ payload: "bad" });
+  const error = (await caught).args[0];
+  assert.match(error.message, /observer failed.*lifecycle offline/);
+  assert.equal(error.agentOutcome.status, "failed");
+  assert.equal(legacy.length, 1);
+  assert.equal(legacy[0].version, 1);
+  assert.equal(legacy[0].status, "failed");
+  assert.equal(lifecycle.filter((record) => record.type === "execution.terminal").length, 1);
+});
+
+test("deploy outage does not prevent execution and start acknowledgment is outside CLI timeout", async () => {
+  const notices = [];
+  helper.settings({
+    nodeRedAgentsLifecycleObserver: async (record) => {
+      if (record.type === "node.deployed") throw new Error("inventory offline");
+      notices.push(record);
+      if (record.type === "execution.started") {
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+    },
+  });
+  await helper.load(agentNode, flow({ timeout: "0.2", timeoutType: "num", retryMaxAttempts: 1 }));
+  const result = await receive(helper.getNode("output"), { payload: "hello" });
+  assert.equal(result.agentExecution.status, "completed");
+  assert.equal(notices.filter((record) => record.type === "execution.terminal").length, 1);
+});
+
+test("lifecycle execution.terminal carries the confirmed resume outcome like the v1 observer", async () => {
+  const records = [];
+  helper.settings({ nodeRedAgentsLifecycleObserver: (record) => records.push(record) });
+  await helper.load(agentNode, flow());
+  const result = await receive(helper.getNode("output"), {
+    payload: "hello",
+    sessionID: "fake-session-id",
+  });
+  const terminal = records.find((record) => record.type === "execution.terminal");
+  assert.equal(terminal.resumed, true);
+  assert.equal(terminal.resumed, result.agentExecution.resumed);
 });
 
 test("observer acknowledgment precedes delivery; parallel nodes and overlapping inputs have distinct records", async () => {

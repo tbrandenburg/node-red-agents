@@ -1,0 +1,15 @@
+#!/usr/bin/env node
+"use strict";
+
+const fs = require("node:fs");
+const prompt = process.argv.at(-1);
+fs.appendFileSync(process.env.LIFECYCLE_EVENTS, JSON.stringify({ type: "cli", prompt }) + "\n");
+setTimeout(
+  () => {
+    process.stdout.write(
+      JSON.stringify({ type: "text", sessionID: `fixture-${prompt}`, part: { text: prompt } }) +
+        "\n",
+    );
+  },
+  Number(process.env.LIFECYCLE_CLI_DELAY_MS || 20),
+);

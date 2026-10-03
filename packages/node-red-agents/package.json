@@ -51,7 +51,8 @@
     "nodes": {
       "agent": "nodes/agent/agent.js",
       "agent-server": "nodes/agent-server/agent-server.js",
-      "gh": "nodes/gh/gh.js"
+      "gh": "nodes/gh/gh.js",
+      "interaction": "nodes/interaction/interaction.js"
     }
   },
   "devDependencies": {

@@ -16,7 +16,7 @@ programming model.
 This repository *is* the source and development home of that npm
 package (`packages/node-red-agents`) — plus a runnable Node-RED instance
 to develop and demo it against. It is not a generic scaffold; it's one
-specific, versioned, publishable package with three nodes.
+specific, versioned, publishable package with four nodes.
 
 ## Contents
 
@@ -41,11 +41,115 @@ specific, versioned, publishable package with three nodes.
 | **agent** | Runs a coding-agent CLI (OpenCode v1/v2, `pi` also supported) — directly or sandboxed via [SRT](https://github.com/anthropics/sandbox-runtime) — once per input message. OpenCode's Agent dropdown offers `OpenCode` (auto-detects the installed CLI's major version), `OpenCode (v1)`, and `OpenCode (v2)` (each forcing that version); v2 supports prompt invocations and does not yet support Skill/Command dispatch. Also supports: session resume, `$INPUTS.<name>` templating, per-node retry (transient/all, with session reuse), a FIFO concurrency scheduler (runtime-overridable via `msg.concurrency`), on-demand execution termination, tool allow/deny lists, MCP server configuration, structured (JSON-Schema) output with validation + reask loop, and cost/token usage reporting where the adapter supports it. |
 | **agent-server** | Manages a long-lived `opencode serve` daemon (session-based) for flows that need repeated, low-latency calls instead of `agent`'s one-shot model. Supports v1/v2 API selection (auto-detected by default), asynchronous v2 prompt completion, `message`/`status`/`abort`/`history`/`terminate`, auto-spawn, instance caps, and optional Basic Auth. SRT sandboxing is **not functional** for this node (see its built-in help). |
 | **gh** | Runs [GitHub CLI](https://cli.github.com) (`gh`) commands and returns parsed JSON/text output, with structured error classification (auth, rate-limit, not-found, network, timeout, etc.) and per-message overrides via `msg.gh`. |
+| **interaction** | Human-on-the-loop / human-in-the-loop decision boundary. Emits a Request, accepts a later correlated decision on the same input, and continues with the original message. Optional versioned host plan/resume API supports durable suspension. |
 
 See each node's built-in help (Node-RED editor info panel) for the full
 list of fields and behaviors, or
 [`packages/node-red-agents/nodes/gh/README.md`](./packages/node-red-agents/nodes/gh/README.md)
 for `gh`-specific usage and example flows.
+
+## Human interaction
+
+The `interaction` node has one input and two labeled outputs, **Continue** and
+**Request**. Its editor contains only Name, typed Prompt and an ordered Decisions
+list. Prompt must resolve to a non-empty string. Decision IDs must be unique and
+match `[A-Za-z0-9][A-Za-z0-9._-]*`; optional labels are display-only and default to
+the ID. The default choices are `approve` / `reject`; arbitrary choices such as
+`revise` or `use-a` have exactly the same semantics.
+
+```text
+# standalone Node-RED
+                     +-- Continue --> Switch(msg.interaction.decision) --> ...
+                     |
+A ----------------> Interaction
+                     |
+                     +-- Request ---> UI / HTTP / MQTT / ...
+                                           |
+                                           +---- later decision ----> Interaction
+
+# durable host (AaaS / Temporal adapter)
+A -> Interaction -> B
+# Request may remain unwired: the host owns the external interaction surface.
+```
+
+An ordinary input starts an interaction, emitting only on Request:
+
+```js
+msg.interaction = {
+  id: "<generated UUID>", status: "pending", prompt: "Continue?",
+  decisions: [{ id: "approve", label: "Approve" }, { id: "reject", label: "Reject" }],
+};
+```
+
+Later feed a separate message into the same input with
+`interaction: {id: "<that UUID>", decision: "approve", text: "Looks good"}`.
+The stored original emits once on Continue with
+`interaction: {id, decision, text?}`. `payload` and unrelated fields survive;
+response-message fields and mutations of the Request cannot replace them.
+Optional `text` must be a string. Invalid/malformed responses, undeclared
+decisions, unknown/expired IDs, duplicate resolutions and unchanged pending
+Request loopbacks fail through Catch. Do not wire Request directly back unchanged.
+Branching is ordinary Node-RED wiring, with no built-in approve/reject policy.
+The `interaction` field is reserved for this protocol: remove a previous result
+before starting a subsequent Interaction boundary.
+
+In stock Node-RED the original message is kept in a process-local map. The input
+invocation completes after Request emission; no unresolved Promise or active
+worker waits for the human. **Restart/redeploy loses pending interactions.**
+A suspension-capable host may persist the wait and resume the same logical
+interaction in a fresh worker.
+
+### Durable host ABI (version 1)
+
+Every live `interaction` node exposes `node.interaction`:
+
+- `version: 1`.
+- `await plan(msg)`: resolve typed Prompt and validate Decisions; return
+  `{version: 1, interactionId: "<UUID>", nodeId, nodeName, prompt, decisions}`.
+  This emits nothing and inserts nothing into the local map. Requires an ordinary
+  input without `interaction`. The returned metadata is JSON-serializable; IDs
+  are generated once per plan call, so persist and reuse the accepted plan.
+- `resume(plan, originalMsg, {decision, text?})`: validate version, matching node
+  ID, plan fields and response against the **plan's** decisions, clone the
+  host-restored original using Node-RED's `cloneMessage`, set `interaction`, call
+  real `node.send(msg)` on Continue (output 1), and return the sent message.
+  Synchronous; throws on invalid input or a closed node. No local map is needed.
+
+A host can intercept ordinary input via this optional runtime `settings.js` hook:
+
+```js
+module.exports = {
+  nodeRedAgentsInteractionHost: {
+    version: 1,
+    async suspend({version, plan, msg}) {
+      await checkpointAndPause({version, plan, msg});
+    },
+  },
+};
+```
+
+When configured, this path takes precedence: neither local pending insertion nor
+Request/Continue output occurs. `suspend` must acknowledge checkpoint acceptance
+promptly, **not await the human**. Acknowledgement has a 60-second transport bound;
+rejection/timeout fails the input through Catch with no local fallback or retry.
+A timed-out callback may still commit; the host must reconcile/deduplicate using
+`plan.interactionId`. The record's `msg` is a Node-RED clone, not a serialized
+checkpoint: persistence/serialization failures must reject the pause explicitly.
+
+To resume in a fresh worker, restore the accepted flow snapshot and original
+message via the host's existing boundary, obtain
+`RED.nodes.getNode(plan.nodeId)`, check `node.interaction.version === 1`, then call
+`node.interaction.resume(plan, originalMsg, response)`. Node-RED routes the
+existing wire to B; A is not rerun. The host owns accepted-flow/version protection,
+same-run lifecycle, response authentication, checkpointing, durable correlation
+and **exactly-once/deduplication across retries and workers**. `resume` is stateless
+and intentionally does not deduplicate; each valid call sends. Host-mode responses
+use this API, not standalone same-input lookup. No host-specific imports, storage,
+network calls or second message serializer are included.
+
+Standalone acceptance can be reproduced with
+`node --test test/integration/interaction.spec.js` (isolated free-port runtime,
+Admin API deploy/inject and real WebSocket debug/Complete/Catch evidence).
 
 ## Prerequisites
 
@@ -198,7 +302,7 @@ Makefile              install / start / dev / stop / demo / format / lint /
                        new-node-package / clean
 packages/
   node-red-agents/     the publishable npm package (@tbrandenburg/node-red-agents):
-                       agent, agent-server, gh nodes and their lib/
+                       agent, agent-server, gh, interaction nodes and their lib/
 data/                  local dev Node-RED userDir: settings.js, flows
   nodes/               single-file drop-in nodes (no packaging required)
 demo/                  separate Node-RED userDir for the demo flow

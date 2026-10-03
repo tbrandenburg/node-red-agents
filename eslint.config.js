@@ -14,6 +14,7 @@ module.exports = [
       "docs/**",
       "**/coverage/**",
       "workspace/**",
+      ".worktrees/**",
     ],
   },
   js.configs.recommended,

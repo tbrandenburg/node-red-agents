@@ -119,8 +119,15 @@ test(
         observer.events.length = 0;
         await instance.deployFlow(nodes);
         await observer.wait((entry) => entry.topic === "notification/runtime-deploy");
-        // Runtime-deploy notification signals flows have started, before injecting.
-        await fire("ready");
+        // Deployment notifications can precede inject-route registration.
+        const deadline = Date.now() + 5000;
+        while (true) {
+          const ready = await fetch(`${instance.baseUrl}/inject/ready`, { method: "POST" });
+          if (ready.status === 200) break;
+          assert.equal(ready.status, 404);
+          assert.ok(Date.now() < deadline, "Inject endpoint did not become ready");
+          await new Promise((resolve) => setTimeout(resolve, 25));
+        }
         await debug("ready-debug");
         observer.events.length = 0;
       }

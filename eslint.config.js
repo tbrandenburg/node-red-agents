@@ -14,6 +14,7 @@ module.exports = [
       "docs/**",
       "**/coverage/**",
       "workspace/**",
+      ".worktrees/**",
     ],
   },
   js.configs.recommended,
@@ -65,7 +66,7 @@ module.exports = [
   },
   {
     // Node 22 exposes WebSocket without a flag, including its experimental releases.
-    files: ["test/integration/lifecycle.spec.js"],
+    files: ["test/integration/lifecycle.spec.js", "test/integration/interaction.spec.js"],
     rules: {
       "n/no-unsupported-features/node-builtins": "off",
     },

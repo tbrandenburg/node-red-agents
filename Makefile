@@ -87,7 +87,7 @@ test: install ## Run unit + node-level integration tests for node-red-agents (of
 	npm test
 
 test-e2e: install ## Run the smoke/E2E suite (boots a real, throwaway Node-RED instance; needs real gh/opencode CLIs on PATH -- not part of 'make test'/CI's default gate)
-	node --test test/integration/smoke.spec.js
+	node --test test/integration/smoke.spec.js test/integration/interaction.spec.js
 
 format: install ## Check formatting with Prettier (use FIX=1 to rewrite files in place)
 	node_modules/.bin/prettier $(if $(FIX),--write,--check) .

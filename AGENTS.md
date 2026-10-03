@@ -252,6 +252,7 @@ meant to read stdin.
 
 ## Lessons Learned
 
+- 2026-10-03: Pitfall: Runtime-deploy notification preceded Inject endpoint registration under concurrent E2E load. Prevention rule/countermeasure: Check actual Inject endpoint readiness with a bounded retry before triggering assertions; a deployment notification alone is insufficient.
 - 2026-09-29: Pitfall: A real Node-RED E2E test assumed deployment made inject endpoints immediately available and Catch messages appeared on a debug node. Prevention rule/countermeasure: Wait for a deployment signal before injecting; inspect actual `/comms` diagnostic events when testing node errors.
 - 2026-09-28: Pitfall: A full filesystem blocked git worktrees and truncated a patch write. Prevention rule/countermeasure: Check free disk space on git lock or write failures; reclaim space, restore the affected file, and verify syntax before retrying.
 - 2026-09-05: Pitfall: a subagent task can report "user rejected permission" and appear failed even though it already `git commit`ed real, complete work first. Prevention rule/countermeasure: before retrying/redoing, always check the worktree's `git log`/`git status` for prior commits; instruct subagents to commit before their final message.

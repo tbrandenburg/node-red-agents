@@ -22,6 +22,18 @@ flow.
   this node needs.
 - **gh** — runs GitHub CLI (`gh`) commands and returns parsed output,
   with structured error classification and per-message overrides.
+- **interaction** — human-on-the-loop / human-in-the-loop boundary with one
+  input and Continue/Request outputs. Name, typed Prompt and ordered Decisions
+  are its editor settings. Ordinary input emits a pending Request; a separate
+  later message carrying `interaction.id` and a declared `interaction.decision`
+  resumes the stored original message with `{id, decision, text?}` without
+  changing payload. Decision meanings belong to ordinary Switch/Change wiring.
+  Pending messages are process-local and lost on restart/redeploy; the initial
+  invocation completes without waiting for the human. A durable host can use
+  the version-1 `node.interaction.plan(msg)` and
+  `node.interaction.resume(plan, originalMsg, response)` APIs; the host owns
+  checkpointing and deduplication, and resume uses normal Node-RED routing.
+  See the [interaction contract and host ABI](https://github.com/tbrandenburg/node-red-agents#human-interaction).
 
 See each node's built-in help (Node-RED editor info panel) for
 configuration details, or `nodes/gh/README.md` for `gh`-specific usage

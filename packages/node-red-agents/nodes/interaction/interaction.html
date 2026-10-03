@@ -1,0 +1,93 @@
+<script type="text/javascript">
+  RED.nodes.registerType("interaction", {
+    category: "function",
+    color: "#D8BFD8",
+    defaults: {
+      name: { value: "" },
+      prompt: { value: "", required: true },
+      promptType: { value: "str" },
+      decisions: {
+        value: [{ id: "approve", label: "Approve" }, { id: "reject", label: "Reject" }],
+        validate: function (choices) {
+          if (!Array.isArray(choices) || !choices.length) return false;
+          const ids = choices.map(function (choice) { return choice.id; });
+          return ids.every(function (id) { return typeof id === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id); }) && new Set(ids).size === ids.length;
+        }
+      }
+    },
+    inputs: 1,
+    outputs: 2,
+    outputLabels: ["Continue", "Request"],
+    icon: "interaction.svg",
+    label: function () { return this.name || "interaction"; },
+    oneditprepare: function () {
+      $("#node-input-prompt").typedInput({
+        types: ["str", "msg", "flow", "global", "jsonata", "env"],
+        typeField: "#node-input-promptType"
+      });
+      const list = $("#node-input-decisions").editableList({
+        removable: true,
+        sortable: true,
+        addItem: function (row, _index, choice) {
+          $("<input>", { class: "interaction-id", type: "text", placeholder: "Decision ID", "aria-label": "Decision ID" }).css("width", "40%").val(choice.id || "").appendTo(row);
+          $("<input>", { class: "interaction-label", type: "text", placeholder: "Label (optional)", "aria-label": "Decision label" }).css({ width: "55%", marginLeft: "5%" }).val(choice.label || "").appendTo(row);
+        }
+      });
+      this.decisions.forEach(function (choice) { list.editableList("addItem", choice); });
+    },
+    oneditsave: function () {
+      this.decisions = [];
+      const choices = this.decisions;
+      $("#node-input-decisions").editableList("items").each(function () {
+        choices.push({ id: $(this).find(".interaction-id").val(), label: $(this).find(".interaction-label").val() });
+      });
+    }
+  });
+</script>
+
+<script type="text/html" data-template-name="interaction">
+  <div class="form-row">
+    <label for="node-input-name">Name</label>
+    <input type="text" id="node-input-name" placeholder="Name">
+  </div>
+  <div class="form-row">
+    <label for="node-input-prompt">Prompt</label>
+    <input type="text" id="node-input-prompt">
+    <input type="hidden" id="node-input-promptType">
+  </div>
+  <div class="form-row">
+    <label for="node-input-decisions">Decisions</label>
+    <ol id="node-input-decisions"></ol>
+  </div>
+</script>
+
+<script type="text/html" data-help-name="interaction">
+  <p>A human-on-the-loop / human-in-the-loop control measure for agentic flows.</p>
+  <pre>Agent -> Interaction -> Switch -> ...</pre>
+  <p>One input accepts ordinary messages to request a decision, and later responses
+  containing <code>msg.interaction.id</code> and <code>msg.interaction.decision</code>
+  to resolve it. No mode selector is needed. Prompt is a typed property resolving
+  to a non-empty string. Decisions are ordered IDs with optional display labels;
+  IDs must match <code>[A-Za-z0-9][A-Za-z0-9._-]*</code> and be unique.</p>
+  <h3>Outputs</h3>
+  <ol><li><b>Continue:</b> the original message with
+  <code>interaction = {id, decision, text?}</code>. Payload and unrelated fields
+  are preserved. Switch/Change/Function nodes decide how to branch: approve and
+  reject have no built-in policy.</li>
+  <li><b>Request:</b> message context with
+  <code>interaction = {id, status: "pending", prompt, decisions}</code>.
+  Wire to UI/HTTP/MQTT or another presenter, then send a separate later message
+  with the ID, declared decision and optional string text into this same input.
+  Never wire an unchanged pending Request directly back to the input.</li></ol>
+  <p>Standalone pending messages live in a process-local map; restart or redeploy
+  loses them. The initial invocation completes immediately after Request: no
+  Promise or worker waits for the human. Unknown/expired IDs, duplicate responses,
+  invalid decisions and pending loopbacks raise errors through Catch.</p>
+  <p>A durable execution host can checkpoint the original message and use the
+  version-1 <code>node.interaction.plan(msg)</code> /
+  <code>node.interaction.resume(plan, originalMsg, response)</code> API in a fresh
+  worker. An optional <code>RED.settings.nodeRedAgentsInteractionHost</code>
+  version-1 adapter intercepts requests before the local map. Request may remain
+  unwired; the host owns persistence, deduplication and worker lifecycle. Resume
+  uses normal node.send routing. See the package README for the exact ABI.</p>
+</script>

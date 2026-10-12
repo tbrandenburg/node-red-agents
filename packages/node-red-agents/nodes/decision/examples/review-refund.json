@@ -1,0 +1,152 @@
+[
+  { "id": "decision-review-tab", "type": "tab", "label": "Decision refund review" },
+  {
+    "id": "decision-review-provider",
+    "type": "model-provider",
+    "name": "OpenRouter Jev",
+    "provider": "openrouter",
+    "baseURL": "",
+    "decisionsBaseURL": "",
+    "defaultModel": "typesafe/jev-1.13",
+    "allowedModels": "",
+    "timeout": 60000
+  },
+  {
+    "id": "decision-review-inject",
+    "type": "inject",
+    "z": "decision-review-tab",
+    "name": "Refund ticket",
+    "props": [{ "p": "payload" }],
+    "payload": "I was charged twice. Please refund the duplicate.",
+    "payloadType": "str",
+    "x": 140,
+    "y": 100,
+    "wires": [["decision-review-state"]]
+  },
+  {
+    "id": "decision-review-state",
+    "type": "change",
+    "z": "decision-review-tab",
+    "name": "Ticket state",
+    "rules": [{ "t": "set", "p": "decision.state", "pt": "msg", "to": "payload", "tot": "msg" }],
+    "x": 330,
+    "y": 100,
+    "wires": [["decision-review-jev"]]
+  },
+  {
+    "id": "decision-review-jev",
+    "type": "decision",
+    "z": "decision-review-tab",
+    "name": "Jev refund question",
+    "provider": "decision-review-provider",
+    "model": "",
+    "state": "{}",
+    "questions": "{\"refund\":{\"type\":\"boolean\",\"instructions\":\"Is a refund requested?\"}}",
+    "x": 540,
+    "y": 100,
+    "wires": [["decision-review-switch"]]
+  },
+  {
+    "id": "decision-review-switch",
+    "type": "switch",
+    "z": "decision-review-tab",
+    "name": "Chosen threshold: P >= 0.8",
+    "property": "decisionResult.answers.refund.probability",
+    "propertyType": "msg",
+    "rules": [{ "t": "gte", "v": "0.8", "vt": "num" }, { "t": "else" }],
+    "checkall": "true",
+    "repair": false,
+    "outputs": 2,
+    "x": 800,
+    "y": 100,
+    "wires": [["decision-review-queue"], ["decision-review-human"]]
+  },
+  {
+    "id": "decision-review-queue",
+    "type": "debug",
+    "z": "decision-review-tab",
+    "name": "Refund queue",
+    "active": true,
+    "complete": "true",
+    "x": 1070,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "decision-review-human",
+    "type": "interaction",
+    "z": "decision-review-tab",
+    "name": "Review refund request",
+    "prompt": "payload",
+    "promptType": "msg",
+    "decisions": [
+      { "id": "approve", "label": "Approve" },
+      { "id": "reject", "label": "Reject" }
+    ],
+    "x": 1070,
+    "y": 140,
+    "wires": [["decision-review-continue"], ["decision-review-request"]]
+  },
+  {
+    "id": "decision-review-continue",
+    "type": "debug",
+    "z": "decision-review-tab",
+    "name": "Human decision",
+    "active": true,
+    "complete": "true",
+    "x": 1310,
+    "y": 120,
+    "wires": []
+  },
+  {
+    "id": "decision-review-request",
+    "type": "debug",
+    "z": "decision-review-tab",
+    "name": "Review request: copy ID",
+    "active": true,
+    "complete": "interaction",
+    "targetType": "msg",
+    "x": 1330,
+    "y": 180,
+    "wires": []
+  },
+  {
+    "id": "decision-review-response",
+    "type": "inject",
+    "z": "decision-review-tab",
+    "name": "Respond: replace pending ID",
+    "props": [
+      {
+        "p": "interaction",
+        "v": "{\"id\":\"REPLACE_WITH_PENDING_ID\",\"decision\":\"approve\"}",
+        "vt": "json"
+      }
+    ],
+    "x": 790,
+    "y": 240,
+    "wires": [["decision-review-human"]]
+  },
+  {
+    "id": "decision-review-catch",
+    "type": "catch",
+    "z": "decision-review-tab",
+    "name": "Safe errors",
+    "scope": ["decision-review-jev", "decision-review-human"],
+    "uncaught": false,
+    "x": 540,
+    "y": 320,
+    "wires": [["decision-review-error"]]
+  },
+  {
+    "id": "decision-review-error",
+    "type": "debug",
+    "z": "decision-review-tab",
+    "name": "Catch error",
+    "active": true,
+    "complete": "error",
+    "targetType": "msg",
+    "x": 780,
+    "y": 320,
+    "wires": []
+  }
+]

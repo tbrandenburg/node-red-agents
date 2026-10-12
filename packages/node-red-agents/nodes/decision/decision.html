@@ -1,0 +1,47 @@
+<script type="text/javascript">
+  RED.nodes.registerType("decision", {
+    category: "function",
+    color: "#D8BFD8",
+    defaults: {
+      name: { value: "" },
+      provider: { value: "", type: "model-provider", required: true },
+      model: { value: "" },
+      state: { value: "{}", required: true, validate: RED.validators.typedInput("json") },
+      questions: { value: '{"refund":{"type":"boolean","instructions":"Is a refund requested?"}}', required: true, validate: RED.validators.typedInput("json") }
+    },
+    inputs: 1,
+    outputs: 1,
+    icon: "decision-brain.svg",
+    label: function () { return this.name || "decision"; },
+    oneditprepare: function () {
+      $("#node-input-state").typedInput({ types: ["json"] });
+      $("#node-input-questions").typedInput({ types: ["json"] });
+    }
+  });
+</script>
+
+<script type="text/html" data-template-name="decision">
+  <div class="form-row"><label for="node-input-name">Name</label><input type="text" id="node-input-name"></div>
+  <div class="form-row"><label for="node-input-provider">Provider</label><input type="text" id="node-input-provider"></div>
+  <div class="form-row"><label for="node-input-model">Model</label><input type="text" id="node-input-model" placeholder="Provider default model"></div>
+  <div class="form-row"><label for="node-input-state">State JSON</label><input type="text" id="node-input-state"></div>
+  <div class="form-row"><label for="node-input-questions">Questions JSON</label><input type="text" id="node-input-questions"></div>
+</script>
+
+<script type="text/html" data-help-name="decision">
+  <p>Ask named Boolean, Choice and Score questions about one shared JSON state using the provider's decision model.</p>
+  <p>State JSON accepts a string, object or data array. Questions are a nonempty map of names to
+  <code>{type, instructions, criteria?}</code>. Instructions/descriptions accept strings, objects or arrays.
+  Boolean criteria, when supplied, must describe both <code>true</code> and <code>false</code>.
+  Choice criteria map nonblank labels to descriptions (or null for a catch-all).
+  Score criteria are at least two nonnull descriptions ordered from level 0 upward.</p>
+  <p><code>msg.decision</code> may override only <code>state</code>, <code>questions</code> and <code>model</code>,
+  using parsed values, not JSON strings. Credentials, URLs and SDK options cannot be overridden.
+  Model is blank for the provider default; other IDs must be allowed by that config.</p>
+  <p>Output preserves the message and adds <code>msg.decisionResult</code> with typed <code>answers</code>,
+  and available rounding, usage, metadata, warnings and response information. Boolean <code>probability</code>
+  means P(true), not a binary value. Choice/Score distributions are optional and rounded values are unchanged.</p>
+  <p>Use a Switch on <code>decisionResult.answers.refund.probability</code> with your own threshold,
+  and an interaction node for human review. No routing policy is built in. Invalid inputs and sanitized provider
+  errors go to Catch. Provider timeout applies; closing/redeploying cancels active requests.</p>
+</script>

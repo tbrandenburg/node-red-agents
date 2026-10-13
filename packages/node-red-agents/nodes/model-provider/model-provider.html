@@ -1,0 +1,43 @@
+<script type="text/javascript">
+  RED.nodes.registerType("model-provider", {
+    category: "config",
+    defaults: {
+      name: { value: "" },
+      provider: { value: "openrouter", required: true, validate: function(value) { return ["openrouter", "gateway"].includes(value); } },
+      baseURL: { value: "" },
+      decisionsBaseURL: { value: "" },
+      defaultModel: { value: "" },
+      allowedModels: { value: "" },
+      timeout: { value: 60000, required: true, validate: function(value) { return Number.isInteger(Number(value)) && Number(value) >= 1 && Number(value) <= 600000; } }
+    },
+    credentials: { apiKey: { type: "password" } },
+    icon: "model-provider-cog.svg",
+    label: function() { return this.name || this.provider || "model-provider"; }
+  });
+</script>
+
+<script type="text/html" data-template-name="model-provider">
+  <div class="form-row"><label for="node-config-input-name">Name</label><input type="text" id="node-config-input-name"></div>
+  <div class="form-row"><label for="node-config-input-provider">Provider</label><select id="node-config-input-provider"><option value="openrouter">OpenRouter</option><option value="gateway">AI Gateway</option></select></div>
+  <div class="form-row"><label for="node-config-input-apiKey">API key</label><input type="password" id="node-config-input-apiKey" autocomplete="new-password"></div>
+  <div class="form-row"><label for="node-config-input-baseURL">Base URL</label><input type="text" id="node-config-input-baseURL" placeholder="Provider default"></div>
+  <div class="form-row"><label for="node-config-input-decisionsBaseURL">Decisions URL</label><input type="text" id="node-config-input-decisionsBaseURL" placeholder="OpenRouter only"></div>
+  <div class="form-row"><label for="node-config-input-defaultModel">Default model</label><input type="text" id="node-config-input-defaultModel"></div>
+  <div class="form-row"><label for="node-config-input-allowedModels">Allowed models</label><textarea id="node-config-input-allowedModels" placeholder="Comma or newline separated model IDs"></textarea></div>
+  <div class="form-row"><label for="node-config-input-timeout">Timeout (ms)</label><input type="number" id="node-config-input-timeout" min="1" max="600000"></div>
+</script>
+
+<script type="text/html" data-help-name="model-provider">
+  <p>Reusable OpenRouter or AI Gateway connection. The API key is a native
+  Node-RED password credential, stored separately and omitted from flow exports.
+  Enable Node-RED credential encryption with a stable credentialSecret.</p>
+  <p>Blank URLs use provider defaults. Custom HTTPS URLs must be explicitly listed
+  in settings.js at <code>nodeRedAgentsModelProvider.allowedBaseURLs</code>.
+  OpenRouter decisions use /api/alpha, not /api/v1. Custom /v1 URLs derive /alpha;
+  the derived URL also needs admin approval. Other custom routes require an
+  explicit Decisions URL. Gateway does not use the Decisions URL field.</p>
+  <p>A consumer can select the default model or an exact ID in Allowed models.
+  Timeout is 1–600000 ms (default 60000). Messages cannot override keys or URLs.
+  Credential edits apply to requests created after redeploy. No connectivity
+  check or model discovery is performed while saving.</p>
+</script>

@@ -63,6 +63,15 @@ function appendBounded(buffer, chunk) {
 function spawnDaemon(config) {
   const { cmd, args } = buildCommand(config);
   const state = { stdout: "", stderr: "" };
+  const sanitize = config.sanitize || ((value) => value);
+  const diagnostics = {
+    get stdout() {
+      return sanitize(state.stdout);
+    },
+    get stderr() {
+      return sanitize(state.stderr);
+    },
+  };
 
   const child = spawn(cmd, args, {
     cwd: config.cwd || undefined,
@@ -78,7 +87,7 @@ function spawnDaemon(config) {
     state.stderr = appendBounded(state.stderr, chunk.toString());
   });
 
-  return { child, cmd, args, diagnostics: state };
+  return { child, cmd, args, diagnostics };
 }
 
 // Polls GET /global/health until it responds or timeoutMs elapses. Resolves

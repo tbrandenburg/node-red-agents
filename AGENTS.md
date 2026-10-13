@@ -42,6 +42,11 @@ commands (`make help`).
   v1 job retains the required `E2E` check name; `E2E v2` is an additional
   check not currently required by the main-branch ruleset. Deliberately not
   part of `make test`; local runs require installed and authenticated CLIs.
+- `make test-model-e2e` -- opt-in real OpenRouter model/decision/credential and
+  OpenCode shared-auth acceptance. Requires `OPENROUTER_API_KEY` and incurs provider
+  billing; Gateway runs when `AI_GATEWAY_API_KEY` exists. See `/docs/model-e2e.md`.
+  `E2E_OPENCODE_MODEL` optionally selects an authenticated model for the existing
+  smoke suite without changing its CI default.
 - `make format` / `make lint` -- Prettier / ESLint (flat config,
   `eslint.config.js`); pass `FIX=1` to rewrite/auto-fix instead of just
   checking. `make ci` runs format + lint + test + test-e2e, the same
@@ -252,6 +257,9 @@ meant to read stdin.
 
 ## Lessons Learned
 
+- 2026-10-13: Pitfall: Recursive credential-key filtering removed legitimate structured fields and decision labels. Prevention rule/countermeasure: Preserve application-defined keys; filter transport metadata separately and test data preservation alongside secret redaction.
+- 2026-10-13: Pitfall: Test-helper nodes without a tab were classified as config nodes and self-referenced their type. Prevention rule/countermeasure: Use explicit tab/z fixtures, distinct IDs and bounded readiness waits before running suites.
+- 2026-10-13: Pitfall: Failed environment-object assertions printed ambient credentials. Prevention rule/countermeasure: Use synthetic environments and boolean equality checks; never include ambient environment objects in assertion diagnostics.
 - 2026-10-03: Pitfall: Runtime-deploy notification preceded Inject endpoint registration under concurrent E2E load. Prevention rule/countermeasure: Check actual Inject endpoint readiness with a bounded retry before triggering assertions; a deployment notification alone is insufficient.
 - 2026-09-29: Pitfall: A real Node-RED E2E test assumed deployment made inject endpoints immediately available and Catch messages appeared on a debug node. Prevention rule/countermeasure: Wait for a deployment signal before injecting; inspect actual `/comms` diagnostic events when testing node errors.
 - 2026-09-28: Pitfall: A full filesystem blocked git worktrees and truncated a patch write. Prevention rule/countermeasure: Check free disk space on git lock or write failures; reclaim space, restore the affected file, and verify syntax before retrying.

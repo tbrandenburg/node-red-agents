@@ -1,5 +1,6 @@
 const fs = require("fs");
 const { randomUUID } = require("node:crypto");
+const { resolveCLIAuth } = require("../../shared/cli-provider-auth");
 require("./lib/agents/opencode"); // registers "opencode" as a side effect
 require("./lib/agents/pi"); // registers "pi" as a side effect
 require("./lib/agents/copilot"); // registers "copilot" as a side effect
@@ -301,7 +302,21 @@ module.exports = function (RED) {
     // scheduler once a concurrency slot is free -- never called
     // directly from the input handler.
     function startExecution(item) {
-      const { executionId, msg, send, done, resolved } = item;
+      const { executionId, msg, resolved } = item;
+      const sanitizers = [];
+      const sanitize = (value) => sanitizers.reduce((result, redact) => redact(result), value);
+      const send = (value) => item.send(sanitize(value));
+      const done = (error) =>
+        item.done(
+          error
+            ? Object.assign(
+                new Error(sanitize(error.message || String(error)), {
+                  cause: sanitize(error.cause),
+                }),
+                sanitize({ ...error }),
+              )
+            : undefined,
+        );
       let startAcknowledged = false;
       let startRejected = false;
       const adapter = getAgentAdapter(node.agent);
@@ -337,8 +352,18 @@ module.exports = function (RED) {
         return runAgent({
           adapter,
           runtime,
-          resolved: currentResolved,
+          resolved: { ...currentResolved, onWarning: (warning) => node.warn(sanitize(warning)) },
           executionId,
+          resolveAuth: (input) => {
+            const auth = resolveCLIAuth(RED, {
+              authMode: config.authMode || "default",
+              modelProvider: config.modelProvider,
+              agent: node.agent,
+              model: input.model,
+            });
+            sanitizers.push(auth.sanitize);
+            return auth;
+          },
           onEvent: (event) => {
             send([
               null,
@@ -497,7 +522,7 @@ module.exports = function (RED) {
 
         const attempts = [];
         if (typeof observer === "function")
-          attempts.push(Promise.resolve().then(() => observer(observation)));
+          attempts.push(Promise.resolve().then(() => observer(sanitize(observation))));
         if (typeof lifecycleObserver === "function") {
           const record = lifecycleRecord("execution.terminal", node, deploymentId, {
             executionId,
@@ -509,7 +534,9 @@ module.exports = function (RED) {
           });
           if (resumed !== undefined) record.resumed = resumed;
           if (item.observation !== undefined) record.agentObservation = item.observation;
-          attempts.push(bounded(lifecycleObserver, record, ACK_TIMEOUT_MS, "execution.terminal"));
+          attempts.push(
+            bounded(lifecycleObserver, sanitize(record), ACK_TIMEOUT_MS, "execution.terminal"),
+          );
         }
         const outcomes = await Promise.allSettled(attempts);
         const failure = outcomes.find((outcome) => outcome.status === "rejected");

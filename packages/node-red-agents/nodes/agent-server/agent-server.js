@@ -12,6 +12,7 @@ const { parseModel } = require("./lib/model");
 const { createDaemonAuth } = require("./lib/auth");
 const apiV2 = require("./lib/api");
 const { detectOpenCodeMajorVersion } = require("../../shared/opencode-version");
+const { resolveCLIAuth, createSanitizer } = require("../../shared/cli-provider-auth");
 
 module.exports = function (RED) {
   "use strict";
@@ -25,6 +26,23 @@ module.exports = function (RED) {
     node.apiVersionMode = config.apiVersionMode || "auto";
     let detectedApiVersion;
     let versionDetectionWarningSent = false;
+    const sanitizers = new Map();
+    let closing = false;
+    const sanitize = (value) => {
+      for (const redact of sanitizers.keys()) value = redact(value);
+      return value;
+    };
+    function cliAuth(model = "") {
+      return resolveCLIAuth(RED, {
+        authMode: config.authMode || "default",
+        modelProvider: config.modelProvider,
+        agent:
+          config.authMode && config.authMode !== "default"
+            ? `opencode-${apiVersion()}`
+            : "opencode",
+        model,
+      });
+    }
 
     node.operation = config.operation || "message";
 
@@ -109,22 +127,26 @@ module.exports = function (RED) {
     // counts + timestamp), just counting daemons/sessions instead of
     // executions. This is what a downstream ui-table/context-aggregator
     // uses to build a "what has been running" history.
-    function emitEvent(sessionID, type, msg) {
+    function emitEvent(sessionID, type, msg, redact = (value) => value) {
       const summary = node.registry.summary();
-      node.send([
-        null,
-        {
-          _msgid: msg && msg._msgid,
-          topic: msg && msg.topic,
-          payload: { type },
-          sessionID,
-          serverId: node.id,
-          serverName: resolveServerName(msg),
-          active: summary.busy,
-          tracked: summary.total,
-          timestamp: Date.now(),
-        },
-      ]);
+      node.send(
+        redact(
+          sanitize([
+            null,
+            {
+              _msgid: msg && msg._msgid,
+              topic: msg && msg.topic,
+              payload: { type },
+              sessionID,
+              serverId: node.id,
+              serverName: resolveServerName(msg),
+              active: summary.busy,
+              tracked: summary.total,
+              timestamp: Date.now(),
+            },
+          ]),
+        ),
+      );
     }
 
     function resolveTyped(prop, type, msg, fallback) {
@@ -183,7 +205,7 @@ module.exports = function (RED) {
     // with { sessionID, baseUrl }. Cleans up (kills the half-started
     // process) and rejects on any failure along the way -- callers
     // never have to clean up a partially-started daemon themselves.
-    async function spawnNewInstance(msg) {
+    async function spawnNewInstance(msg, model) {
       if (node.maxInstances > 0 && node.registry.size() >= node.maxInstances) {
         throw new Error(
           `agent-server: max instances (${node.maxInstances}) reached, cannot spawn a new daemon`,
@@ -191,6 +213,7 @@ module.exports = function (RED) {
       }
 
       const port = await findFreePort(node.hostname);
+      if (closing) throw new Error("agent-server: node is closing");
       const baseUrl = `http://${node.hostname}:${port}`;
       const version = apiVersion();
       const auth = createDaemonAuth(version, {
@@ -198,7 +221,12 @@ module.exports = function (RED) {
         password: node.authPassword,
       });
 
-      const env = Object.assign({}, process.env);
+      const providerAuth = cliAuth(model ? `${model.providerID}/${model.modelID}` : "");
+      const redactAuth = createSanitizer([auth.password]);
+      const localSanitize = (value) => redactAuth(providerAuth.sanitize(value));
+      const owner = { child: undefined, sessionID: undefined, stopping: false };
+      sanitizers.set(localSanitize, owner);
+      const env = providerAuth.env;
       if (version === "v2") {
         env.OPENCODE_SERVER_USERNAME = auth.username;
         env.OPENCODE_SERVER_PASSWORD = auth.password;
@@ -207,33 +235,38 @@ module.exports = function (RED) {
         if (node.authUsername) env.OPENCODE_SERVER_USERNAME = node.authUsername;
       }
 
-      const { child, diagnostics } = spawnDaemon({
-        binary: node.opencodeBinary || undefined,
-        hostname: node.hostname,
-        port,
-        env,
-        srt: {
-          enabled: node.runtime === "srt",
-          binary: node.srtBinary || undefined,
-          settingsPath: node.resolvedSrtSettingsPath,
-        },
-      });
-
       try {
+        const { child, diagnostics } = spawnDaemon({
+          binary: node.opencodeBinary || undefined,
+          hostname: node.hostname,
+          port,
+          env,
+          sanitize: localSanitize,
+          srt: {
+            enabled: node.runtime === "srt",
+            binary: node.srtBinary || undefined,
+            settingsPath: node.resolvedSrtSettingsPath,
+          },
+        });
+        owner.child = child;
+        child.once("exit", () => {
+          // Pending startup and intentional shutdown sanitize their final output first.
+          if (!owner.sessionID || owner.stopping) return;
+          node.registry.delete(owner.sessionID);
+          sanitizers.delete(localSanitize);
+          updateStatus();
+        });
         await waitForHealthy(baseUrl, {
           timeoutMs: node.startupTimeoutMs,
           diagnostics,
           apiVersion: version,
           ...auth,
         });
-      } catch (err) {
-        await killDaemon(child);
-        throw err;
-      }
+        if (closing || child.exitCode !== null || child.signalCode !== null) {
+          throw new Error("agent-server: daemon stopped during startup");
+        }
 
-      let session;
-      try {
-        session =
+        const session =
           version === "v2"
             ? await apiV2.createSession(baseUrl, (msg && msg.topic) || "agent-server", {
                 timeoutMs: node.requestTimeoutMs,
@@ -245,32 +278,53 @@ module.exports = function (RED) {
                 timeoutMs: node.requestTimeoutMs,
                 ...auth,
               });
-      } catch (err) {
-        await killDaemon(child);
-        throw err;
-      }
+        if (closing || child.exitCode !== null || child.signalCode !== null) {
+          throw new Error("agent-server: daemon stopped during session creation");
+        }
 
-      const sessionID = session.id;
-      node.registry.register(sessionID, {
-        child,
-        host: node.hostname,
-        port,
-        baseUrl,
-        apiVersion: version,
-        auth,
-      });
-      emitEvent(sessionID, "spawned", msg);
-      updateStatus();
-      return { sessionID, baseUrl };
+        const sessionID = session.id;
+        owner.sessionID = sessionID;
+        node.registry.register(sessionID, {
+          child,
+          host: node.hostname,
+          port,
+          baseUrl,
+          apiVersion: version,
+          auth,
+          sanitize: localSanitize,
+        });
+        emitEvent(sessionID, "spawned", msg);
+        updateStatus();
+        return { sessionID, baseUrl };
+      } catch (err) {
+        owner.stopping = true;
+        if (owner.sessionID) node.registry.delete(owner.sessionID);
+        let failure = new Error(localSanitize(sanitize(err.message || String(err))));
+        try {
+          await killDaemon(owner.child);
+        } catch (cleanupError) {
+          failure = new Error(
+            localSanitize(sanitize(cleanupError.message || String(cleanupError))),
+          );
+        } finally {
+          sanitizers.delete(localSanitize);
+        }
+        throw failure;
+      }
     }
 
     // Shared by both the "spawn new" and "reuse existing" paths.
     async function sendMessage(sessionID, baseUrl, prompt, model, msg, send, done) {
+      const record = node.registry.get(sessionID);
+      const localSanitize = record.sanitize || sanitize;
+      const originalSend = send;
+      const originalDone = done;
+      send = (value) => originalSend(localSanitize(value));
+      done = (error) => originalDone(error ? new Error(localSanitize(error.message)) : undefined);
       node.registry.setBusy(sessionID, true);
-      emitEvent(sessionID, "running", msg);
+      emitEvent(sessionID, "running", msg, localSanitize);
       updateStatus();
 
-      const record = node.registry.get(sessionID);
       const auth = record.auth || {};
       // process.hrtime.bigint() rather than Date.now() for the
       // duration measurement specifically: it's monotonic, so it
@@ -310,6 +364,7 @@ module.exports = function (RED) {
                 ...auth,
               });
 
+        apiV2.assertMessageSuccess(response);
         node.registry.setBusy(sessionID, false);
         const durationMs = Number((process.hrtime.bigint() - startedAtNs) / 1000000n);
         const resultMsg = Object.assign({}, msg, {
@@ -325,12 +380,12 @@ module.exports = function (RED) {
           },
         });
         send([resultMsg, null]);
-        emitEvent(sessionID, "completed", msg);
+        emitEvent(sessionID, "completed", msg, localSanitize);
         updateStatus();
         done();
       } catch (err) {
         node.registry.setBusy(sessionID, false);
-        emitEvent(sessionID, "failed", msg);
+        emitEvent(sessionID, "failed", msg, localSanitize);
         updateStatus();
         done(new Error(`agent-server: message to session "${sessionID}" failed: ${err.message}`));
       }
@@ -363,7 +418,8 @@ module.exports = function (RED) {
 
       let model;
       try {
-        model = parseModel(resolveTyped(node.model, node.modelType, msg, ""));
+        const selected = resolveTyped(node.model, node.modelType, msg, "");
+        model = parseModel(cliAuth(selected).model);
       } catch (err) {
         done(new Error(`agent-server: ${err.message}`));
         return;
@@ -389,7 +445,7 @@ module.exports = function (RED) {
         return;
       }
 
-      spawnNewInstance(msg)
+      spawnNewInstance(msg, model)
         .then(({ sessionID: newSessionID, baseUrl }) =>
           sendMessage(newSessionID, baseUrl, prompt, model, msg, send, done),
         )
@@ -565,28 +621,52 @@ module.exports = function (RED) {
       }
 
       const record = node.registry.get(sessionID);
+      const owner = sanitizers.get(record.sanitize);
+      if (owner) owner.stopping = true;
       node.registry.delete(sessionID);
       killDaemon(record.child)
         .then(() => {
-          emitEvent(sessionID, "terminated", msg);
-          updateStatus();
-          send([
-            Object.assign({}, msg, {
-              payload: true,
-              sessionID,
-              serverId: node.id,
-              serverName: resolveServerName(msg),
-            }),
-            null,
-          ]);
-          done();
+          try {
+            emitEvent(sessionID, "terminated", msg, record.sanitize);
+            updateStatus();
+            send([
+              Object.assign({}, msg, {
+                payload: true,
+                sessionID,
+                serverId: node.id,
+                serverName: resolveServerName(msg),
+              }),
+              null,
+            ]);
+            done();
+          } finally {
+            sanitizers.delete(record.sanitize);
+          }
         })
-        .catch((err) => done(new Error(`agent-server: terminate failed: ${err.message}`)));
+        .catch((err) => {
+          done(new Error(`agent-server: terminate failed: ${err.message}`));
+          sanitizers.delete(record.sanitize);
+        });
     }
 
     const VALID_OPERATIONS = ["message", "status", "abort", "history", "terminate"];
 
     node.on("input", function (msg, send, done) {
+      const originalSend = send;
+      const originalDone = done;
+      let sessionID;
+      try {
+        sessionID = resolveTyped(node.sessionIdProp, node.sessionIdPropType, msg, undefined);
+      } catch (err) {
+        originalDone(new Error(sanitize(err.message)));
+        return;
+      }
+      const localSanitize = node.registry.get(sessionID)?.sanitize || ((value) => value);
+      send = (value) => originalSend(localSanitize(sanitize(value)));
+      done = (error) =>
+        originalDone(
+          error ? new Error(localSanitize(sanitize(error.message || String(error)))) : undefined,
+        );
       if (node.srtSettingsError) {
         done(new Error(`agent-server: ${node.srtSettingsError}`));
         return;
@@ -635,14 +715,18 @@ module.exports = function (RED) {
     });
 
     node.on("close", function (done) {
-      const entries = Array.from(node.registry.list());
+      closing = true;
+      const entries = Array.from(sanitizers.entries());
       Promise.all(
-        entries.map((sessionID) => {
-          const record = node.registry.get(sessionID);
+        entries.map(([redact, owner]) => {
+          const sessionID = owner.sessionID;
+          owner.stopping = true;
           node.registry.delete(sessionID);
-          return killDaemon(record.child).then(() => {
-            emitEvent(sessionID, "closed", {});
-          });
+          return killDaemon(owner.child)
+            .then(() => {
+              if (sessionID) emitEvent(sessionID, "closed", {}, redact);
+            })
+            .finally(() => sanitizers.delete(redact));
         }),
       ).then(() => {
         if (node.srtTempSettingsFile) {

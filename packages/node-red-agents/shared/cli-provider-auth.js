@@ -9,42 +9,51 @@ const mappings = {
   gateway: { key: "AI_GATEWAY_API_KEY", url: "https://ai-gateway.vercel.sh/v4/ai" },
 };
 
+const transport =
+  /^(?:env|headers|authorization|proxy[-_]?authorization|cookie|set[-_]?cookie|api[-_]?key)$/i;
+const application = /^(?:payload|object|output|answers|messages|input)$/i;
+
 function invalid(message) {
   return Object.assign(new Error(message), { code: "CLI_PROVIDER_AUTH" });
 }
 
 function createSanitizer(secrets = []) {
   const variants = secretVariants(secrets);
-  const text = (value) =>
-    variants
+  const text = (value, diagnostic = false) => {
+    const redacted = variants
       .reduce((value, secret) => value.split(secret).join("[REDACTED]"), value)
       .replace(/\bBearer\s+[^\s"'<>]+/gi, "Bearer [REDACTED]");
+    return diagnostic
+      ? redacted.replace(/\bBasic\s+[A-Za-z0-9+/]+={0,2}/gi, "Basic [REDACTED]")
+      : redacted;
+  };
   function clone(value, diagnostic = false) {
     const seen = new Map();
     const pending = [];
-    function copy(value, depth) {
-      if (typeof value === "string") return text(value);
+    function copy(value, depth, metadata = diagnostic) {
+      if (typeof value === "string") return text(value, metadata);
       if (!value || typeof value !== "object") return value;
       if (diagnostic && (depth > 20 || seen.has(value))) return "[REDACTED]";
       if (seen.has(value)) return seen.get(value);
       if (value instanceof Date) return new Date(value.getTime());
       if (Buffer.isBuffer(value)) {
         const original = value.toString();
-        const redacted = text(original);
+        const redacted = text(original, metadata);
         return redacted === original ? Buffer.from(value) : Buffer.from(redacted);
       }
       const result = Array.isArray(value) ? new Array(value.length) : {};
       seen.set(value, result);
-      pending.push({ value, result, depth });
+      pending.push({ value, result, depth, metadata });
       return result;
     }
     const result = copy(value, 0);
     // Iterative traversal preserves deep application messages without consuming the call stack.
     for (let index = 0; index < pending.length; index++) {
-      const { value, result, depth } = pending[index];
+      const { value, result, depth, metadata } = pending[index];
       for (const [key, entry] of Object.entries(value)) {
-        Object.defineProperty(result, text(key), {
-          value: copy(entry, depth + 1),
+        if (metadata && transport.test(key)) continue;
+        Object.defineProperty(result, text(key, metadata), {
+          value: copy(entry, depth + 1, metadata && !application.test(key)),
           enumerable: true,
           configurable: true,
           writable: true,
@@ -79,7 +88,7 @@ function resolveCLIAuth(
       cliProvider,
       sanitize,
       safeError: (error) =>
-        Object.assign(new Error(sanitize(error.message || String(error))), {
+        Object.assign(new Error(sanitize.diagnostic(error.message || String(error))), {
           ...(error.code ? { code: error.code } : {}),
         }),
     };

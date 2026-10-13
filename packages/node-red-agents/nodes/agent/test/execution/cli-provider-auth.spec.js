@@ -203,3 +203,49 @@ test("buffered safe suffix does not change original OpenCode result text boundar
   assert.equal(result.payload, "hello after 2 attempts");
   assert.equal(result.events.map((event) => event.data.part.text).join(""), result.payload);
 });
+
+test("Basic-auth diagnostic headers and text are removed before events and final errorDetail", async () => {
+  const basic = "Basic " + Buffer.from("user:" + key).toString("base64");
+  const events = [];
+  const result = await runAgent({
+    adapter: new OpenCodeAdapter({ fixedVersion: 1 }),
+    runtime: {
+      execute: async (_request, { onLine }) => {
+        onLine(
+          JSON.stringify({
+            type: "error",
+            error: {
+              data: {
+                message: "rejected " + basic,
+                headers: {
+                  Authorization: basic,
+                  "Proxy-Authorization": basic,
+                  Cookie: "private-cookie",
+                },
+                note: JSON.stringify({ headers: { Authorization: basic } }),
+              },
+            },
+          }),
+        );
+        return { exitCode: 1, signal: null, stderr: "transport " + basic, timedOut: false };
+      },
+    },
+    resolved: { invocation: "prompt", prompt: "hello" },
+    executionId: "basic-diagnostic",
+    onEvent: (event) => events.push(event),
+    resolveAuth: () => resolveCLIAuth(RED, { agent: "opencode-v1", authMode: "provider" }, {}),
+  });
+  assert.equal(result.status, "failed");
+  assert.equal(events[0].data.error.data.headers, undefined);
+  assert.equal(result.errorDetail.data.headers, undefined);
+  assert.equal(result.errorDetail.data.message, "rejected Basic [REDACTED]");
+  assert.ok(!JSON.stringify({ events, result }).includes(basic));
+  assert.ok(!result.errorMessage.includes(basic));
+  const auth = resolveCLIAuth(RED, { agent: "opencode-v1", authMode: "provider" }, {});
+  const application = {
+    headers: ["heading"],
+    payload: { headers: { label: "title" }, token: "word", secret: 0.2 },
+  };
+  assert.deepEqual(auth.sanitize(application), application);
+  assert.equal(auth.safeError(new Error("launch " + basic)).message, "launch Basic [REDACTED]");
+});

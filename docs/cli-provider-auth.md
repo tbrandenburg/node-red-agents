@@ -102,7 +102,10 @@ Known injected and inherited API-key/token/password/secret values and their URL,
 JSON-escaped and Base64 representations are redacted from parsed child events,
 stderr-derived errors, results, terminal observer records and daemon replies/history.
 Application field names (including `token`, `secret`, `headers` and `password`)
-are preserved; known credential values and Bearer tokens are redacted. Cyclic
+are preserved; known credential values and Bearer tokens are redacted. CLI event
+and stderr diagnostics additionally remove transport/auth header fields and redact
+Basic-auth tokens, including those inside JSON diagnostic text. Application
+payload/output fields retain their names and values except known credentials. Cyclic
 application messages are cloned with their references intact; external diagnostics
 are depth-bounded. Sanitizers retain old launch keys for daemon responses after
 rotation. OpenCode text/reasoning events buffer possible known-credential prefixes

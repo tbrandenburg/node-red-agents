@@ -233,3 +233,28 @@ test("logical text redaction bounds retained prefixes and preserves structured e
   defaultRedactor.flush();
   assert.deepEqual(ordinary, [progress]);
 });
+
+test("transport filtering and Basic token redaction are diagnostic-only and preserve application outputs", () => {
+  const credential = "synthetic-diagnostic-key";
+  const encoded = Buffer.from("user:" + credential).toString("base64");
+  const sanitize = createSanitizer([credential]);
+  const app = { headers: ["heading"], authorization: "label", token: "word", secret: 0.2 };
+  const diagnostic = sanitize.diagnostic({
+    headers: { Authorization: "Basic " + encoded },
+    authorization: "Basic " + encoded,
+    cookie: "opaque-cookie",
+    message: JSON.stringify({ headers: { Authorization: "bAsIc " + encoded } }),
+    binary: Buffer.from("Basic " + encoded),
+    output: app,
+    payload: { headers: ["domain heading"], echo: credential },
+  });
+  assert.equal(diagnostic.headers, undefined);
+  assert.equal(diagnostic.authorization, undefined);
+  assert.equal(diagnostic.cookie, undefined);
+  assert.ok(!diagnostic.message.includes(encoded));
+  assert.equal(diagnostic.binary.toString(), "Basic [REDACTED]");
+  assert.deepEqual(diagnostic.output, app);
+  assert.deepEqual(diagnostic.payload, { headers: ["domain heading"], echo: "[REDACTED]" });
+  assert.deepEqual(sanitize(app), app);
+  assert.equal(sanitize("Basic " + encoded), "Basic " + encoded);
+});

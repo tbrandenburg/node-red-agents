@@ -1,10 +1,11 @@
 "use strict";
 
 const { TransformStream } = require("node:stream/web");
+const { secretVariants } = require("../../../shared/providers/safety");
 
 // Retain suffixes so a credential or Bearer token split across chunks cannot leak.
 function deltas(adapter, secret, emit) {
-  const secrets = [secret, encodeURIComponent(secret)].filter(Boolean);
+  const secrets = secretVariants([secret]);
   const retained = Math.max(8, ...secrets.map((value) => value.length));
   let pending = "";
   return (text, final = false) => {

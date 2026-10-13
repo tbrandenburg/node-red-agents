@@ -28,6 +28,7 @@ async function runAgent({
 }) {
   const auth = resolveAuth ? resolveAuth(resolved) : undefined;
   const sanitize = auth ? auth.sanitize : (value) => value;
+  const diagnostic = sanitize.diagnostic || sanitize;
   if (auth) resolved = { ...resolved, model: auth.model, cliProvider: auth.cliProvider };
   try {
     adapter.validate(resolved); // throws synchronously on bad config
@@ -75,7 +76,7 @@ async function runAgent({
         }
         if (event) {
           if (redactor) redactor.push(event);
-          else emit(sanitize(event));
+          else emit(diagnostic(event));
         }
       },
     });
@@ -86,7 +87,7 @@ async function runAgent({
       parsed,
       outcome.exitCode,
       outcome.signal,
-      sanitize(outcome.stderr),
+      diagnostic(outcome.stderr),
       resolved,
     );
     const status = outcome.timedOut ? "timeout" : result.status;

@@ -47,7 +47,9 @@ Output **2 (Stream events)** sends preserved copies of the input with:
 
 The node consumes the entire SDK `fullStream`, including error events, before
 sending the final message. Text deltas are sanitized, with a retained suffix to
-protect credentials split across chunks. Short responses may be buffered until
+protect literal, URL-encoded, Base64 and JSON-escaped credentials split across chunks.
+Buffering and final projection use the same shared encoding-variant policy.
+Short responses may be buffered until
 completion; long unfinished Bearer tokens are retained until their delimiter.
 Stream-start warnings are sanitized before SDK warning logging. Partial events
 can precede a failed request, but failure never produces a final success.

@@ -163,3 +163,27 @@ test("split child text is redacted before event output and terminal observers", 
   assert.ok(!JSON.stringify({ records, events, reply }).includes("synthetic-first-key"));
   assert.ok(records.some((record) => JSON.stringify(record).includes("[REDACTED]")));
 });
+
+test("Basic-auth child diagnostics cannot leak through events, results, Catch or terminal observers", async () => {
+  const records = [];
+  helper.settings({
+    nodeRedAgentsExecutionObserver: (record) => records.push(record),
+    nodeRedAgentsLifecycleObserver: (record) => records.push(record),
+  });
+  await load();
+  const events = [];
+  helper.getNode("events").on("input", (msg) => events.push(msg));
+  const node = helper.getNode("a");
+  const caught = new Promise((resolve) => node.once("call:error", (call) => resolve(call.args[0])));
+  const received = output();
+  node.receive({ payload: "basic-diagnostic", headers: ["application heading"] });
+  const [[reply], error] = await Promise.all([received, caught]);
+  const basic = "Basic " + Buffer.from("user:synthetic-first-key").toString("base64");
+  assert.ok(!JSON.stringify({ records, events, reply, error: String(error) }).includes(basic));
+  assert.equal(reply.agentExecution.errorDetail.data.headers, undefined);
+  assert.deepEqual(reply.headers, ["application heading"]);
+  const terminal = records.filter((record) => record.output?.errorDetail);
+  assert.equal(terminal.length, 2);
+  assert.ok(terminal.every((record) => record.output.errorDetail.data.headers === undefined));
+  assert.equal(reply.agentExecution.errorDetail.data.message, "rejected Basic [REDACTED]");
+});

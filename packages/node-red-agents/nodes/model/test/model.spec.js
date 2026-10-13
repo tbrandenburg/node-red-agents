@@ -48,6 +48,7 @@ function generated(text = "hello") {
 
 function adapter(language, embedding, options = {}) {
   const config = { defaultModel: options.defaultModel ?? "default", allowedModels: ["allowed"] };
+  const credential = options.secret ?? secret;
   return {
     sdk,
     createLanguageModel: (id) => {
@@ -58,13 +59,13 @@ function adapter(language, embedding, options = {}) {
       resolveModel(config, id);
       return embedding;
     },
-    sanitizeResult: (value) => sanitizeResult(value, [secret]),
+    sanitizeResult: (value) => sanitizeResult(value, [credential]),
     safeError,
     run: (callback, { signal }) =>
       runRequest((lifecycle) => callback({ sdk, ...lifecycle }), {
         timeout: options.timeout || 1000,
         signal,
-        secrets: [secret],
+        secrets: [credential],
       }),
   };
 }
@@ -487,3 +488,49 @@ test("redaction protects every split position of credentials, encoded credential
     }
   }
 });
+
+for (const [encoding, credential, encode] of [
+  ["Base64", "synthetic-only-key-12345", (value) => Buffer.from(value).toString("base64")],
+  ["JSON-escaped", 'synthetic-only-key"\\12345', (value) => JSON.stringify(value).slice(1, -1)],
+]) {
+  test(`${encoding} model deltas protect concatenated events at every split`, () => {
+    const encoded = encode(credential);
+    const safe = { sanitizeResult: (value) => sanitizeResult(value, [credential]) };
+    for (let split = 0; split <= encoded.length; split++) {
+      const events = [];
+      const write = deltas(safe, credential, (event) => events.push(event.text));
+      write(encoded.slice(0, split));
+      write(encoded.slice(split));
+      write("", true);
+      assert.equal(events.join(""), "[redacted]");
+    }
+  });
+
+  test(`${encoding} actual SDK stream protects events and final results at every split`, async () => {
+    const values = [
+      ...new Set([
+        credential,
+        encodeURIComponent(credential),
+        Buffer.from(credential).toString("base64"),
+        JSON.stringify(credential).slice(1, -1),
+      ]),
+    ];
+    let texts = [];
+    const model = new mocks.MockLanguageModelV4({ doStream: () => streamed(chunks(texts)) });
+    const node = await load({ streaming: true }, adapter(model, undefined, { secret: credential }));
+    providers.getProviderConfig = () => ({ apiKey: credential });
+    for (const encoded of values) {
+      for (let split = 0; split <= encoded.length; split++) {
+        texts = ["prefix " + encoded.slice(0, split), encoded.slice(split) + " end"];
+        const { error, outputs } = await invoke(node, { payload: "question" });
+        assert.equal(error, undefined);
+        const events = outputs
+          .filter(([, event]) => event)
+          .map(([, event]) => event.modelEvent.text);
+        assert.equal(events.join(""), "prefix [redacted] end");
+        assert.equal(outputs.at(-1)[0].modelResult.text, "prefix [redacted] end");
+        assert.ok(!JSON.stringify(outputs).includes(encoded));
+      }
+    }
+  });
+}

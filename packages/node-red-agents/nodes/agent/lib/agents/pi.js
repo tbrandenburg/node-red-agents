@@ -108,7 +108,14 @@ class PiAdapter extends AgentAdapter {
   buildExecution(resolved) {
     const args = ["--no-session", "--mode", "json"];
 
-    if (resolved.model) args.push("--model", String(resolved.model));
+    if (resolved.cliProvider) args.push("--provider", resolved.cliProvider);
+    if (resolved.model)
+      args.push(
+        "--model",
+        resolved.cliProvider
+          ? String(resolved.model).slice(resolved.cliProvider.length + 1)
+          : String(resolved.model),
+      );
 
     // pi has no permission-prompt system to bypass in non-interactive
     // mode -- read/bash/edit/write tools just run immediately with no

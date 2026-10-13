@@ -34,6 +34,8 @@
                 promptPropType: { value: 'msg' },
 
                 model: { value: '' },
+                authMode: { value: 'default' },
+                modelProvider: { value: '', type: 'model-provider', required: false },
                 modelType: { value: 'str' },
 
                 startupTimeoutMs: { value: 15000, validate: RED.validators.number() },
@@ -248,6 +250,18 @@
         <code>/</code> for you).
     </div>
 
+    <div class="form-row">
+        <label for="node-input-authMode">CLI auth</label>
+        <select id="node-input-authMode" style="width:60%">
+            <option value="default">Default CLI authentication</option>
+            <option value="provider">Shared provider credential</option>
+            <option value="environment">Inherited environment credential</option>
+        </select>
+    </div>
+    <div class="form-row">
+        <label for="node-input-modelProvider">Model Provider</label>
+        <input type="text" id="node-input-modelProvider" style="width:60%">
+    </div>
     <div class="form-row agent-server-row-spawn">
         <label for="node-input-hostname"><i class="fa fa-server"></i> Hostname</label>
         <input type="text" id="node-input-hostname" placeholder="127.0.0.1" style="width:60%">
@@ -357,6 +371,13 @@
 </script>
 
 <script type="text/html" data-help-name="agent-server">
+    <p><b>CLI authentication:</b> Default preserves CLI login/config and inherited environment.
+      Provider injects a model-provider key at daemon launch; blank Model uses its default.
+      Environment ignores Model Provider and requires a supported provider-prefixed Model
+      plus its key in the Node-RED process environment. Saved CLI credentials may override
+      injected keys. OpenRouter is supported; Gateway requires explicit v1 API mode.
+      Custom provider URLs are unsupported. After rotation, terminate tracked daemons and
+      start new sessions, or redeploy this node. Existing daemons retain their launch key.</p>
     <p>Manages long-lived <code>opencode serve</code> daemons, one per session,
        as a companion to the <b>agent</b> node's one-shot execution model.</p>
     <h3>Known issues</h3>

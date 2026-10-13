@@ -12,6 +12,7 @@ const { parseModel } = require("./lib/model");
 const { createDaemonAuth } = require("./lib/auth");
 const apiV2 = require("./lib/api");
 const { detectOpenCodeMajorVersion } = require("../../shared/opencode-version");
+const { resolveCLIAuth, createSanitizer } = require("../../shared/cli-provider-auth");
 
 module.exports = function (RED) {
   "use strict";
@@ -25,6 +26,19 @@ module.exports = function (RED) {
     node.apiVersionMode = config.apiVersionMode || "auto";
     let detectedApiVersion;
     let versionDetectionWarningSent = false;
+    const sanitizers = [];
+    const sanitize = (value) => sanitizers.reduce((result, redact) => redact(result), value);
+    function cliAuth(model = "") {
+      return resolveCLIAuth(RED, {
+        authMode: config.authMode || "default",
+        modelProvider: config.modelProvider,
+        agent:
+          config.authMode && config.authMode !== "default"
+            ? `opencode-${apiVersion()}`
+            : "opencode",
+        model,
+      });
+    }
 
     node.operation = config.operation || "message";
 
@@ -111,20 +125,22 @@ module.exports = function (RED) {
     // uses to build a "what has been running" history.
     function emitEvent(sessionID, type, msg) {
       const summary = node.registry.summary();
-      node.send([
-        null,
-        {
-          _msgid: msg && msg._msgid,
-          topic: msg && msg.topic,
-          payload: { type },
-          sessionID,
-          serverId: node.id,
-          serverName: resolveServerName(msg),
-          active: summary.busy,
-          tracked: summary.total,
-          timestamp: Date.now(),
-        },
-      ]);
+      node.send(
+        sanitize([
+          null,
+          {
+            _msgid: msg && msg._msgid,
+            topic: msg && msg.topic,
+            payload: { type },
+            sessionID,
+            serverId: node.id,
+            serverName: resolveServerName(msg),
+            active: summary.busy,
+            tracked: summary.total,
+            timestamp: Date.now(),
+          },
+        ]),
+      );
     }
 
     function resolveTyped(prop, type, msg, fallback) {
@@ -183,7 +199,7 @@ module.exports = function (RED) {
     // with { sessionID, baseUrl }. Cleans up (kills the half-started
     // process) and rejects on any failure along the way -- callers
     // never have to clean up a partially-started daemon themselves.
-    async function spawnNewInstance(msg) {
+    async function spawnNewInstance(msg, model) {
       if (node.maxInstances > 0 && node.registry.size() >= node.maxInstances) {
         throw new Error(
           `agent-server: max instances (${node.maxInstances}) reached, cannot spawn a new daemon`,
@@ -198,7 +214,9 @@ module.exports = function (RED) {
         password: node.authPassword,
       });
 
-      const env = Object.assign({}, process.env);
+      const providerAuth = cliAuth(model ? `${model.providerID}/${model.modelID}` : "");
+      sanitizers.push(providerAuth.sanitize, createSanitizer([auth.password]));
+      const env = providerAuth.env;
       if (version === "v2") {
         env.OPENCODE_SERVER_USERNAME = auth.username;
         env.OPENCODE_SERVER_PASSWORD = auth.password;
@@ -212,6 +230,7 @@ module.exports = function (RED) {
         hostname: node.hostname,
         port,
         env,
+        sanitize,
         srt: {
           enabled: node.runtime === "srt",
           binary: node.srtBinary || undefined,
@@ -363,7 +382,8 @@ module.exports = function (RED) {
 
       let model;
       try {
-        model = parseModel(resolveTyped(node.model, node.modelType, msg, ""));
+        const selected = resolveTyped(node.model, node.modelType, msg, "");
+        model = parseModel(cliAuth(selected).model);
       } catch (err) {
         done(new Error(`agent-server: ${err.message}`));
         return;
@@ -389,7 +409,7 @@ module.exports = function (RED) {
         return;
       }
 
-      spawnNewInstance(msg)
+      spawnNewInstance(msg, model)
         .then(({ sessionID: newSessionID, baseUrl }) =>
           sendMessage(newSessionID, baseUrl, prompt, model, msg, send, done),
         )
@@ -587,6 +607,11 @@ module.exports = function (RED) {
     const VALID_OPERATIONS = ["message", "status", "abort", "history", "terminate"];
 
     node.on("input", function (msg, send, done) {
+      const originalSend = send;
+      const originalDone = done;
+      send = (value) => originalSend(sanitize(value));
+      done = (error) =>
+        originalDone(error ? new Error(sanitize(error.message || String(error))) : undefined);
       if (node.srtSettingsError) {
         done(new Error(`agent-server: ${node.srtSettingsError}`));
         return;

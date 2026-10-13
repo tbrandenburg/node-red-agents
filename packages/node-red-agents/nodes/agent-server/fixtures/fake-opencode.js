@@ -24,6 +24,27 @@ if (process.env.FAKE_OPENCODE_IGNORE_SIGTERM === "1") {
 }
 
 let sessionCounter = 0;
+let promptCounter = 0;
+let latestMessages = [];
+
+function reply(text) {
+  const parts =
+    text === "envelope-error" ? [] : [{ type: "text", text: "hello from fake session" }];
+  const error = text.startsWith("envelope-error")
+    ? {
+        name: "APIError",
+        data: {
+          message: "synthetic-private-message",
+          statusCode: 401,
+          isRetryable: false,
+          responseHeaders: { authorization: "synthetic-private-header" },
+          responseBody: "synthetic-private-body",
+          cause: "synthetic-private-cause",
+        },
+      }
+    : undefined;
+  return { parts, error };
+}
 
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
@@ -42,6 +63,53 @@ function readJsonBody(req) {
 }
 
 const server = http.createServer((req, res) => {
+  if (req.url === "/api/info") {
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ version: "2.0.18", pid: process.pid }));
+    return;
+  }
+
+  if (req.url.startsWith("/api/session")) {
+    res.setHeader("Content-Type", "application/json");
+    if (req.method === "POST" && req.url === "/api/session") {
+      sessionCounter += 1;
+      res.end(JSON.stringify({ data: { id: `fake-session-${port}-${sessionCounter}` } }));
+      return;
+    }
+    if (req.method === "POST" && req.url.endsWith("/prompt")) {
+      readJsonBody(req)
+        .then((body) => {
+          promptCounter += 1;
+          const user = { id: `msg-user-${promptCounter}`, type: "user" };
+          const response = reply(body.text);
+          latestMessages = [
+            {
+              id: `msg-assistant-${promptCounter}`,
+              type: "assistant",
+              time: { completed: Date.now() },
+              content: response.parts,
+              error: response.error
+                ? {
+                    type: response.error.name,
+                    message: response.error.data.message,
+                    status: response.error.data.statusCode,
+                  }
+                : undefined,
+            },
+            user,
+          ];
+          res.end(JSON.stringify({ data: user }));
+        })
+        .catch(() => res.writeHead(400).end());
+      return;
+    }
+    if (req.method === "GET" && req.url.endsWith("/message")) {
+      res.end(JSON.stringify({ data: latestMessages }));
+      return;
+    }
+    res.writeHead(204).end();
+    return;
+  }
   if (req.url === "/global/health") {
     if (process.env.FAKE_OPENCODE_AUTH_FAILURE === "1") {
       res.statusCode = 503;
@@ -70,6 +138,17 @@ const server = http.createServer((req, res) => {
   if (messageMatch) {
     readJsonBody(req)
       .then((body) => {
+        if (body.parts?.[0]?.text?.startsWith("envelope-error")) {
+          const response = reply(body.parts[0].text);
+          res.setHeader("Content-Type", "application/json");
+          res.end(
+            JSON.stringify({
+              info: { role: "assistant", error: response.error },
+              parts: response.parts,
+            }),
+          );
+          return;
+        }
         if (body.parts?.[0]?.text === "auth-error") {
           res.statusCode = 500;
           res.end(process.env.OPENROUTER_API_KEY);

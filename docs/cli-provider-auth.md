@@ -98,6 +98,19 @@ rotating the shared credential, send `msg.operation="terminate"` with each track
 close its tracked children. Provider-config redeploy alone does not update a running
 daemon's environment. Reused sessions still validate the requested provider/model.
 
+Agent-server checks assistant errors even when the daemon returns HTTP 200: v1
+uses `info.error` (`name`/`data`), while v2 uses `assistant.error`
+(`type`/`message`/`status`). These failures emit a `failed` lifecycle event, clear
+the session's busy state, and reach Catch without a final reply or `completed`
+event, including when partial text exists. Catch messages use fixed error labels
+and authentication/request-failure descriptions; raw provider messages, response
+bodies, headers and causes are not forwarded. The daemon remains tracked for
+reuse or explicit termination.
+
+Response contracts: [v1 SDK types](https://github.com/anomalyco/opencode/blob/v1.2.27/packages/sdk/js/src/gen/types.gen.ts),
+[v2.0.18 assistant schema](https://github.com/anomalyco/opencode/blob/v2.0.18/packages/schema/src/session-message.ts)
+and [v2.0.18 error schema](https://github.com/anomalyco/opencode/blob/v2.0.18/packages/schema/src/session-error.ts).
+
 Known injected and inherited API-key/token/password/secret values and their URL,
 JSON-escaped and Base64 representations are redacted from parsed child events,
 stderr-derived errors, results, terminal observer records and daemon replies/history.

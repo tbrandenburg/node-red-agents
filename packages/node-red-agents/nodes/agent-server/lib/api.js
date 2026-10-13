@@ -52,6 +52,33 @@ function messages(baseUrl, sessionID, opts) {
   return apiRequest(baseUrl, `/session/${encodeURIComponent(sessionID)}/message`, opts);
 }
 
+function assertMessageSuccess(response) {
+  const error = response?.info?.error || response?.error;
+  if (!error) return;
+  const type = error.name || error.type;
+  const status = error.data?.statusCode ?? error.status;
+  // Only fixed labels leave the daemon: provider messages, bodies and headers can contain secrets.
+  const labels = {
+    ProviderAuthError: "ProviderAuthError: provider authentication failed",
+    APIError:
+      status === 401 || status === 403
+        ? "APIError: provider authentication failed"
+        : "APIError: provider request failed",
+    MessageAbortedError: "MessageAbortedError: message aborted",
+    MessageOutputLengthError: "MessageOutputLengthError: output length exceeded",
+    ContextOverflowError: "ContextOverflowError: context limit exceeded",
+    StructuredOutputError: "StructuredOutputError: structured output failed",
+    UnknownError: "UnknownError: assistant generation failed",
+  };
+  throw new Error(
+    Object.prototype.hasOwnProperty.call(labels, type)
+      ? labels[type]
+      : status === 401 || status === 403
+        ? "provider authentication failed"
+        : "assistant generation failed",
+  );
+}
+
 async function waitForCompletion(baseUrl, sessionID, afterMessageID, opts = {}) {
   const deadline = Date.now() + opts.timeoutMs;
   while (Date.now() < deadline) {
@@ -73,8 +100,13 @@ async function waitForCompletion(baseUrl, sessionID, afterMessageID, opts = {}) 
     if (userIndex > 0) {
       const assistant = result
         .slice(0, userIndex)
-        .find((entry) => entry && entry.type === "assistant" && entry.time && entry.time.completed);
-      if (assistant) return assistant;
+        .find(
+          (entry) => entry && entry.type === "assistant" && (entry.error || entry.time?.completed),
+        );
+      if (assistant) {
+        assertMessageSuccess(assistant);
+        return assistant;
+      }
     }
     await new Promise((resolve) =>
       setTimeout(resolve, Math.min(200, Math.max(1, deadline - Date.now()))),
@@ -98,6 +130,7 @@ module.exports = {
   switchAgent,
   switchModel,
   messages,
+  assertMessageSuccess,
   waitForCompletion,
   abort,
 };

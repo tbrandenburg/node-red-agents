@@ -4,9 +4,12 @@ const { test, before, after, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
 const { createHash } = require("node:crypto");
 const path = require("node:path");
+const { createRequire } = require("node:module");
 const helper = require("node-red-node-test-helper");
 const server = require("../../agent-server");
 const provider = require("../../../model-provider/model-provider");
+const runtimeRequire = createRequire(require.resolve("node-red/package.json"));
+const catchNode = runtimeRequire("@node-red/nodes/core/common/25-catch.js");
 const fixture = path.join(__dirname, "../../fixtures/fake-opencode.js");
 const digest = (key) => createHash("sha256").update(key).digest("hex");
 
@@ -16,11 +19,15 @@ afterEach(() => helper.unload());
 
 async function load(options = {}) {
   await helper.load(
-    [server, provider],
+    [server, provider, catchNode],
     [
+      { id: "tab", type: "tab", label: "daemon auth" },
       { id: "p", type: "model-provider", provider: "openrouter", defaultModel: "anthropic/test" },
       {
         id: "s",
+        z: "tab",
+        x: 100,
+        y: 100,
         type: "agent-server",
         apiVersionMode: "v1",
         opencodeBinary: fixture,
@@ -31,8 +38,10 @@ async function load(options = {}) {
         wires: [["out"], ["events"]],
         ...options,
       },
-      { id: "out", type: "helper" },
-      { id: "events", type: "helper" },
+      { id: "out", type: "helper", z: "tab", x: 200, y: 100 },
+      { id: "events", type: "helper", z: "tab", x: 200, y: 200 },
+      { id: "catcher", type: "catch", z: "tab", x: 100, y: 300, scope: ["s"], wires: [["caught"]] },
+      { id: "caught", type: "helper", z: "tab", x: 200, y: 300 },
     ],
     { p: { apiKey: "synthetic-daemon-first" } },
   );
@@ -143,3 +152,41 @@ test("HTTP error echoes and unhealthy daemon stderr are sanitized; failed startu
     else process.env.FAKE_OPENCODE_AUTH_FAILURE = previous;
   }
 });
+
+for (const version of ["v1", "v2"]) {
+  for (const prompt of ["envelope-error", "envelope-error-partial"]) {
+    test(`${version} HTTP 200 APIError (${prompt}) reaches Catch without final success and leaves session reusable`, async () => {
+      await load({ apiVersionMode: version });
+      const node = helper.getNode("s");
+      const outputs = [];
+      const events = [];
+      const errors = [];
+      const caught = [];
+      helper.getNode("caught").on("input", (msg) => caught.push(msg));
+      helper.getNode("out").on("input", (msg) => outputs.push(msg));
+      helper.getNode("events").on("input", (msg) => events.push(msg));
+      node.on("call:error", (call) => errors.push(call.args[0]));
+
+      await assert.rejects(send({ payload: prompt }), /APIError: provider authentication failed/);
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(outputs.length, 0);
+      assert.equal(errors.length, 1);
+      assert.equal(caught.length, 1);
+      assert.match(caught[0].error.message, /APIError: provider authentication failed/);
+      assert.deepEqual(
+        events.map((msg) => msg.payload.type),
+        ["spawned", "running", "failed"],
+      );
+      assert.equal(events.at(-1).active, 0);
+      const sessionID = node.registry.list()[0];
+      assert.equal(node.registry.get(sessionID).busy, false);
+      assert.ok(!JSON.stringify({ errors, events, caught }).includes("synthetic-private"));
+      assert.equal(errors[0].cause, undefined);
+
+      const reused = await send({ payload: "hello", sessionID });
+      assert.equal(reused.payload, "hello from fake session");
+      assert.equal(node.registry.size(), 1);
+      assert.equal(node.registry.get(sessionID).busy, false);
+    });
+  }
+}

@@ -6,6 +6,42 @@ const http = require("node:http");
 const { once } = require("node:events");
 const api = require("../lib/api");
 
+test("assistant failure labels discard untrusted diagnostics and preserve error-free empty replies", () => {
+  for (const response of [{ parts: [] }, { content: [] }, { info: { error: null }, parts: [] }]) {
+    assert.doesNotThrow(() => api.assertMessageSuccess(response));
+  }
+  const failures = [
+    [
+      { info: { error: { name: "ProviderAuthError", data: { message: "synthetic-private" } } } },
+      "ProviderAuthError: provider authentication failed",
+    ],
+    [
+      {
+        info: {
+          error: { name: "APIError", data: { statusCode: 500, message: "synthetic-private" } },
+        },
+      },
+      "APIError: provider request failed",
+    ],
+    [
+      { error: { type: "APIError", status: 403, message: "synthetic-private" } },
+      "APIError: provider authentication failed",
+    ],
+    [
+      { error: { type: "synthetic-private", status: 401, message: "synthetic-private" } },
+      "provider authentication failed",
+    ],
+    [{ error: { type: "__proto__", message: "synthetic-private" } }, "assistant generation failed"],
+    [{ info: { error: "synthetic-private" } }, "assistant generation failed"],
+  ];
+  for (const [response, message] of failures) {
+    assert.throws(
+      () => api.assertMessageSuccess(response),
+      (error) => error.message === message && error.cause === undefined,
+    );
+  }
+});
+
 async function withServer(handler, run) {
   const server = http.createServer(handler);
   server.listen(0, "127.0.0.1");
@@ -116,3 +152,35 @@ test("v2 completion polling respects its deadline", async () => {
     },
   );
 });
+
+for (const completed of [undefined, Date.now()]) {
+  test(`v2 completion polling rejects assistant.error with completed=${Boolean(completed)}`, async () => {
+    await withServer(
+      (_req, res) => {
+        res.setHeader("content-type", "application/json");
+        res.end(
+          JSON.stringify({
+            data: [
+              {
+                id: "msg_assistant",
+                type: "assistant",
+                time: { completed },
+                content: [],
+                error: { type: "APIError", status: 401, message: "synthetic-private" },
+              },
+              { id: "msg_user", type: "user" },
+            ],
+          }),
+        );
+      },
+      async (baseUrl) => {
+        await assert.rejects(
+          api.waitForCompletion(baseUrl, "ses_test", "msg_user", { timeoutMs: 300 }),
+          (error) =>
+            error.message === "APIError: provider authentication failed" &&
+            error.cause === undefined,
+        );
+      },
+    );
+  });
+}

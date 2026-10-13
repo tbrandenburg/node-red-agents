@@ -329,6 +329,7 @@ module.exports = function (RED) {
                 ...auth,
               });
 
+        apiV2.assertMessageSuccess(response);
         node.registry.setBusy(sessionID, false);
         const durationMs = Number((process.hrtime.bigint() - startedAtNs) / 1000000n);
         const resultMsg = Object.assign({}, msg, {

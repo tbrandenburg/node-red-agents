@@ -1,0 +1,71 @@
+<script type="text/javascript">
+  RED.nodes.registerType("model", {
+    category: "agents",
+    color: "#a6bbcf",
+    defaults: {
+      name: { value: "" },
+      provider: { value: "", type: "model-provider", required: true },
+      operation: { value: "generate", required: true, validate: function(value) { return ["generate", "structured", "embed"].includes(value); } },
+      model: { value: "" },
+      inputMode: { value: "prompt", required: true },
+      input: { value: "payload", required: true },
+      inputType: { value: "msg" },
+      schema: { value: '{"type":"object","properties":{"answer":{"type":"string"}},"required":["answer"],"additionalProperties":false}' },
+      timeout: { value: 0, validate: function(value) { return Number.isInteger(Number(value)) && Number(value) >= 0 && Number(value) <= 600000; } },
+      streaming: { value: false }
+    },
+    inputs: 1,
+    outputs: 2,
+    outputLabels: ["Final result", "Stream events"],
+    icon: "model-brain.svg",
+    label: function() { return this.name || "model " + this.operation; },
+    oneditprepare: function() {
+      $("#node-input-input").typedInput({ typeField: "#node-input-inputType", types: ["str", "msg", "flow", "global", "json", "jsonata"] });
+      function update() {
+        const operation = $("#node-input-operation").val();
+        $(".model-schema").toggle(operation === "structured");
+        $("#node-input-streaming").prop("disabled", operation === "embed");
+        if (operation === "embed") {
+          $("#node-input-streaming").prop("checked", false);
+          $("#node-input-inputMode").val("prompt");
+        }
+      }
+      $("#node-input-operation").on("change", update);
+      update();
+    }
+  });
+</script>
+
+<script type="text/html" data-template-name="model">
+  <div class="form-row"><label for="node-input-name">Name</label><input id="node-input-name" type="text"></div>
+  <div class="form-row"><label for="node-input-provider">Provider</label><input id="node-input-provider" type="text"></div>
+  <div class="form-row"><label for="node-input-operation">Operation</label><select id="node-input-operation"><option value="generate">Generate</option><option value="structured">Structured</option><option value="embed">Embed</option></select></div>
+  <div class="form-row"><label for="node-input-model">Model</label><input id="node-input-model" type="text" placeholder="Provider default"></div>
+  <div class="form-row"><label for="node-input-inputMode">Input mode</label><select id="node-input-inputMode"><option value="prompt">Prompt / text</option><option value="messages">Messages</option></select></div>
+  <div class="form-row"><label for="node-input-input">Input</label><input id="node-input-input" type="text"><input id="node-input-inputType" type="hidden"></div>
+  <div class="form-row model-schema"><label for="node-input-schema">JSON schema</label><textarea id="node-input-schema" rows="8" style="width:70%"></textarea></div>
+  <div class="form-row"><label for="node-input-timeout">Timeout (ms)</label><input id="node-input-timeout" type="number" min="0" max="600000" placeholder="0 = provider timeout"></div>
+  <div class="form-row"><label for="node-input-streaming">Streaming</label><input id="node-input-streaming" type="checkbox" style="width:auto"></div>
+</script>
+
+<script type="text/html" data-help-name="model">
+  <p>Direct AI SDK generation, schema-validated object generation or single-text embedding.
+  Select a model-provider with separately stored credentials. Requires Node 22+.</p>
+  <p>Input defaults to msg.payload. Typed input supports literal text, msg, flow,
+  global, JSON and JSONata. Messages mode accepts an array of text-only
+  {role, content} entries with system, user or assistant roles. Embed requires
+  non-empty text and has no streaming or batch mode.</p>
+  <p>msg.model overrides the configured model; blank selects the provider default.
+  Overrides must match the provider's exact allowlist. Credentials, URLs, headers
+  and provider options in messages are never passed to the SDK.</p>
+  <p>Output 1 sends exactly one successful message with msg.modelResult containing
+  text, object or embedding and available SDK metadata. Output 2 sends
+  msg.modelEvent = {type: "text-delta", text} for sanitized streamed text.
+  Credential-safe suffix buffering can delay short responses until completion.
+  Unrelated message fields and payload are preserved on both outputs.</p>
+  <p>Structured requires a strict draft-07 object JSON schema, validated with Ajv
+  and AI SDK Output.object. Invalid schemas, provider errors and stream errors
+  reach Catch; failed requests do not emit a final success. Timeout 0 inherits
+  the provider timeout; positive values impose an additional deadline. Closing
+  or redeploying aborts independent active requests. No automatic retries or tools.</p>
+</script>

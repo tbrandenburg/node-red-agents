@@ -119,7 +119,7 @@ test("rejects unsupported combinations, invalid modes, missing config and provid
   assert.equal(auth.model, "openrouter/openai/test");
 });
 
-test("sanitizes nested echoes, error details, encoded keys and sensitive field names", () => {
+test("sanitizes nested echoes and encoded keys without removing application field names", () => {
   const secret = "synthetic key/with+punctuation";
   const sanitize = createSanitizer([secret]);
   const value = {
@@ -137,7 +137,47 @@ test("sanitizes nested echoes, error details, encoded keys and sensitive field n
   ]) {
     assert.ok(!output.includes(variant));
   }
-  assert.equal(sanitize(value).env, "[REDACTED]");
+  assert.deepEqual(sanitize(value).env, { KEY: "[REDACTED]" });
+});
+
+test("default authentication preserves domain keys, probabilities and message histories", () => {
+  const auth = resolveCLIAuth({}, { agent: "opencode-v1" }, {});
+  const msg = {
+    payload: { token: "word-label", secret: 0.2, headers: ["heading"] },
+    probabilities: { password: 0.8, secret: 0.2 },
+    messages: [{ role: "user", content: "hello", body: "task" }],
+  };
+  assert.deepEqual(auth.sanitize(msg), msg);
+});
+
+test("message cloning preserves cycles, shared references and deeply nested application data", () => {
+  const sanitize = createSanitizer(["synthetic-cycle-secret"]);
+  const msg = { payload: { token: "label", secret: "synthetic-cycle-secret" } };
+  msg.self = msg;
+  msg.alias = msg.payload;
+  const copy = sanitize(msg);
+  assert.notEqual(copy, msg);
+  assert.equal(copy.self, copy);
+  assert.equal(copy.alias, copy.payload);
+  assert.equal(copy.payload.secret, "[REDACTED]");
+  assert.equal(msg.payload.secret, "synthetic-cycle-secret");
+  const deep = {};
+  let tail = deep;
+  for (let depth = 0; depth < 10000; depth++) tail = tail.next = {};
+  tail.token = "label";
+  let cloned = sanitize(deep);
+  for (let depth = 0; depth < 10000; depth++) cloned = cloned.next;
+  assert.equal(cloned.token, "label");
+  assert.doesNotThrow(() => JSON.stringify(sanitize.diagnostic(msg)));
+  let diagnostic = sanitize.diagnostic(deep);
+  for (let depth = 0; depth < 21; depth++) diagnostic = diagnostic.next;
+  assert.equal(diagnostic, "[REDACTED]");
+  const sparse = new Array(3);
+  sparse[0] = msg;
+  const array = sanitize(sparse);
+  assert.equal(array.length, 3);
+  assert.equal(1 in array, false);
+  assert.equal(array[0].self, array[0]);
 });
 
 test("sanitization preserves ordinary Node-RED Date and binary message properties", () => {
@@ -150,4 +190,46 @@ test("sanitization preserves ordinary Node-RED Date and binary message propertie
   assert.ok(Buffer.isBuffer(result.bytes));
   assert.deepEqual(result.bytes, bytes);
   assert.equal(result.echo.toString(), "[REDACTED]");
+});
+
+test("logical text redaction bounds retained prefixes and preserves structured event metadata", () => {
+  const secret = "synthetic-prefix-secret";
+  const sanitize = createSanitizer([secret]);
+  const events = [];
+  const redactor = sanitize.events((event) => events.push(event));
+  const push = (text, type = "text") =>
+    redactor.push({
+      type: "agent",
+      sessionID: "session",
+      data: { type, part: { id: "part", text } },
+    });
+  push("x".repeat(100000) + secret[0]);
+  assert.equal(events[0].data.part.text, "x".repeat(100000));
+  const progress = {
+    type: "progress",
+    data: { type: "step_finish", part: { tokens: { input: 2 } } },
+  };
+  redactor.push(progress);
+  for (const char of secret.slice(1)) push(char, "reasoning");
+  push(" suffix");
+  redactor.flush();
+  const text = events
+    .filter((event) => event.type === "agent")
+    .map((event) => event.data.part.text)
+    .join("");
+  assert.equal(text, "x".repeat(100000) + "[REDACTED] suffix");
+  assert.deepEqual(
+    events.find((event) => event.type === "progress"),
+    progress,
+  );
+  assert.ok(
+    events
+      .filter((event) => event.type === "agent")
+      .every((event) => event.sessionID === "session" && event.data.part.id === "part"),
+  );
+  const ordinary = [];
+  const defaultRedactor = createSanitizer().events((event) => ordinary.push(event));
+  defaultRedactor.push(progress);
+  defaultRedactor.flush();
+  assert.deepEqual(ordinary, [progress]);
 });

@@ -20,6 +20,8 @@ CLI, run tools, or select a fallback model.
 Credentials, URLs, headers, provider options and arbitrary SDK options in messages
 are not accepted as request overrides. Messages mode projects only `role` and
 `content`; multimodal uploads and tool messages are outside this node's contract.
+Messages mode opts into SDK 7's documented `allowSystemInMessages` option for both
+generation and streaming, preserving system/user/assistant history order.
 
 ## Outputs
 
@@ -101,5 +103,6 @@ creation/auth/network/unsupported failures, full-stream errors, split-secret
 redaction, timeout, close cancellation, concurrent requests and typed inputs.
 
 References: [AI SDK generation](https://ai-sdk.dev/docs/ai-sdk-core/generating-text),
+[SDK 7 system-message contract](https://ai-sdk.dev/docs/migration-guides/migration-guide-7-0#prompt-messages-system-messages-in-prompt-or-messages-are-rejected-by-default),
 [structured output](https://ai-sdk.dev/docs/ai-sdk-core/generating-structured-data),
 [Lucide brain](https://lucide.dev/icons/brain).

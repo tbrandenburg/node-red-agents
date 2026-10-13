@@ -101,10 +101,15 @@ daemon's environment. Reused sessions still validate the requested provider/mode
 Known injected and inherited API-key/token/password/secret values and their URL,
 JSON-escaped and Base64 representations are redacted from parsed child events,
 stderr-derived errors, results, terminal observer records and daemon replies/history.
-Sensitive auth/header/env fields and Bearer tokens are redacted. Sanitizers retain
-old launch keys for daemon responses after rotation. This protects the package's
-emitted data; CLI-owned files, external plugin logs and transformed/fragmented
-secret exfiltration by arbitrary child code are outside this projection's guarantee.
+Application field names (including `token`, `secret`, `headers` and `password`)
+are preserved; known credential values and Bearer tokens are redacted. Cyclic
+application messages are cloned with their references intact; external diagnostics
+are depth-bounded. Sanitizers retain old launch keys for daemon responses after
+rotation. OpenCode text/reasoning events buffer possible known-credential prefixes
+across parsed events before live emission, observer notification or final retention.
+Safe text may be emitted in smaller events with the original structured metadata.
+This protects the package's emitted data; CLI-owned files, external plugin logs and
+arbitrary transformations outside the listed encodings are outside this guarantee.
 
 ## Verification
 

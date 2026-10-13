@@ -117,3 +117,89 @@ test("launch errors are redacted and unsupported combinations never reach runtim
     /unsupported/,
   );
 });
+
+test("real OpenCode parsed text fragments cannot reconstruct credentials in events or final retention", async () => {
+  const credential = 'synthetic-split/key"with\\symbols';
+  const configuration = {
+    nodes: {
+      getNode: () => ({
+        ...RED.nodes.getNode(),
+        getProviderConfig: () => ({
+          ...RED.nodes.getNode().getProviderConfig(),
+          apiKey: credential,
+        }),
+      }),
+    },
+  };
+  for (const value of [
+    credential,
+    encodeURIComponent(credential),
+    Buffer.from(credential).toString("base64"),
+    JSON.stringify(credential).slice(1, -1),
+  ]) {
+    for (let split = 1; split < value.length; split++) {
+      const events = [];
+      const adapter = new OpenCodeAdapter({ fixedVersion: 1 });
+      const result = await runAgent({
+        adapter,
+        runtime: {
+          execute: async (_request, { onLine }) => {
+            for (const text of [
+              "prefix " + value.slice(0, split),
+              value.slice(split) + " suffix",
+            ]) {
+              onLine(
+                JSON.stringify({
+                  type: "text",
+                  sessionID: "offline-session",
+                  part: { id: "text-part", text },
+                }),
+              );
+            }
+            onLine(
+              JSON.stringify({
+                type: "step_finish",
+                sessionID: "offline-session",
+                part: { cost: 0.01, tokens: { input: 2, output: 3 } },
+              }),
+            );
+            return { exitCode: 0, signal: null, stderr: "", timedOut: false };
+          },
+        },
+        resolved: { invocation: "prompt", prompt: "hello" },
+        executionId: "split-test",
+        onEvent: (event) => events.push(event),
+        resolveAuth: () =>
+          resolveCLIAuth(configuration, { agent: "opencode-v1", authMode: "provider" }, {}),
+      });
+      const text = (records) =>
+        records
+          .filter((event) => event.data.type === "text")
+          .map((event) => event.data.part.text)
+          .join("");
+      assert.equal(text(events), "prefix [REDACTED] suffix");
+      assert.equal(text(result.events), text(events));
+      assert.equal(result.status, "completed");
+      assert.equal(result.costUsd, 0.01);
+      assert.ok(events.every((event) => event.sessionID === "offline-session"));
+      assert.ok(!JSON.stringify({ events, result }).includes(value));
+    }
+  }
+});
+
+test("buffered safe suffix does not change original OpenCode result text boundaries", async () => {
+  const result = await runAgent({
+    adapter: new OpenCodeAdapter({ fixedVersion: 1 }),
+    runtime: {
+      execute: async (_request, { onLine }) => {
+        onLine(JSON.stringify({ type: "text", part: { text: "hello after 2 attempts" } }));
+        return { exitCode: 0, signal: null, stderr: "", timedOut: false };
+      },
+    },
+    resolved: { invocation: "prompt", prompt: "hello" },
+    executionId: "suffix-boundary",
+    resolveAuth: () => resolveCLIAuth(RED, { agent: "opencode-v1", authMode: "provider" }, {}),
+  });
+  assert.equal(result.payload, "hello after 2 attempts");
+  assert.equal(result.events.map((event) => event.data.part.text).join(""), result.payload);
+});

@@ -43,6 +43,24 @@ async function runAgent({
     };
 
     const events = [];
+    const parsed = [];
+    const groups = new WeakMap();
+    const emit = (event, source) => {
+      events.push(event);
+      // Rejoin safe fragments from one original event: adapters may separate distinct events.
+      if (source && groups.has(source)) {
+        const prior = groups.get(source);
+        prior.data.part.text += event.data.part.text;
+      } else {
+        const copy = source
+          ? { ...event, data: { ...event.data, part: { ...event.data.part } } }
+          : event;
+        parsed.push(copy);
+        if (source) groups.set(source, copy);
+      }
+      if (onEvent) onEvent(event);
+    };
+    const redactor = sanitize.events?.(emit);
     const startedAt = Date.now();
     if (onStatus) onStatus("running");
 
@@ -50,21 +68,22 @@ async function runAgent({
       onLine: (line) => {
         let event;
         try {
-          event = sanitize(adapter.parseEvent(line));
+          event = adapter.parseEvent(line);
         } catch (err) {
           // parseEvent must never crash the node; treat as ignorable.
           event = null;
         }
         if (event) {
-          events.push(event);
-          if (onEvent) onEvent(event);
+          if (redactor) redactor.push(event);
+          else emit(sanitize(event));
         }
       },
     });
+    redactor?.flush();
 
     const durationMs = Date.now() - startedAt;
     const result = adapter.parseResult(
-      events,
+      parsed,
       outcome.exitCode,
       outcome.signal,
       sanitize(outcome.stderr),

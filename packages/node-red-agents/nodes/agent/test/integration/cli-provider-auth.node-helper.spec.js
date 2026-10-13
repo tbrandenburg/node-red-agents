@@ -136,3 +136,30 @@ test("environment mode uses ambient key and ignores a missing provider reference
     else process.env.OPENROUTER_API_KEY = previous;
   }
 });
+
+test("split child text is redacted before event output and terminal observers", async () => {
+  const records = [];
+  helper.settings({
+    nodeRedAgentsExecutionObserver: (record) => records.push(record),
+    nodeRedAgentsLifecycleObserver: (record) => records.push(record),
+  });
+  await load();
+  const events = [];
+  helper.getNode("events").on("input", (msg) => events.push(msg));
+  const received = output();
+  helper
+    .getNode("a")
+    .receive({ payload: "split", token: "label", secret: 0.2, headers: ["heading"] });
+  const [reply] = await received;
+  const text = events
+    .filter((msg) => msg.payload.data?.type === "text")
+    .map((msg) => msg.payload.data.part.text)
+    .join("");
+  assert.equal(text, "prefix [REDACTED] suffix");
+  assert.equal(reply.token, "label");
+  assert.equal(reply.secret, 0.2);
+  assert.deepEqual(reply.headers, ["heading"]);
+  assert.ok(records.length >= 2);
+  assert.ok(!JSON.stringify({ records, events, reply }).includes("synthetic-first-key"));
+  assert.ok(records.some((record) => JSON.stringify(record).includes("[REDACTED]")));
+});

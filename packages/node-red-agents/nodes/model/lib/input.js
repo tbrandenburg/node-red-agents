@@ -86,7 +86,10 @@ async function input(RED, node, config, msg) {
     validate,
     prompt: prompt
       ? { prompt: value }
-      : { messages: value.map(({ role, content }) => ({ role, content })) },
+      : {
+          allowSystemInMessages: true,
+          messages: value.map(({ role, content }) => ({ role, content })),
+        },
     value,
   };
 }

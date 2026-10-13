@@ -1,6 +1,8 @@
 "use strict";
 
 const { getProviderConfig } = require("./model-provider");
+const { secretVariants } = require("./providers/safety");
+const { createEventRedactor } = require("./cli-stream-redactor");
 
 const mappings = {
   openrouter: { key: "OPENROUTER_API_KEY", url: "https://openrouter.ai/api/v1" },
@@ -12,41 +14,48 @@ function invalid(message) {
 }
 
 function createSanitizer(secrets = []) {
-  const variants = [
-    ...new Set(
-      secrets
-        .filter(Boolean)
-        .flatMap((secret) => [
-          secret,
-          encodeURIComponent(secret),
-          Buffer.from(secret).toString("base64"),
-          JSON.stringify(secret).slice(1, -1),
-        ]),
-    ),
-  ].sort((a, b) => b.length - a.length);
-  function sanitize(value) {
-    if (typeof value === "string") {
-      return variants
-        .reduce((text, secret) => text.split(secret).join("[REDACTED]"), value)
-        .replace(/\bBearer\s+[^\s"'<>]+/gi, "Bearer [REDACTED]");
+  const variants = secretVariants(secrets);
+  const text = (value) =>
+    variants
+      .reduce((value, secret) => value.split(secret).join("[REDACTED]"), value)
+      .replace(/\bBearer\s+[^\s"'<>]+/gi, "Bearer [REDACTED]");
+  function clone(value, diagnostic = false) {
+    const seen = new Map();
+    const pending = [];
+    function copy(value, depth) {
+      if (typeof value === "string") return text(value);
+      if (!value || typeof value !== "object") return value;
+      if (diagnostic && (depth > 20 || seen.has(value))) return "[REDACTED]";
+      if (seen.has(value)) return seen.get(value);
+      if (value instanceof Date) return new Date(value.getTime());
+      if (Buffer.isBuffer(value)) {
+        const original = value.toString();
+        const redacted = text(original);
+        return redacted === original ? Buffer.from(value) : Buffer.from(redacted);
+      }
+      const result = Array.isArray(value) ? new Array(value.length) : {};
+      seen.set(value, result);
+      pending.push({ value, result, depth });
+      return result;
     }
-    if (value instanceof Date) return new Date(value.getTime());
-    if (Buffer.isBuffer(value)) {
-      const text = value.toString();
-      const redacted = sanitize(text);
-      return redacted === text ? Buffer.from(value) : Buffer.from(redacted);
+    const result = copy(value, 0);
+    // Iterative traversal preserves deep application messages without consuming the call stack.
+    for (let index = 0; index < pending.length; index++) {
+      const { value, result, depth } = pending[index];
+      for (const [key, entry] of Object.entries(value)) {
+        Object.defineProperty(result, text(key), {
+          value: copy(entry, depth + 1),
+          enumerable: true,
+          configurable: true,
+          writable: true,
+        });
+      }
     }
-    if (Array.isArray(value)) return value.map(sanitize);
-    if (!value || typeof value !== "object") return value;
-    return Object.fromEntries(
-      Object.entries(value).map(([key, entry]) => [
-        sanitize(key),
-        /^(env|authorization|headers|api[_-]?key|password|token|secret)$/i.test(key)
-          ? "[REDACTED]"
-          : sanitize(entry),
-      ]),
-    );
+    return result;
   }
+  const sanitize = (value) => clone(value);
+  sanitize.diagnostic = (value) => clone(value, true);
+  sanitize.events = (emit) => createEventRedactor(sanitize.diagnostic, variants, emit);
   return sanitize;
 }
 

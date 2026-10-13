@@ -3,13 +3,28 @@
 const blocked =
   /^(?:api[-_]?key|authorization|proxy[-_]?authorization|cookie|set[-_]?cookie|headers|request|body|rawResponse|responseBody|cause|stack|token|secret|password)$/i;
 
+function secretVariants(secrets) {
+  return [
+    ...new Set(
+      secrets
+        .filter(Boolean)
+        .flatMap((secret) => [
+          secret,
+          encodeURIComponent(secret),
+          Buffer.from(secret).toString("base64"),
+          JSON.stringify(secret).slice(1, -1),
+        ]),
+    ),
+  ].sort((a, b) => b.length - a.length);
+}
+
 function sanitize(value, secrets = [], depth = 0, metadata = true) {
   if (depth > 20) return "[redacted]";
   if (typeof value === "string") {
-    const redacted = secrets
-      .filter(Boolean)
-      .flatMap((secret) => [secret, encodeURIComponent(secret)])
-      .reduce((text, secret) => text.split(secret).join("[redacted]"), value);
+    const redacted = secretVariants(secrets).reduce(
+      (text, secret) => text.split(secret).join("[redacted]"),
+      value,
+    );
     return redacted.replace(/\bBearer\s+[^\s,;"'}]+/gi, "Bearer [redacted]");
   }
   if (value == null || typeof value === "boolean") return value;
@@ -116,4 +131,4 @@ async function runRequest(callback, { timeout, signal, secrets = [] }) {
   }
 }
 
-module.exports = { sanitizeResult, safeError, runRequest };
+module.exports = { sanitizeResult, safeError, runRequest, secretVariants };

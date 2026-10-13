@@ -553,3 +553,68 @@ test("language streaming warnings are redacted before actual SDK logging", async
     );
   }
 });
+
+test("Gateway generate and stream warning logs and results redact recoverable key encodings", async (t) => {
+  const logged = [];
+  t.mock.method(process, "emitWarning", (message) => logged.push(String(message)));
+  const credential = 'offline-key/with"quote\\slash';
+  const variants = [
+    credential,
+    encodeURIComponent(credential),
+    Buffer.from(credential).toString("base64"),
+    JSON.stringify(credential).slice(1, -1),
+  ];
+  const RED = runtime("gateway");
+  const getNode = RED.nodes.getNode;
+  RED.nodes.getNode = (id) => {
+    const node = getNode(id);
+    return (
+      node && {
+        ...node,
+        getProviderConfig: () => ({ ...node.getProviderConfig(), apiKey: credential }),
+      }
+    );
+  };
+  for (const streaming of [false, true]) {
+    const warnings = [{ type: "other", message: variants.join(" | ") }];
+    const adapter = await createProvider(RED, "config", {
+      fetch: async () => {
+        const finish = {
+          finishReason: { unified: "stop", raw: "stop" },
+          usage: { inputTokens: { total: 2 }, outputTokens: { total: 1 } },
+        };
+        if (!streaming)
+          return json({
+            content: [{ type: "text", text: variants.join(" | ") }],
+            warnings,
+            ...finish,
+          });
+        const parts = [
+          { type: "stream-start", warnings },
+          { type: "text-start", id: "text" },
+          { type: "text-delta", id: "text", delta: variants.join(" | ") },
+          { type: "text-end", id: "text" },
+          { type: "finish", ...finish },
+        ];
+        return new Response(parts.map((part) => `data: ${JSON.stringify(part)}\n\n`).join(""), {
+          headers: { "content-type": "text/event-stream" },
+        });
+      },
+    });
+    const result = await adapter.run(async ({ sdk, ...lifecycle }) => {
+      const options = {
+        model: adapter.createLanguageModel("openai/gpt-test"),
+        prompt: "Hi",
+        ...lifecycle,
+      };
+      if (!streaming) return sdk.generateText(options);
+      const stream = sdk.streamText(options);
+      await stream.consumeStream();
+      return { text: await stream.text, warnings: await stream.warnings };
+    });
+    assert.equal(result.text, variants.map(() => "[redacted]").join(" | "));
+    assert.equal(result.warnings[0].message, result.text);
+  }
+  assert.ok(logged.length >= 2);
+  for (const variant of variants) assert.ok(!logged.some((message) => message.includes(variant)));
+});

@@ -224,6 +224,35 @@ test("typed messages and async JSONata input are evaluated by Node-RED", async (
   assert.equal(model.doGenerateCalls[0].prompt[0].providerOptions, undefined);
 });
 
+for (const streaming of [false, true]) {
+  test(`system/user/assistant history reaches actual SDK ${streaming ? "streamText" : "generateText"} in order`, async () => {
+    const model = new mocks.MockLanguageModelV4({
+      doGenerate: generated(),
+      doStream: streamed(chunks(["hello"])),
+    });
+    const node = await load({ inputMode: "messages", streaming }, adapter(model));
+    const history = [
+      { role: "system", content: "Answer briefly" },
+      { role: "user", content: "First question" },
+      { role: "assistant", content: "First answer" },
+      { role: "system", content: "Use plain text" },
+      { role: "user", content: "Next question" },
+    ];
+    const { error, outputs } = await invoke(node, { payload: history });
+    assert.equal(error, undefined);
+    assert.equal(outputs.at(-1)[0].modelResult.text, "hello");
+    const calls = streaming ? model.doStreamCalls : model.doGenerateCalls;
+    assert.equal(calls.length, 1);
+    assert.deepEqual(
+      calls[0].prompt.map(({ role, content }) => ({
+        role,
+        content: typeof content === "string" ? content : content[0].text,
+      })),
+      history,
+    );
+  });
+}
+
 test("invalid inputs, schema, model and unsupported embed streaming emit no success", async () => {
   const cases = [
     [{ operation: "unknown" }, { payload: "x" }],

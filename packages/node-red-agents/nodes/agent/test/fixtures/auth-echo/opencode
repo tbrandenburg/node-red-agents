@@ -8,6 +8,10 @@ const model = args[args.indexOf("--model") + 1];
 if (prompt === "fail") {
   console.log(JSON.stringify({ type: "error", error: { data: { message: key } } }));
   process.stderr.write(key);
+} else if (prompt === "split") {
+  for (const text of ["prefix " + key.slice(0, 9), key.slice(9) + " suffix"]) {
+    console.log(JSON.stringify({ type: "text", sessionID: "auth-test-session", part: { text } }));
+  }
 } else {
   console.log(
     JSON.stringify({

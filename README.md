@@ -16,7 +16,7 @@ programming model.
 This repository *is* the source and development home of that npm
 package (`packages/node-red-agents`) — plus a runnable Node-RED instance
 to develop and demo it against. It is not a generic scaffold; it's one
-specific, versioned, publishable package with four nodes.
+specific, versioned, publishable package with seven node types.
 
 ## Contents
 
@@ -42,11 +42,33 @@ specific, versioned, publishable package with four nodes.
 | **agent-server** | Manages a long-lived `opencode serve` daemon (session-based) for flows that need repeated, low-latency calls instead of `agent`'s one-shot model. Supports v1/v2 API selection (auto-detected by default), asynchronous v2 prompt completion, `message`/`status`/`abort`/`history`/`terminate`, auto-spawn, instance caps, and optional Basic Auth. SRT sandboxing is **not functional** for this node (see its built-in help). |
 | **gh** | Runs [GitHub CLI](https://cli.github.com) (`gh`) commands and returns parsed JSON/text output, with structured error classification (auth, rate-limit, not-found, network, timeout, etc.) and per-message overrides via `msg.gh`. |
 | **interaction** | Human-on-the-loop / human-in-the-loop decision boundary. Emits a Request, accepts a later correlated decision on the same input, and continues with the original message. Optional versioned host plan/resume API supports durable suspension. |
+| **model-provider** | Reusable OpenRouter or Vercel AI Gateway config with native protected API-key credentials, trusted-admin URL configuration, model allowlisting and request timeout. |
+| **model** | Direct AI SDK generation, schema-validated structured output and embeddings. Two outputs carry a final `msg.modelResult` and optional streaming `msg.modelEvent` text deltas. |
+| **decision** | Typed Jev Boolean/Choice/Score questions through the AI SDK. Returns `msg.decisionResult` probabilities and available provider metadata; routing thresholds belong in a Switch node. |
 
 See each node's built-in help (Node-RED editor info panel) for the full
 list of fields and behaviors, or
 [`packages/node-red-agents/nodes/gh/README.md`](./packages/node-red-agents/nodes/gh/README.md)
 for `gh`-specific usage and example flows.
+
+## Direct models and shared credentials
+
+Requires Node **22+**. Add a `model` or `decision` node and create its
+`model-provider` config. Choose OpenRouter or AI Gateway, enter an API key,
+set a default model and deploy. Node-RED stores the password credential separately
+from flow configuration; use a stable credential secret for encrypted storage.
+Exported flows require credentials to be provisioned separately on the receiving
+runtime. Message fields cannot override provider credentials or URLs.
+
+- [Provider settings and pinned SDK compatibility](/docs/model-provider.md)
+- [Model message contract, streaming and examples](/docs/model.md)
+- [Decision questions, probabilities and review example](/docs/decision.md)
+- [Optional agent/agent-server shared CLI authentication](/docs/cli-provider-auth.md)
+
+`agent` and `agent-server` retain default CLI authentication unless an explicit
+auth mode is selected. Shared-provider mode uses supported CLI/provider mappings
+and child-process environments. Saved CLI login files can take precedence;
+running server daemons must be restarted after credential rotation.
 
 ## Human interaction
 

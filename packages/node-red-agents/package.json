@@ -53,7 +53,9 @@
       "agent-server": "nodes/agent-server/agent-server.js",
       "gh": "nodes/gh/gh.js",
       "interaction": "nodes/interaction/interaction.js",
-      "model-provider": "nodes/model-provider/model-provider.js"
+      "model-provider": "nodes/model-provider/model-provider.js",
+      "model": "nodes/model/model.js",
+      "decision": "nodes/decision/decision.js"
     }
   },
   "devDependencies": {

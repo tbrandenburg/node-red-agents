@@ -279,10 +279,11 @@ test(
             .some((directory) => fs.existsSync(path.join(directory, "opencode"))),
           "opencode unavailable; CLI live auth not verified",
         );
-        const cli = await start({ cli: true });
-        try {
-          // OpenCode may start an internal service; inspect listeners immediately before each launch.
-          for (const mode of ["default", "provider"]) {
+        // Each profile is isolated: default mode uses inherited CLI authentication,
+        // provider mode receives only the native config-node credential.
+        for (const mode of ["default", "provider"]) {
+          const cli = await start({ cli: true, ambientCLI: mode === "default" });
+          try {
             await cliTest.test(`authMode=${mode}`, async () => {
               execFileSync("ss", ["-H", "-ltn"], { timeout: 5000 });
               await cli.deploy(
@@ -296,9 +297,9 @@ test(
                   authMode: mode === "provider" ? "provider" : undefined,
                   modelProvider: mode === "provider" ? "live-provider" : undefined,
                   openCodeVersionMode: "v1",
-                  model: mode === "default" ? "opencode/big-pickle" : "",
+                  model: mode === "default" ? `openrouter/${TEXT}` : "",
                   modelType: "str",
-                  timeout: 55000,
+                  timeout: 55,
                   timeoutType: "num",
                   cwd: cli.userDir,
                   cwdType: "str",
@@ -314,10 +315,59 @@ test(
                 "auth configuration leaked into execution",
               );
             });
+          } finally {
+            await cli.stop();
+            cli.remove();
           }
+        }
+      },
+    );
+    await t.test(
+      "real agent-server shared auth, daemon restart and credential rotation",
+      async () => {
+        const server = await start({ cli: true });
+        const serverFlow = flow({
+          type: "agent-server",
+          operation: "message",
+          authMode: "provider",
+          modelProvider: "live-provider",
+          apiVersionMode: "v1",
+          model: "",
+          modelType: "str",
+          promptProp: "payload",
+          promptPropType: "msg",
+          sessionIdProp: "sessionID",
+          sessionIdPropType: "msg",
+          hostname: "127.0.0.1",
+          startupTimeoutMs: 20000,
+          requestTimeoutMs: 50000,
+          wires: [["final"], ["event"]],
+        });
+        try {
+          await server.deploy(serverFlow, process.env.OPENROUTER_API_KEY);
+          const first = success(await server.run(), server);
+          assert.match(String(first.payload), /pong/i);
+          assert.equal(typeof first.sessionID, "string");
+          const terminated = success(
+            await server.run([
+              { p: "operation", v: "terminate", vt: "str" },
+              { p: "sessionID", v: first.sessionID, vt: "str" },
+            ]),
+            server,
+          );
+          assert.equal(terminated.payload, true);
+          await server.deploy(serverFlow, INVALID);
+          const rejected = await server.run();
+          assert.equal(rejected.final.length, 0, "invalid daemon credential emitted success");
+          assert.equal(rejected.error.length, 1, "invalid daemon credential did not reach Catch");
+          leakFree(rejected);
+          await server.deploy(serverFlow, process.env.OPENROUTER_API_KEY);
+          const restored = success(await server.run(), server);
+          assert.match(String(restored.payload), /pong/i);
+          assert.notEqual(restored.sessionID, first.sessionID);
         } finally {
-          await cli.stop();
-          cli.remove();
+          await server.stop();
+          server.remove();
         }
       },
     );

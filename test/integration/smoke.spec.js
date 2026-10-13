@@ -27,8 +27,11 @@ let instance;
 function withOpenCodeMode(flow) {
   assert.ok(["v1", "v2"].includes(OPENCODE_MODE), "NODE_RED_AGENTS_OPENCODE_MODE must be v1 or v2");
   return flow.map((node) => {
-    if (node.type === "agent") return { ...node, openCodeVersionMode: OPENCODE_MODE };
-    if (node.type === "agent-server") return { ...node, apiVersionMode: OPENCODE_MODE };
+    const model = process.env.E2E_OPENCODE_MODEL
+      ? { model: process.env.E2E_OPENCODE_MODEL, modelType: "str" }
+      : {};
+    if (node.type === "agent") return { ...node, ...model, openCodeVersionMode: OPENCODE_MODE };
+    if (node.type === "agent-server") return { ...node, ...model, apiVersionMode: OPENCODE_MODE };
     return node;
   });
 }

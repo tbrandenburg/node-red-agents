@@ -9,11 +9,13 @@ SDK, model, CLI, or Node-RED mocks and no test-helper runtime.
 
 Provision `OPENROUTER_API_KEY` in the invoking environment without putting it
 in a command argument. The key must permit the chosen models and have credit.
-From the isolated worktree:
+From the repository root:
 
 ```sh
 npm ci
 E2E_MODEL_LIVE=1 node --test --test-timeout=590000 test/integration/model-provider.spec.js
+# Equivalent supported Make target:
+make test-model-e2e
 ```
 
 The outer command runner needs a 600000 ms timeout. Without `E2E_MODEL_LIVE=1`,
@@ -54,9 +56,13 @@ the OpenRouter decision ID is `typesafe/jev-1.13`.
   `AI_GATEWAY_API_KEY` exists, using `typesafe-ai/jev`. Missing Gateway credentials
   produce an explicit skip reason, never a passing provider result. These are
   two Gateway probes, not a complete duplication of the OpenRouter lifecycle suite.
-- Run the existing default OpenCode smoke model (`opencode/big-pickle`) with
-  omitted new auth fields, then independently run `agent` with shared-provider
-  authentication and blank model selection. The two subtests report independently.
+- Run `agent` with omitted new auth fields and an explicitly selected
+  `openrouter/openai/gpt-4.1-nano` model using inherited CLI authentication, then
+  independently run shared-provider authentication with blank model selection.
+  Separate isolated profiles prevent ambient credentials from proving shared auth.
+- Run `agent-server` with shared credentials, terminate its session, redeploy with
+  an invalid credential and require Catch with no final success, then restore the
+  real credential and verify a new daemon/session returns a response.
 
 Each SDK operation makes one short request; SDK retries are disabled by the
 implementation. A successful OpenRouter pass makes eight SDK requests including
@@ -72,8 +78,9 @@ CLI-internal auxiliary requests remain controlled by the installed CLI.
 The parent consumes keys programmatically. It submits them only in native
 Node-RED password credential provisioning via loopback Admin HTTP, not in flow
 exports, assertion objects, command arguments, or CLI configuration. The
-Node-RED child starts without inherited API keys/tokens/secrets. Shared CLI auth
-must therefore resolve the native credential rather than use an ambient key.
+Node-RED child starts without inherited API keys/tokens/secrets except in the
+explicit default-CLI-auth scenario, which inherits only the OpenRouter key.
+Shared CLI auth must resolve the native credential rather than use an ambient key.
 Observable debug traffic, flow/credential storage and runtime logs are checked
 for plaintext, URL-encoded and Base64 credentials; failure reports carry only
 safe errors and provider route/status diagnostics, never headers or raw bodies.
@@ -92,9 +99,9 @@ outside the repository, inherited `OPENCODE_*` settings are removed, and inline
 config disables updates/sharing and denies tools. No user's saved auth store is
 read or modified. In production, shared-provider environment injection does not
 override saved account/config precedence; see [CLI provider auth](/docs/cli-provider-auth.md).
-This test isolates those sources but does not prove a provider-side billed account
-or daemon credential rotation. It exercises the direct OpenCode v1 adapter;
-other CLI adapters and agent-server are outside this focused live pass.
+This test isolates those sources but does not prove a provider-side billed account.
+It exercises the OpenCode v1 adapter and agent-server daemon credential rotation;
+Pi and Copilot live account verification remain separate acceptance work.
 
 ## Scoped checks
 
@@ -111,22 +118,42 @@ uses [OpenCode configuration](https://opencode.ai/docs/config/).
 
 ## Acceptance evidence and blockers
 
-Final live command above completed in 73.02 seconds under Node v24.15.0 and
-OpenCode v1.18.35: **9 passed, 3 failed, 1 skipped** in Node's nested test count.
-There is **one failing leaf scenario** (default OpenCode smoke); the other two
-failures are its enclosing tests. Nine leaf scenarios passed; Gateway alone was
-skipped with its missing-key reason. This acceptance suite is **not green**.
+Coordinator verification on **2026-10-13**, Node **v24.15.0**, OpenCode **v1.18.35**:
 
-Observed external blocker: the prior default `opencode/big-pickle` smoke
-returns `APIError`: “OpenCode's free tier can only be used from within OpenCode.”
-This is a failed default-provider acceptance case; the independent authenticated
-OpenRouter shared-provider CLI case has succeeded. Gateway is unverified when
-its key is absent.
+| Command | Result |
+|---|---|
+| `make format` | Passed |
+| `make lint` | Passed |
+| `make test` | 447 passed, 0 failed, 0 skipped |
+| `E2E_OPENCODE_MODEL=openrouter/openai/gpt-4.1-nano make test-e2e` | 5 passed, 0 failed; one v2-only test skipped in v1 mode |
+| `make test-model-e2e` | 13 passed, 0 failed; Gateway skipped because its key is absent |
+
+Minimum-runtime validation under **Node v22.23.3** executed the shared-provider,
+CLI-auth, model, decision and server-API suites: **85 passed, 0 failed, 0 skipped**.
+No separate typecheck script is configured in this CommonJS project.
+The live provider run completed in 100.58 seconds and verified daemon invalid-key
+rotation produces Catch rather than false success. Listeners were checked before
+service startup; final inspection found no remaining test service listeners.
+
+Gateway remains unverified
+without its key. The prior default `opencode/big-pickle` model returned `APIError`:
+“OpenCode's free tier can only be used from within OpenCode”; tracked in
+[#78](https://github.com/tbrandenburg/node-red-agents/issues/78). To run the existing
+smoke suite locally against an authenticated model instead, use:
+
+```sh
+E2E_OPENCODE_MODEL=openrouter/openai/gpt-4.1-nano make test-e2e
+```
+
+This optional model selection preserves the existing CI smoke default and uses
+the CLI's existing authentication; it never injects a shared-provider credential.
 
 During harness development, reusing a Catch node while replacing a model node
 with a decision node produced a Node-RED routing error (“Cannot read properties
 of undefined (reading 'wires')”) and lost a synchronous Catch result. A fresh
 runtime reproduced the intended `INVALID_DECISION_INPUT` Catch result. Malformed
 cases now use independent runtimes to avoid this redeployment interaction; no
-runtime implementation was changed. The suite is intentionally red if a genuine
+runtime implementation was changed. Tracked in
+[#77](https://github.com/tbrandenburg/node-red-agents/issues/77).
+The suite is intentionally red if a genuine
 provider/model acceptance scenario fails.

@@ -67,7 +67,7 @@ async function runtime() {
   });
 }
 
-async function start({ userDir, secret, cli = false } = {}) {
+async function start({ userDir, secret, cli = false, ambientCLI = false } = {}) {
   execFileSync("ss", ["-H", "-ltn"], { timeout: 5000 });
   const directory = userDir || fs.mkdtempSync(path.join(os.tmpdir(), "nra-model-live-"));
   const encryption = secret || require("node:crypto").randomBytes(32).toString("hex");
@@ -77,6 +77,7 @@ async function start({ userDir, secret, cli = false } = {}) {
     if (/KEY|TOKEN|SECRET|PASSWORD|^OPENCODE_|^AI_GATEWAY_/i.test(name)) delete env[name];
   }
   if (cli) {
+    if (ambientCLI) env.OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
     for (const [name, suffix] of Object.entries({
       HOME: "home",
       XDG_CONFIG_HOME: "config",
@@ -163,7 +164,7 @@ async function start({ userDir, secret, cli = false } = {}) {
       }
       throw new Error("Node-RED flow deployment did not finish within 10s");
     }
-    async function run() {
+    async function run(properties) {
       const messages = { final: [], event: [], error: [] };
       const socket = new WebSocket(baseUrl.replace("http:", "ws:") + "/comms");
       const resultCleanup = [];
@@ -202,7 +203,15 @@ async function start({ userDir, secret, cli = false } = {}) {
             socket.send(JSON.stringify({ subscribe: "debug" }));
             await delay(100);
             for (let attempt = 0; attempt < 30; attempt++) {
-              const response = await request("/inject/live-inject", { method: "POST" });
+              const response = await request("/inject/live-inject", {
+                method: "POST",
+                ...(properties
+                  ? {
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ __user_inject_props__: properties }),
+                    }
+                  : {}),
+              });
               if (response.status === 200) return;
               assert.equal(response.status, 404, "unexpected inject response");
               await delay(100);

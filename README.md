@@ -64,6 +64,7 @@ runtime. Message fields cannot override provider credentials or URLs.
 - [Model message contract, streaming and examples](/docs/model.md)
 - [Decision questions, probabilities and review example](/docs/decision.md)
 - [Optional agent/agent-server shared CLI authentication](/docs/cli-provider-auth.md)
+- [Real provider E2E commands and credential isolation](/docs/model-e2e.md)
 
 `agent` and `agent-server` retain default CLI authentication unless an explicit
 auth mode is selected. Shared-provider mode uses supported CLI/provider mappings

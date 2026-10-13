@@ -298,6 +298,7 @@ module.exports = function (RED) {
         return { sessionID, baseUrl };
       } catch (err) {
         owner.stopping = true;
+        if (owner.sessionID) node.registry.delete(owner.sessionID);
         let failure = new Error(localSanitize(sanitize(err.message || String(err))));
         try {
           await killDaemon(owner.child);

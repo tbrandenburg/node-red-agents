@@ -71,6 +71,33 @@ test("concurrent pending startup retains each key independently and daemon diagn
   );
 });
 
+test("post-registration event failure releases both registry and sanitizer ownership", async () => {
+  const h = harness();
+  h.node.serverName = "badName";
+  h.node.serverNameType = "msg";
+  for (let index = 0; index < 10; index++) {
+    const msg = { payload: "hello" };
+    Object.defineProperty(msg, "badName", {
+      get() {
+        throw new Error("synthetic-property-error");
+      },
+    });
+    const reply = await h.input(msg);
+    assert.match(reply.error.message, /synthetic-property-error/);
+    assert.equal(h.node.registry.size(), 0);
+    assert.ok(h.children.every((child) => child.exitCode === 0));
+  }
+  h.node.serverName = "";
+  const counts = h.spies.map((spy) => spy.calls);
+  assert.equal(await h.status(h.state.key), h.state.key);
+  assert.deepEqual(
+    h.spies.map((spy) => spy.calls),
+    counts,
+  );
+  await h.close();
+  assert.equal(h.node.registry.size(), 0);
+});
+
 test("unexpected exit releases idle daemon ownership and registry routing", async () => {
   const h = harness();
   await h.input({ payload: "hello" });

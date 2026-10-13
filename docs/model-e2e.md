@@ -118,6 +118,13 @@ uses [OpenCode configuration](https://opencode.ai/docs/config/).
 
 ## Acceptance evidence and blockers
 
+Original issues **#66, #68 and #71 remain partially accepted** pending the
+provider/CLI/editor checklist in
+[#82](https://github.com/tbrandenburg/node-red-agents/issues/82).
+Passing implementation gates does not complete those manual definitions of done.
+Outstanding: authenticated Gateway generation/Jev, Pi shared auth, OpenCode v2
+shared auth, Copilot OAuth regression, and browser-editor round-trip.
+
 Coordinator verification on **2026-10-13**, Node **v24.15.0**, OpenCode **v1.18.35**:
 
 | Command | Result |

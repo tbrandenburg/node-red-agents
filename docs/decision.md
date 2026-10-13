@@ -111,10 +111,12 @@ make lint
 make test
 ```
 
-Live E2E remains unverified. Integration acceptance requires a disposable
-Node-RED userDir and verified free port: provision credentials separately, run
-Boolean/Choice/Score against OpenRouter then Gateway if supported, inspect real
-metadata, exercise invalid key/model and timeout through Catch, and test the
-Switch/interaction round trip. Do not include credentials in exported flows,
-debug messages or test evidence. Package registration and README integration
-are supplied by the coordinator.
+OpenRouter live acceptance passed on 2026-10-13: the real Node-RED `decision`
+node executed Jev `typesafe/jev-1.13` Boolean, Choice and Score questions through
+the pinned SDK. See [live commands and evidence](/docs/model-e2e.md).
+The Switch/interaction example is covered by node-level integration tests.
+
+Authenticated Gateway Jev acceptance and browser editor round-trip remain
+unverified; tracked in [#82](https://github.com/tbrandenburg/node-red-agents/issues/82).
+Use a disposable userDir, check free ports, and provision credentials separately.
+Do not include credentials in exported flows, debug messages or test evidence.

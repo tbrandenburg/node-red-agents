@@ -8,6 +8,7 @@
 // spawn/health-poll/kill logic and agent-server.js's own spawn/send-message
 // flow without depending on the real opencode binary being installed.
 const http = require("http");
+const { createHash } = require("node:crypto");
 
 const args = process.argv.slice(2);
 function flag(name) {
@@ -42,6 +43,11 @@ function readJsonBody(req) {
 
 const server = http.createServer((req, res) => {
   if (req.url === "/global/health") {
+    if (process.env.FAKE_OPENCODE_AUTH_FAILURE === "1") {
+      res.statusCode = 503;
+      res.end(process.env.OPENROUTER_API_KEY);
+      return;
+    }
     res.setHeader("Content-Type", "application/json");
     res.end(JSON.stringify({ healthy: true, version: "fake" }));
     return;
@@ -63,7 +69,31 @@ const server = http.createServer((req, res) => {
   const messageMatch = req.method === "POST" && req.url.match(/^\/session\/([^/]+)\/message$/);
   if (messageMatch) {
     readJsonBody(req)
-      .then(() => {
+      .then((body) => {
+        if (body.parts?.[0]?.text === "auth-error") {
+          res.statusCode = 500;
+          res.end(process.env.OPENROUTER_API_KEY);
+          return;
+        }
+        if (body.parts?.[0]?.text === "auth-test") {
+          const key = process.env.OPENROUTER_API_KEY || "no-key";
+          res.setHeader("Content-Type", "application/json");
+          res.end(
+            JSON.stringify({
+              parts: [
+                {
+                  type: "text",
+                  text: JSON.stringify({
+                    digest: createHash("sha256").update(key).digest("hex"),
+                    echo: key,
+                    model: body.model,
+                  }),
+                },
+              ],
+            }),
+          );
+          return;
+        }
         res.setHeader("Content-Type", "application/json");
         res.end(JSON.stringify({ parts: [{ type: "text", text: "hello from fake session" }] }));
       })
@@ -79,5 +109,10 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(port, hostname, () => {
+  if (process.env.FAKE_OPENCODE_AUTH_FAILURE === "1") {
+    const key = process.env.OPENROUTER_API_KEY || "no-key";
+    process.stderr.write(key.slice(0, 8));
+    setImmediate(() => process.stderr.write(key.slice(8)));
+  }
   console.log(`opencode server listening on http://${hostname}:${port}`);
 });

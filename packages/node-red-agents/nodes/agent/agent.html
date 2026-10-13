@@ -148,6 +148,8 @@
         agentNameType: { value: "str" },
 
         model: { value: "" },
+        authMode: { value: "default" },
+        modelProvider: { value: "", type: "model-provider", required: false },
         modelType: { value: "str" },
 
         prompt: { value: "payload" },
@@ -741,6 +743,19 @@
   </div>
 
   <div class="form-row">
+    <label for="node-input-authMode">CLI auth</label>
+    <select id="node-input-authMode" style="width:60%">
+      <option value="default">Default CLI authentication</option>
+      <option value="provider">Shared provider credential</option>
+      <option value="environment">Inherited environment credential</option>
+    </select>
+  </div>
+  <div class="form-row">
+    <label for="node-input-modelProvider">Model Provider</label>
+    <input type="text" id="node-input-modelProvider" style="width:60%" />
+  </div>
+
+  <div class="form-row">
     <label for="node-input-cwd"><i class="fa fa-folder-open"></i> Working directory</label>
     <input
       type="text"
@@ -906,6 +921,13 @@
 </script>
 
 <script type="text/html" data-help-name="agent">
+  <p><b>CLI authentication:</b> Default preserves CLI login/config and inherited environment.
+    Provider injects the selected model-provider key at each child launch. Environment requires
+    a supported provider-prefixed Model and its key in the Node-RED process environment;
+    it ignores Model Provider and never writes CLI auth/config files. Saved CLI credentials
+    may take precedence. Copilot shared authentication is unsupported. Gateway requires Pi
+    or explicit OpenCode v1. Provider Model overrides must match the CLI provider prefix.
+    Blank Provider Model uses the shared default. Custom provider URLs are unsupported.</p>
   <p>
     Runs a coding agent (<b>OpenCode</b>, <b>Pi</b>, or <b>Copilot</b>) non-interactively, either
     directly on this host or sandboxed through <code>srt</code>. The <b>Agent</b> dropdown's

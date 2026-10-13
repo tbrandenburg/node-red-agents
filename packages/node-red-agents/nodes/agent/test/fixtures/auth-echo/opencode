@@ -1,0 +1,26 @@
+#!/usr/bin/env node
+"use strict";
+const { createHash } = require("node:crypto");
+const key = process.env.OPENROUTER_API_KEY || "no-key";
+const args = process.argv.slice(2);
+const prompt = args[args.length - 1];
+const model = args[args.indexOf("--model") + 1];
+if (prompt === "fail") {
+  console.log(JSON.stringify({ type: "error", error: { data: { message: key } } }));
+  process.stderr.write(key);
+} else {
+  console.log(
+    JSON.stringify({
+      type: "text",
+      sessionID: "auth-test-session",
+      part: {
+        text: JSON.stringify({
+          digest: createHash("sha256").update(key).digest("hex"),
+          model,
+          echo: key,
+        }),
+      },
+    }),
+  );
+}
+if (prompt === "hang") setInterval(() => {}, 1000);

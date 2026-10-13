@@ -3,7 +3,7 @@
 const blocked =
   /^(?:api[-_]?key|authorization|proxy[-_]?authorization|cookie|set[-_]?cookie|headers|request|body|rawResponse|responseBody|cause|stack|token|secret|password)$/i;
 
-function sanitize(value, secrets = [], depth = 0) {
+function sanitize(value, secrets = [], depth = 0, metadata = true) {
   if (depth > 20) return "[redacted]";
   if (typeof value === "string") {
     const redacted = secrets
@@ -14,14 +14,15 @@ function sanitize(value, secrets = [], depth = 0) {
   }
   if (value == null || typeof value === "boolean") return value;
   if (typeof value === "number") return Number.isFinite(value) ? value : undefined;
-  if (Array.isArray(value)) return value.map((entry) => sanitize(entry, secrets, depth + 1));
+  if (Array.isArray(value))
+    return value.map((entry) => sanitize(entry, secrets, depth + 1, metadata));
   if (typeof value !== "object") return undefined;
   return Object.fromEntries(
     Object.entries(value)
-      .filter(([key]) => !blocked.test(key))
+      .filter(([key]) => !metadata || !blocked.test(key))
       .map(([key, entry]) => [
-        sanitize(key, secrets, depth + 1),
-        sanitize(entry, secrets, depth + 1),
+        sanitize(key, secrets),
+        sanitize(entry, secrets, depth + 1, metadata),
       ]),
   );
 }
@@ -42,11 +43,14 @@ function sanitizeResult(result, secrets = []) {
     "providerMetadata",
     "response",
   ];
-  return sanitize(
-    Object.fromEntries(
-      fields.filter((key) => result?.[key] !== undefined).map((key) => [key, result[key]]),
-    ),
-    secrets,
+  // Payload keys belong to the application, not the transport metadata vocabulary.
+  return Object.fromEntries(
+    fields
+      .filter((key) => result?.[key] !== undefined)
+      .map((key) => [
+        key,
+        sanitize(result[key], secrets, 1, !["object", "output", "answers"].includes(key)),
+      ]),
   );
 }
 

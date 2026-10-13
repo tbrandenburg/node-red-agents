@@ -123,9 +123,14 @@ callback side effects. Streaming results are outside this non-streaming API.
 
 Safe results retain only `text`, `object`, `output`, `answers`, `rounding`,
 `embedding`, `embeddings`, `usage`, `totalUsage`, `finishReason`, `warnings`,
-`providerMetadata`, and `response`. Nested auth/header/body/request fields are
-removed and known credential strings, encoded credentials, and Bearer tokens
-are redacted. Model warnings are sanitized before SDK warning logging. Use
+`providerMetadata`, and `response`. Application payloads in `object`, `output`,
+and `answers` preserve user-defined keys (including `token`, `password`, and
+`body`). Metadata still removes nested auth/header/body/request/raw-response
+fields. Known credential strings, URL-encoded credentials, and Bearer tokens
+are redacted in both payloads and metadata, including object keys. Traversal
+is depth-bounded and copies only own enumerable keys into plain data objects.
+Model warnings, including streaming `stream-start` warnings, are sanitized
+before SDK warning logging; `run` still returns non-streaming plain results. Use
 `adapter.run` rather than logging raw model/SDK results or exceptions.
 
 Errors have `name: "ModelProviderError"`, a fixed safe message, and a code:

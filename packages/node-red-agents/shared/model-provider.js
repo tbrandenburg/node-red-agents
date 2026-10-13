@@ -1,5 +1,6 @@
 "use strict";
 
+const { TransformStream } = require("node:stream/web");
 const { resolveModel } = require("./providers/config");
 const { sanitizeResult, safeError, runRequest } = require("./providers/safety");
 
@@ -35,14 +36,34 @@ async function createProvider(RED, id, options = {}) {
   });
   function safeModel(model, method) {
     const wrapped = Object.create(model);
+    const warnings = (value) => sanitizeResult({ warnings: value || [] }, [config.apiKey]).warnings;
     // The SDK logs warnings before returning results; sanitize at the model seam.
     wrapped[method] = async (args) => {
       const result = await model[method](args);
       return {
         ...result,
-        warnings: sanitizeResult({ warnings: result.warnings || [] }, [config.apiKey]).warnings,
+        warnings: warnings(result.warnings),
       };
     };
+    if (method === "doGenerate") {
+      wrapped.doStream = async (args) => {
+        const result = await model.doStream(args);
+        return {
+          ...result,
+          stream: result.stream.pipeThrough(
+            new TransformStream({
+              transform(chunk, controller) {
+                controller.enqueue(
+                  chunk.type === "stream-start"
+                    ? { ...chunk, warnings: warnings(chunk.warnings) }
+                    : chunk,
+                );
+              },
+            }),
+          ),
+        };
+      };
+    }
     return wrapped;
   }
   function createModel(operation, requested) {

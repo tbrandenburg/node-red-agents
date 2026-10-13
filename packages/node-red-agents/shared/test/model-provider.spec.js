@@ -395,3 +395,161 @@ test("structured generation and decision rounding survive safe result projection
     },
   );
 });
+
+test("run preserves decision question and choice keys while redacting secrets and metadata", async () => {
+  const adapter = await createProvider(runtime("gateway"), "config", {
+    fetch: async () =>
+      json({
+        answers: {
+          token: {
+            type: "choice",
+            choice: "password",
+            probabilities: { password: 0.8, secret: 0.2 },
+          },
+          body: { type: "boolean", probability: 0.9 },
+        },
+        providerMetadata: {
+          nested: { token: "private", request: {}, rawResponse: {}, headers: {}, note: key },
+        },
+        warnings: [
+          { type: "other", message: `${key} ${encodeURIComponent(key)} Bearer unknown-token` },
+        ],
+      }),
+  });
+  const result = await adapter.run(({ sdk, ...lifecycle }) =>
+    sdk.experimental_decide({
+      model: adapter.createDecisionModel(),
+      state: "Choose",
+      questions: {
+        token: { type: "choice", instructions: "Choose", criteria: { password: "A", secret: "B" } },
+        body: { type: "boolean", instructions: "Valid?" },
+      },
+      ...lifecycle,
+    }),
+  );
+  assert.deepEqual(result.answers, {
+    token: { type: "choice", choice: "password", probabilities: { password: 0.8, secret: 0.2 } },
+    body: { type: "boolean", probability: 0.9 },
+  });
+  assert.deepEqual(result.providerMetadata.nested, { note: "[redacted]" });
+  assert.equal(result.response.headers, undefined);
+  assert.equal(result.response.body, undefined);
+  assert.equal(result.warnings[0].message, "[redacted] [redacted] Bearer [redacted]");
+});
+
+test("run preserves structured application fields in actual SDK object and output results", async () => {
+  const payload = {
+    token: "label",
+    body: { password: "classification", headers: ["heading"], request: "task" },
+    secret: key,
+    authorization: `Bearer unknown-token`,
+    nested: [{ apiKey: encodeURIComponent(key), rawResponse: "application value" }],
+    [key]: "credential-bearing key",
+  };
+  const adapter = await createProvider(runtime("gateway"), "config", {
+    fetch: async () =>
+      json({
+        content: [{ type: "text", text: JSON.stringify(payload) }],
+        finishReason: { unified: "stop", raw: "stop" },
+        usage: { inputTokens: { total: 2 }, outputTokens: { total: 1 } },
+        warnings: [],
+        providerMetadata: { gateway: { body: payload, password: "private", safe: key } },
+      }),
+  });
+  const expected = {
+    ...payload,
+    secret: "[redacted]",
+    authorization: "Bearer [redacted]",
+    nested: [{ apiKey: "[redacted]", rawResponse: "application value" }],
+    "[redacted]": "credential-bearing key",
+  };
+  delete expected[key];
+  for (const field of ["object", "output"]) {
+    const result = await adapter.run(({ sdk, ...lifecycle }) => {
+      const schema = sdk.jsonSchema({ type: "object", additionalProperties: true });
+      const options = {
+        model: adapter.createLanguageModel("openai/gpt-test"),
+        prompt: "Classify",
+        ...lifecycle,
+      };
+      return field === "object"
+        ? sdk.generateObject({ ...options, schema })
+        : sdk.generateText({ ...options, output: sdk.Output.object({ schema }) });
+    });
+    assert.deepEqual(result[field], expected);
+    assert.equal(JSON.stringify(result).includes(key), false);
+    assert.equal(JSON.stringify(result).includes(encodeURIComponent(key)), false);
+    assert.equal(result.response.headers, undefined);
+    assert.equal(result.response.body, undefined);
+    if (result.providerMetadata)
+      assert.deepEqual(result.providerMetadata.gateway, { safe: "[redacted]" });
+  }
+});
+
+test("application projection bounds cycles and copies prototype-sensitive keys as own data", () => {
+  const object = JSON.parse(
+    '{"__proto__":{"polluted":true},"constructor":{"prototype":{"token":"label"}}}',
+  );
+  Object.setPrototypeOf(object, { inherited: key });
+  object.self = object;
+  const result = sanitizeResult({ object }, [key]).object;
+  assert.equal(Object.getPrototypeOf(result), Object.prototype);
+  assert.equal(Object.hasOwn(result, "__proto__"), true);
+  assert.deepEqual(result.__proto__, { polluted: true });
+  assert.deepEqual(result.constructor, { prototype: { token: "label" } });
+  assert.equal(result.inherited, undefined);
+  assert.equal({}.polluted, undefined);
+  assert.doesNotThrow(() => JSON.stringify(result));
+  let nested = result;
+  for (let depth = 0; depth < 20; depth++) nested = nested.self;
+  assert.equal(nested, "[redacted]");
+});
+
+test("language streaming warnings are redacted before actual SDK logging", async (t) => {
+  const logged = [];
+  t.mock.method(process, "emitWarning", (message) => logged.push(String(message)));
+  const adapter = await createProvider(runtime("gateway"), "config", {
+    fetch: async () => {
+      const chunks = [
+        {
+          type: "stream-start",
+          warnings: [
+            { type: "other", message: `${key} ${encodeURIComponent(key)} Bearer unknown-token` },
+          ],
+        },
+        { type: "text-start", id: "text" },
+        { type: "text-delta", id: "text", delta: "hello" },
+        { type: "text-end", id: "text" },
+        {
+          type: "finish",
+          finishReason: { unified: "stop", raw: "stop" },
+          usage: { inputTokens: { total: 2 }, outputTokens: { total: 1 } },
+        },
+      ];
+      return new Response(chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join(""), {
+        headers: { "content-type": "text/event-stream" },
+      });
+    },
+  });
+  const result = await adapter.run(async ({ sdk, ...lifecycle }) => {
+    const streamed = sdk.streamText({
+      model: adapter.createLanguageModel("openai/gpt-test"),
+      prompt: "Hi",
+      ...lifecycle,
+    });
+    await streamed.consumeStream();
+    return { text: await streamed.text, warnings: await streamed.warnings };
+  });
+  assert.equal(result.text, "hello");
+  assert.equal(result.warnings[0].message, "[redacted] [redacted] Bearer [redacted]");
+  assert.equal(
+    logged.some((message) => message.includes("[redacted] [redacted] Bearer [redacted]")),
+    true,
+  );
+  for (const secret of [key, encodeURIComponent(key), "unknown-token"]) {
+    assert.equal(
+      logged.some((message) => message.includes(secret)),
+      false,
+    );
+  }
+});

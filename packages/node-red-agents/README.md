@@ -1,7 +1,7 @@
 # node-red-agents
 
-Node-RED nodes for running coding agents and GitHub CLI operations from a
-flow.
+Node-RED nodes for coding agents, direct model requests, typed probabilistic
+decisions, human interaction and GitHub CLI operations.
 
 ## Nodes
 
@@ -34,6 +34,20 @@ flow.
   `node.interaction.resume(plan, originalMsg, response)` APIs; the host owns
   checkpointing and deduplication, and resume uses normal Node-RED routing.
   See the [interaction contract and host ABI](https://github.com/tbrandenburg/node-red-agents#human-interaction).
+- **model-provider** — reusable OpenRouter or Vercel AI Gateway configuration.
+  Stores API keys as native password credentials, separate from flow exports.
+  Supports default/allowed models, timeout and trusted-admin custom URLs.
+- **model** — direct generation, schema-validated structured output and embeddings
+  through the AI SDK, without invoking a coding-agent CLI. Output 1 supplies
+  `msg.modelResult`; optional output 2 emits `msg.modelEvent` text deltas.
+- **decision** — Jev Boolean, Choice and Score questions with typed probabilities
+  and available metadata in `msg.decisionResult`. Use Switch/interaction nodes
+  for explicit thresholds and human review.
+
+The agent nodes retain default CLI authentication. Optional shared-provider mode
+uses explicit supported provider mappings in child-process environments; saved
+CLI authentication may take precedence. Restart server daemons after rotating keys.
+See the [provider compatibility and message contracts](https://github.com/tbrandenburg/node-red-agents#direct-models-and-shared-credentials).
 
 See each node's built-in help (Node-RED editor info panel) for
 configuration details, or `nodes/gh/README.md` for `gh`-specific usage
@@ -41,12 +55,12 @@ and example flows (`nodes/gh/examples/`).
 
 ## Requirements
 
-- Node-RED >= 4.0.0, Node.js >= 20
-  (Node.js 20 compatibility is verified for these nodes; the monorepo's own
-  dev/CI tooling still targets Node.js 22, see the repo root `.nvmrc`)
+- Node-RED >= 4.0.0, Node.js >= 22 (required by the pinned AI SDK).
 - The [`opencode`](https://opencode.ai) CLI on `PATH` (for `agent`/`agent-server`)
 - [`srt`](https://github.com/anthropics/sandbox-runtime) on `PATH`, only if using the SRT runtime option
 - The [`gh`](https://cli.github.com) CLI on `PATH`, authenticated (for `gh`)
+- An OpenRouter or AI Gateway API key and supported model IDs for direct model
+  and decision requests. Direct SDK nodes do not require a coding-agent CLI.
 
 ## Install
 

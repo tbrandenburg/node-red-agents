@@ -26,6 +26,12 @@ if (process.env.FAKE_OPENCODE_IGNORE_SIGTERM === "1") {
 let sessionCounter = 0;
 let promptCounter = 0;
 let latestMessages = [];
+let blockPoll = false;
+
+function holdResponse(stage) {
+  // A readiness marker proves the real HTTP handler admitted the blocked request.
+  process.stdout.write(`fake-opencode: blocked ${stage}\n`);
+}
 
 function reply(text) {
   const parts =
@@ -79,7 +85,12 @@ const server = http.createServer((req, res) => {
     if (req.method === "POST" && req.url.endsWith("/prompt")) {
       readJsonBody(req)
         .then((body) => {
+          if (body.text === "block-prompt") {
+            holdResponse("prompt");
+            return;
+          }
           promptCounter += 1;
+          blockPoll = body.text === "block-poll";
           const user = { id: `msg-user-${promptCounter}`, type: "user" };
           const response = reply(body.text);
           latestMessages = [
@@ -104,6 +115,10 @@ const server = http.createServer((req, res) => {
       return;
     }
     if (req.method === "GET" && req.url.endsWith("/message")) {
+      if (blockPoll) {
+        holdResponse("poll");
+        return;
+      }
       res.end(JSON.stringify({ data: latestMessages }));
       return;
     }
@@ -138,6 +153,10 @@ const server = http.createServer((req, res) => {
   if (messageMatch) {
     readJsonBody(req)
       .then((body) => {
+        if (body.parts?.[0]?.text === "block-message") {
+          holdResponse("message");
+          return;
+        }
         if (body.parts?.[0]?.text?.startsWith("envelope-error")) {
           const response = reply(body.parts[0].text);
           res.setHeader("Content-Type", "application/json");

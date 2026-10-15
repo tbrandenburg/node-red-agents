@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const path = require("node:path");
 const { buildCommand, spawnDaemon, waitForHealthy, killDaemon } = require("../lib/daemon");
 const { findFreePort } = require("../lib/port");
+const { EventEmitter } = require("node:events");
 
 const FIXTURE = path.join(__dirname, "..", "fixtures", "fake-opencode.js");
 
@@ -106,4 +107,30 @@ test("killDaemon on an already-exited process resolves immediately without throw
 
   // Second call on the now-dead child must not throw or hang.
   await killDaemon(child);
+});
+
+test("a missing daemon binary is handled without an uncaught error and fails readiness promptly", async () => {
+  const port = await findFreePort();
+  const { child, diagnostics } = spawnDaemon({ binary: "/nonexistent/s6-opencode", port });
+  await new Promise((resolve) => child.once("close", resolve));
+  assert.equal(diagnostics.spawnError, "daemon failed to spawn");
+  await assert.rejects(
+    waitForHealthy(`http://127.0.0.1:${port}`, { timeoutMs: 1000, diagnostics }),
+    /daemon failed to spawn/,
+  );
+  await killDaemon(child);
+});
+
+test("killDaemon rejects the safety deadline when an owned exit cannot be confirmed", async () => {
+  const child = new EventEmitter();
+  // Deliberately simulate the signal/exit race; no real unrelated PID is targeted.
+  child.pid = 2147483647;
+  child.exitCode = null;
+  child.signalCode = null;
+  child.kill = () => false;
+  await assert.rejects(
+    killDaemon(child, { graceMs: 10, confirmationMs: 10 }),
+    /owned daemon exit could not be confirmed/,
+  );
+  assert.equal(child.listenerCount("exit"), 0);
 });

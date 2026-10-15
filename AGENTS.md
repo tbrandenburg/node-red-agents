@@ -47,6 +47,12 @@ commands (`make help`).
   billing; Gateway runs when `AI_GATEWAY_API_KEY` exists. See `/docs/model-e2e.md`.
   `E2E_OPENCODE_MODEL` optionally selects an authenticated model for the existing
   smoke suite without changing its CI default.
+- `NODE_RED_AGENTS_OPENCODE_MODE=v2 make test-model-e2e` selects explicit v2
+  adapters/auth selectors; the model suite's omitted mode retains v1.
+  `make test-v2-acceptance` runs pinned v2.0.28 cwd, multi-tool/durable-idle,
+  pagination, subagent policy and active server recovery plus Direct/SRT CLI
+  cancellation. Requires OpenRouter credentials and SRT, incurs billing, and is
+  separate from fork-safe CI. See `/docs/model-e2e.md` for isolation and evidence.
 - `make format` / `make lint` -- Prettier / ESLint (flat config,
   `eslint.config.js`); pass `FIX=1` to rewrite/auto-fix instead of just
   checking. `make ci` runs format + lint + test + test-e2e, the same
@@ -257,6 +263,11 @@ meant to read stdin.
 
 ## Lessons Learned
 
+- 2026-10-15: Pitfall: Cancellation entered retry-all, and escalation trusted an exited leader's numeric PGID. Prevention: Mark manual cancellation non-retryable; verify surviving owned process identities before post-exit signalling, and test recycled PID/PGID cases.
+- 2026-10-15: Pitfall: A model transcribed a random absolute cancellation-script path incorrectly. Prevention: Use a short cwd-relative command, retain a unique bounded process title for host-PID capture, and fail unless the actual tool and descendant are active.
+- 2026-10-14: Pitfall: Native v2 shell was searched through Code Mode and returned no matches. Prevention: Native shell has `codemode: false`; invoke its top-level tool directly and require an active PID/file before accepting cancellation.
+- 2026-10-14: Pitfall: Awaiting a nested test scheduled on the outer TestContext deadlocked acceptance; custom correlation fields also filtered out lifecycle events. Prevention: Use the current subtest context and correlate lifecycle events by `_msgid`.
+- 2026-10-14: Pitfall: An allowlisted SRT environment omitted `CLAUDE_CODE_TMPDIR`, causing EROFS before CLI launch. Prevention: Include its private writable temp path and use the real CLI-auth sanitizer, not an identity callback.
 - 2026-10-13: Pitfall: Recursive credential-key filtering removed legitimate structured fields and decision labels. Prevention rule/countermeasure: Preserve application-defined keys; filter transport metadata separately and test data preservation alongside secret redaction.
 - 2026-10-13: Pitfall: Test-helper nodes without a tab were classified as config nodes and self-referenced their type. Prevention rule/countermeasure: Use explicit tab/z fixtures, distinct IDs and bounded readiness waits before running suites.
 - 2026-10-13: Pitfall: Failed environment-object assertions printed ambient credentials. Prevention rule/countermeasure: Use synthetic environments and boolean equality checks; never include ambient environment objects in assertion diagnostics.

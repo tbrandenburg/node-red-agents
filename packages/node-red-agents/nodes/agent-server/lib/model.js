@@ -1,6 +1,6 @@
 "use strict";
 
-const { assertModelFormat } = require("../../../shared/model-format");
+const { assertModelFormat, parseModelReference } = require("../../../shared/model-format");
 
 // The `agent` node's --model flag accepts a plain "provider/model" string
 // (opencode's CLI parses that itself). The HTTP API has no such shorthand --
@@ -9,7 +9,8 @@ const { assertModelFormat } = require("../../../shared/model-format");
 // string 400s with "Expected object | null, got \"...\""). This is the
 // translation between the two, kept pure/testable and separate from
 // agent-server.js.
-function parseModel(value) {
+function parseModel(value, version = 1, effort) {
+  if (version === 2) return parseModelReference(value, effort);
   if (value === undefined || value === null || value === "") return undefined;
   const str = String(value);
   assertModelFormat(str); // throws with a shared, consistent message (see shared/model-format.js)

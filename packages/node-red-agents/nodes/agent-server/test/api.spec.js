@@ -77,7 +77,7 @@ test("v2 API unwraps data envelopes and sends API routes", async () => {
       assert.deepEqual(await api.createSession(baseUrl, "test"), { id: "ses_test" });
       await api.switchAgent(baseUrl, "ses_test", "build");
       await api.switchModel(baseUrl, "ses_test", { providerID: "acme", modelID: "model-x" });
-      assert.deepEqual(await api.prompt(baseUrl, "ses_test", "hello"), {
+      assert.deepEqual(await api.prompt(baseUrl, "ses_test", "hello", { promptID: "msg_prompt" }), {
         id: "msg_prompt",
         type: "user",
       });
@@ -101,7 +101,7 @@ test("v2 API unwraps data envelopes and sends API routes", async () => {
       url: "/api/session/ses_test/model",
       body: { model: { providerID: "acme", id: "model-x" } },
     },
-    { url: "/api/session/ses_test/prompt", body: { text: "hello" } },
+    { url: "/api/session/ses_test/prompt", body: { text: "hello", id: "msg_prompt" } },
   ]);
 });
 
@@ -117,6 +117,7 @@ test("v2 health rejects HTML and completion polling returns the finished assista
       res.end(
         JSON.stringify({
           data: [
+            { id: "msg_idle", type: "idle", outcome: "succeeded" },
             {
               id: "msg_assistant",
               type: "assistant",
@@ -136,6 +137,51 @@ test("v2 health rejects HTML and completion polling returns the finished assista
       assert.equal(message.content[0].text, "done");
     },
   );
+});
+
+test("v2 model API sends variant separately and never includes it in the catalog ID", async () => {
+  const bodies = [];
+  await withServer(
+    async (req, res) => {
+      let body = "";
+      for await (const chunk of req) body += chunk;
+      bodies.push(JSON.parse(body));
+      res.writeHead(204).end();
+    },
+    async (url) => {
+      await api.switchModel(url, "ses_s5", {
+        providerID: "openrouter",
+        modelID: "openai/test#low",
+      });
+      await api.switchModel(url, "ses_s5", {
+        providerID: "openrouter",
+        modelID: "openai/test#low",
+        variant: "high",
+      });
+      assert.throws(
+        () =>
+          api.switchModel(url, "ses_s5", {
+            providerID: "openrouter",
+            modelID: "openai/test#low#high",
+          }),
+        /invalid model/,
+      );
+      assert.throws(
+        () =>
+          api.switchModel(url, "ses_s5", {
+            providerID: "openrouter",
+            modelID: "openai/test",
+            variant: "low#high",
+          }),
+        /invalid OpenCode effort/,
+      );
+    },
+  );
+  assert.deepEqual(bodies, [
+    { model: { providerID: "openrouter", id: "openai/test", variant: "low" } },
+    { model: { providerID: "openrouter", id: "openai/test", variant: "high" } },
+  ]);
+  assert.equal(bodies.length, 2);
 });
 
 test("v2 completion polling respects its deadline", async () => {
@@ -161,6 +207,7 @@ for (const completed of [undefined, Date.now()]) {
         res.end(
           JSON.stringify({
             data: [
+              { id: "msg_idle", type: "idle", outcome: "succeeded" },
               {
                 id: "msg_assistant",
                 type: "assistant",

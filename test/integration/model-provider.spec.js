@@ -8,6 +8,7 @@ const { execFileSync } = require("node:child_process");
 const { start, leakFree } = require("./lib/model-live-instance");
 
 const LIVE = process.env.E2E_MODEL_LIVE === "1";
+const OPENCODE_MODE = process.env.NODE_RED_AGENTS_OPENCODE_MODE || "v1";
 const INVALID = "sk-or-v1-synthetic-invalid-live-e2e";
 const TEXT = process.env.E2E_MODEL_TEXT || "openai/gpt-4.1-nano";
 const EMBED = "openai/text-embedding-3-small";
@@ -112,6 +113,10 @@ test(
     timeout: 590000,
   },
   async (t) => {
+    assert.ok(
+      ["v1", "v2"].includes(OPENCODE_MODE),
+      "NODE_RED_AGENTS_OPENCODE_MODE must be v1 or v2",
+    );
     assert.ok(Boolean(process.env.OPENROUTER_API_KEY), "OPENROUTER_API_KEY is required");
     const instance = await start();
     let current = instance;
@@ -289,14 +294,14 @@ test(
               await cli.deploy(
                 flow({
                   type: "agent",
-                  agent: "opencode",
+                  agent: `opencode-${OPENCODE_MODE}`,
                   runtime: "direct",
                   invocation: "prompt",
                   prompt: "payload",
                   promptType: "msg",
                   authMode: mode === "provider" ? "provider" : undefined,
                   modelProvider: mode === "provider" ? "live-provider" : undefined,
-                  openCodeVersionMode: "v1",
+                  openCodeVersionMode: OPENCODE_MODE,
                   model: mode === "default" ? `openrouter/${TEXT}` : "",
                   modelType: "str",
                   timeout: 55,
@@ -331,7 +336,7 @@ test(
           operation: "message",
           authMode: "provider",
           modelProvider: "live-provider",
-          apiVersionMode: "v1",
+          apiVersionMode: OPENCODE_MODE,
           model: "",
           modelType: "str",
           promptProp: "payload",

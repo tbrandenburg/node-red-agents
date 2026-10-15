@@ -8,6 +8,8 @@ const { fork, execFileSync } = require("node:child_process");
 const { once } = require("node:events");
 const { setTimeout: delay } = require("node:timers/promises");
 const ROOT = path.resolve(__dirname, "../../..");
+const { privateCLIProfile } = require("./private-cli-profile");
+const { running, until, descendants } = require("./active-tool");
 const WebSocket = require("node:module").createRequire(
   path.join(ROOT, "node_modules/@node-red/editor-api/package.json"),
 )("ws");
@@ -54,6 +56,7 @@ async function runtime() {
     logging: { console: { level: "info" } },
     editorTheme: { projects: { enabled: false } },
   });
+  if (process.argv[5] === "--acceptance") require("./v2-acceptance-probe").installProbe(RED);
   server.on("request", RED.httpAdmin);
   RED.events.on("flows:started", () => process.send({ deployed: true }));
   const started = once(RED.events, "flows:started");
@@ -67,43 +70,37 @@ async function runtime() {
   });
 }
 
-async function start({ userDir, secret, cli = false, ambientCLI = false } = {}) {
+async function start({
+  userDir,
+  secret,
+  cli = false,
+  ambientCLI = false,
+  acceptance = false,
+} = {}) {
   execFileSync("ss", ["-H", "-ltn"], { timeout: 5000 });
-  const directory = userDir || fs.mkdtempSync(path.join(os.tmpdir(), "nra-model-live-"));
+  const root = fs.existsSync("/tmp/opencode") ? "/tmp/opencode" : os.tmpdir();
+  const directory = userDir || fs.mkdtempSync(path.join(root, "nra-model-live-"));
   const encryption = secret || require("node:crypto").randomBytes(32).toString("hex");
-  const env = { ...process.env };
-  // A successful SDK/CLI call must use provisioned native credentials, not ambient auth.
-  for (const name of Object.keys(env)) {
-    if (/KEY|TOKEN|SECRET|PASSWORD|^OPENCODE_|^AI_GATEWAY_/i.test(name)) delete env[name];
-  }
+  const env = privateCLIProfile(directory, {
+    version: process.env.NODE_RED_AGENTS_OPENCODE_MODE || "v1",
+    tools: acceptance,
+  });
   if (cli) {
     if (ambientCLI) env.OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-    for (const [name, suffix] of Object.entries({
-      HOME: "home",
-      XDG_CONFIG_HOME: "config",
-      XDG_DATA_HOME: "share",
-      XDG_CACHE_HOME: "cache",
-      XDG_STATE_HOME: "state",
-    })) {
-      env[name] = path.join(directory, suffix);
-      fs.mkdirSync(env[name], { recursive: true });
-    }
-    env.OPENCODE_CONFIG_CONTENT = JSON.stringify({
-      autoupdate: false,
-      share: "disabled",
-      permission: { "*": "deny" },
-      server: { hostname: "127.0.0.1" },
-      provider: { openrouter: { options: { timeout: 55000, maxRetries: 0 } } },
-    });
   }
-  const child = fork(__filename, ["--runtime", directory, encryption], {
-    cwd: directory,
-    env,
-    stdio: ["ignore", "pipe", "pipe", "ipc"],
-  });
+  const child = fork(
+    __filename,
+    ["--runtime", directory, encryption, acceptance ? "--acceptance" : ""],
+    {
+      cwd: directory,
+      env,
+      stdio: ["ignore", "pipe", "pipe", "ipc"],
+    },
+  );
   let logs = "";
   const network = [];
   let deployments = 0;
+  const owned = new Set();
   child.stdout.on("data", (chunk) => {
     logs += chunk.toString();
   });
@@ -120,10 +117,12 @@ async function start({ userDir, secret, cli = false, ambientCLI = false } = {}) 
       return;
     }
     const exit = once(child, "exit");
+    descendants(child.pid).forEach((pid) => owned.add(pid));
     child.kill("SIGTERM");
     const timer = setTimeout(() => child.kill("SIGKILL"), 8000);
     await exit;
     clearTimeout(timer);
+    await until(() => [...owned, child.pid].every((pid) => !running(pid)), 5000);
     leakFree(logs);
   }
   try {
@@ -164,7 +163,25 @@ async function start({ userDir, secret, cli = false, ambientCLI = false } = {}) 
       }
       throw new Error("Node-RED flow deployment did not finish within 10s");
     }
-    async function run(properties) {
+    async function records() {
+      const response = await request("/acceptance/record");
+      assert.equal(response.status, 200);
+      const entries = await response.json();
+      entries.forEach((entry) => owned.add(entry.pid));
+      return entries;
+    }
+    async function api(owner, route, method = "GET", body) {
+      const response = await request("/acceptance/api", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ owner, route, method, body }),
+      });
+      const result = await response.json();
+      leakFree(result);
+      assert.equal(response.status, 200, `real v2 API failed: ${JSON.stringify(result)}`);
+      return result;
+    }
+    async function run(properties, { tag, onEvent } = {}) {
       const messages = { final: [], event: [], error: [] };
       const socket = new WebSocket(baseUrl.replace("http:", "ws:") + "/comms");
       const resultCleanup = [];
@@ -185,7 +202,10 @@ async function start({ userDir, secret, cli = false, ambientCLI = false } = {}) 
             leakFree(data);
             for (const event of JSON.parse(data)) {
               if (event.topic !== "debug" || !Object.hasOwn(messages, event.data.id)) continue;
-              messages[event.data.id].push(JSON.parse(event.data.msg));
+              const message = JSON.parse(event.data.msg);
+              if (tag && message.case !== tag && message._msgid !== tag) continue;
+              messages[event.data.id].push(message);
+              if (onEvent) onEvent(message, event.data.id);
               if (event.data.id !== "event") {
                 clearTimeout(quiet);
                 quiet = setTimeout(() => {
@@ -248,6 +268,8 @@ async function start({ userDir, secret, cli = false, ambientCLI = false } = {}) 
       request,
       deploy,
       run,
+      records,
+      api,
       stop,
       remove: () => fs.rmSync(directory, { recursive: true, force: true }),
     };

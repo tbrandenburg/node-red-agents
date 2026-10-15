@@ -16,6 +16,8 @@ npm ci
 E2E_MODEL_LIVE=1 node --test --test-timeout=590000 test/integration/model-provider.spec.js
 # Equivalent supported Make target:
 make test-model-e2e
+# Explicit v2 adapters and auth selectors (omitting the mode preserves v1):
+NODE_RED_AGENTS_OPENCODE_MODE=v2 make test-model-e2e
 ```
 
 The outer command runner needs a 600000 ms timeout. Without `E2E_MODEL_LIVE=1`,
@@ -100,7 +102,9 @@ config disables updates/sharing and denies tools. No user's saved auth store is
 read or modified. In production, shared-provider environment injection does not
 override saved account/config precedence; see [CLI provider auth](/docs/cli-provider-auth.md).
 This test isolates those sources but does not prove a provider-side billed account.
-It exercises the OpenCode v1 adapter and agent-server daemon credential rotation;
+`NODE_RED_AGENTS_OPENCODE_MODE=v1|v2` selects both the explicit agent auth selector
+and agent-server API adapter; the default remains v1. It exercises the selected
+adapter and daemon credential rotation;
 Pi and Copilot live account verification remain separate acceptance work.
 
 ## Scoped checks
@@ -122,8 +126,9 @@ Original issues **#66, #68 and #71 remain partially accepted** pending the
 provider/CLI/editor checklist in
 [#82](https://github.com/tbrandenburg/node-red-agents/issues/82).
 Passing implementation gates does not complete those manual definitions of done.
-Outstanding: authenticated Gateway generation/Jev, Pi shared auth, OpenCode v2
-shared auth, Copilot OAuth regression, and browser-editor round-trip.
+Outstanding: authenticated Gateway generation/Jev, Pi shared auth,
+Copilot OAuth regression, and browser-editor round-trip. OpenCode v2 shared auth
+is now covered by the explicit v2 live run below.
 
 Coordinator verification on **2026-10-13**, Node **v24.15.0**, OpenCode **v1.18.35**:
 
@@ -164,3 +169,155 @@ runtime implementation was changed. Tracked in
 [#77](https://github.com/tbrandenburg/node-red-agents/issues/77).
 The suite is intentionally red if a genuine
 provider/model acceptance scenario fails.
+
+## OpenCode v2 integration acceptance
+
+Install **v2.0.28**, Node 22+, Linux `ss`/`ps`, and SRT, and provision
+`OPENROUTER_API_KEY` in the environment (never on argv). The focused suites use
+`openrouter/openai/gpt-4.1-mini`; `E2E_OPENCODE_CANCEL_MODEL` overrides that model.
+They reuse the live Node-RED launcher and active-tool fixture, without mocks:
+
+```sh
+make test-v2-acceptance
+# Equivalent focused command; give the outer runner at least 360000 ms:
+NODE_RED_AGENTS_OPENCODE_MODE=v2 E2E_OPENCODE_V2_ACCEPTANCE=1 E2E_OPENCODE_CANCEL=1 node --test --test-concurrency=1 --test-timeout=300000 test/integration/opencode-v2-acceptance.spec.js test/integration/opencode-cancellation.spec.js
+```
+
+The Node-RED suite checks:
+
+- An `agent` reads a random sentinel from a cwd different from the runtime's cwd;
+  the runtime directory contains a deliberately incorrect sentinel.
+- An `agent-server` runs two separate native shell calls and emits one final
+  output only after a real persisted `idle` record reports `succeeded`.
+- A real child session selects a configured subagent with shell permission denied;
+  the live permission API returns `deny`, not a pending approval. This checks policy
+  evaluation without asking a model to delegate, and is not live model-delegation coverage.
+- The public shell API inserts 55 real records using `printf`, with no 55-model-call
+  billing loop. The real first page has 50 messages and a cursor; Node-RED's history
+  operation returns the inserted IDs and the older accepted turn without duplicates.
+- Server abort and request timeout occur while a real shell tool and descendant
+  are active. Neither interrupted prompt emits a success, each emits one failure,
+  the captured tools stop without a late write, and the same session responds again.
+
+The CLI suite checks Direct terminate/timeout and SRT terminate against the same
+active script. Direct exits through v2's SIGINT handler with code 130; SRT can exit
+zero after interruption, but the agent result must still be failed, never completed.
+Provider turn durations vary; inability to reach the active tool is a failed probe,
+not a passing cancellation result. No automatic provider retry is added by the tests.
+
+The launcher creates HOME/XDG/DB directories outside the repo and uses an allowlisted
+environment, not an ambient environment spread. Shared auth comes from native
+Node-RED credentials; cancellation uses the actual `resolveCLIAuth` sanitizer with
+only the provisioned OpenRouter key. Inherited `OPENCODE_*` service/config settings
+are excluded. `ss` runs before launch; Node-RED binds loopback port zero and the
+production daemon launcher selects a free loopback port before spawning. Captured
+Node-RED/daemon/tool descendant PIDs are verified stopped before profile removal.
+No existing shared service is stopped or reconfigured.
+
+Test-only admin probes inspect the owned registry and forward a small allowlist
+of real API operations to that daemon. Its Basic credentials stay inside the
+disposable Node-RED process; no credential or environment dictionary is returned.
+
+Verified **2026-10-14**, Node **v24.15.0**, OpenCode **v2.0.28**:
+
+| Command | Result |
+|---|---|
+| `npm test` | 526 passed, 0 failed, 0 skipped |
+| `NODE_RED_AGENTS_OPENCODE_MODE=v2 E2E_OPENCODE_MODEL=openrouter/openai/gpt-4.1-nano make test-e2e` | 5 passed, 0 failed, 1 redundant v1-only single-turn skip |
+| `NODE_RED_AGENTS_OPENCODE_MODE=v2 make test-model-e2e` | 13 passed, 0 failed, 1 Gateway skip (key absent) |
+| Focused v2 Node-RED acceptance command above, server spec only | 6 passed, 0 failed, 0 skipped |
+| Focused cancellation command above, CLI spec only | 4 passed, 0 failed, 0 skipped |
+
+Final supported-target verification on **2026-10-15**:
+`make test-v2-acceptance` reported **10 passed, 0 failed, 0 skipped** in 110.60 s;
+`make format`, `make lint` and `git diff --check` passed. The repeated v2 model
+suite reported **13 passed, 0 failed, 1 Gateway skip**. Each live launcher checked
+its captured process tree at teardown; the pre-existing shared service remained running.
+
+The exact CI-default command, `NODE_RED_AGENTS_OPENCODE_MODE=v2 make test-e2e`,
+then reported **4 passed, 1 failed, 1 intentional skip**. The MCP turn received
+provider HTTP **403**: “OpenCode's free tier can only be used from within OpenCode.”
+This reproduces the provider response tracked in
+[#78](https://github.com/tbrandenburg/node-red-agents/issues/78); the test was not
+skipped, weakened or switched to a billed CI model. Later comparisons and unchanged
+reruns below establish that the failure is intermittent, not a persistent rejection.
+
+The v2 CI pin changes from 2.0.18 to **2.0.28** after verifying the published npm
+version, installed CLI and authenticated real acceptance; the v1 pin remains
+**1.18.32**. Local acceptance does not certify the branch's GitHub jobs; those
+must independently exercise the updated implementation and pin.
+
+Harness pitfalls found and corrected during acceptance:
+
+- Native v2 `shell` is a top-level tool with `codemode: false`; it is absent from
+  Code Mode's `search` catalog. Asking a model to discover it there caused empty
+  search results and false claims of tool unavailability. Use native shell directly.
+- Nested `node:test` scenarios must use their own TestContext: awaiting a sibling
+  scheduled on the parent while its current child is running deadlocks the suite.
+- Shell API admission may return an empty 204 response; observe durable history,
+  not JSON parsing of an empty body. Lifecycle debug events correlate by `_msgid`,
+  not arbitrary custom message fields.
+- SRT needs `CLAUDE_CODE_TMPDIR` inside its writable profile; allowlisting only
+  `TMPDIR` caused an `EROFS` failure before the real CLI could execute.
+- A model mistyped a random absolute script path, preventing tool admission.
+  The active fixture now uses `./active.js` in the verified private cwd and a
+  short unique process title for host-PID capture, including SRT's PID namespace.
+
+References: [v2 API and OpenAPI](https://opencode.ai/v2/docs/api/),
+[v2 configuration](https://opencode.ai/v2/docs/config/), and
+[v2 permissions](https://opencode.ai/v2/docs/permissions/). Native shell discovery
+behavior was verified against the installed v2.0.28 binary, not inferred from v1 docs.
+
+### Coordinator integration verification, 2026-10-15
+
+After reviewing the combined implementation, manual cancellation was made
+non-retryable and post-exit process cleanup was restricted to identity-verified
+owned processes. Coordinator validation against that implementation:
+
+| Command | Result |
+|---|---|
+| `make format lint test` | Passed; 535 tests passed, 0 failed, 0 skipped |
+| `make test-v2-acceptance` | 10 passed, 0 failed, 0 skipped; 109.93 s |
+| `NODE_RED_AGENTS_OPENCODE_MODE=v2 make test-model-e2e` | 13 passed, 0 failed; Gateway skipped because its key is absent |
+| `NODE_RED_AGENTS_OPENCODE_MODE=v2 E2E_OPENCODE_MODEL=openrouter/openai/gpt-4.1-mini make test-e2e` | 5 passed, 0 failed; 1 intentional v1-only skip |
+| `NODE_RED_AGENTS_OPENCODE_MODE=v2 make test-e2e` | 4 passed, 1 failed, 1 intentional skip; MCP request reproduced #78's provider HTTP 403 |
+
+The same authenticated smoke command with `openrouter/openai/gpt-4.1-nano`
+failed two behavioral assertions: resume output omitted `second`, and MCP output
+claimed tool unavailability. The tests remained unchanged; model-driven smoke
+results are not deterministic; tracked in
+[#83](https://github.com/tbrandenburg/node-red-agents/issues/83).
+The mini-model run is positive behavioral
+evidence, not certification of the unmetered CI model or nano-model reliability.
+Pre-existing service listeners and their visible PIDs were unchanged after these
+coordinator runs. No separate typecheck command is configured.
+
+### Free-model CI/local comparison
+
+The main-branch GitHub run
+[38374770126](https://github.com/tbrandenburg/node-red-agents/actions/runs/38374770126)
+passed its v1 and v2 E2E jobs. Its v2 job used **2.0.18** and executed the MCP test
+successfully; the MCP test was not skipped.
+
+Controlled standalone probes with private HOME/XDG/DB profiles passed plain
+prompts and MCP calls on **both 2.0.18 and 2.0.28**. MCP also passed with both old
+and corrected permission ordering: six successful version/ordering probes.
+Four additional v2.0.28 probes passed with repository cwd, global configuration,
+neutral cwd, and inherited environment variants. Global credentials were not
+printed or exported; profiles used separate data directories.
+
+Two consecutive unchanged runs of
+`NODE_RED_AGENTS_OPENCODE_MODE=v2 make test-e2e` then each reported **5 passed,
+0 failed, 1 intentional skip**, using the original `opencode/big-pickle` model.
+No production code or CI model was changed during those comparisons.
+
+The precise trigger of the earlier HTTP 403 remains unproven. These results do
+not establish a deterministic CLI-upgrade, permission-ordering, or profile
+regression, nor do they prove that the provider will never reject a later call.
+Keep the free-model CI default and track intermittent failures in #78 rather
+than introducing paid CI credentials or weakening behavioral assertions.
+
+The final pre-publication gate on **2026-10-15** repeated `make format lint test`
+with **535 passed, 0 failed, 0 skipped**, and the unchanged default v2 E2E command
+with **5 passed, 0 failed, 1 intentional skip**. No typecheck script is configured;
+no tracked data/demo flows or lockfiles changed during these checks.

@@ -145,6 +145,7 @@ test("v2 prompt omits CLI cwd flags; lifecycle passes cwd to the runtime and eff
   );
   assert.deepEqual(built.args, [
     "run",
+    "--standalone",
     "--format",
     "json",
     "--model",
@@ -165,21 +166,25 @@ test("v2 prompt omits CLI cwd flags; lifecycle passes cwd to the runtime and eff
     executionId: "cwd-check",
   });
   assert.equal(executionRequest.cwd, os.tmpdir());
+  assert.equal(executionRequest.env.PWD, os.tmpdir());
 });
 
 test("v2 without effort keeps the exact positional prompt and supported flags", () => {
   const adapter = new OpenCodeAdapter();
   assert.deepEqual(
-    adapter.buildExecution(
-      baseResolved({
-        openCodeVersionMode: "v2",
-        sessionID: "ses_1",
-        model: "provider/model",
-        auto: true,
-      }),
-    ).args,
+    adapter
+      .buildExecution(
+        baseResolved({
+          openCodeVersionMode: "v2",
+          sessionID: "ses_1",
+          model: "provider/model",
+          auto: true,
+        }),
+      )
+      .args.slice(4),
     [
       "run",
+      "--standalone",
       "--format",
       "json",
       "--session",
@@ -234,8 +239,8 @@ test("v2 MCP and tool restriction config uses v2 schema", () => {
       "node-red-agent-tools": {
         mode: "primary",
         permissions: [
-          { action: "shell", resource: "*", effect: "deny" },
           { action: "read", resource: "*", effect: "allow" },
+          { action: "shell", resource: "*", effect: "deny" },
         ],
       },
     },
@@ -552,6 +557,7 @@ test("fixedVersion:2 behaves exactly like openCodeVersionMode:'v2' without needi
   const built = adapter.buildExecution(resolved);
   assert.deepEqual(built.args, [
     "run",
+    "--standalone",
     "--format",
     "json",
     "--model",

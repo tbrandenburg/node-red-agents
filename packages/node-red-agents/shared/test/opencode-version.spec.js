@@ -19,8 +19,11 @@ test("detectOpenCodeMajorVersion invokes the selected binary with --version", ()
   let invocation;
   const major = detectOpenCodeMajorVersion({
     binary: "/usr/bin/opencode",
-    execFileSync(binary, args) {
+    execFileSync(binary, args, options) {
       invocation = [binary, args];
+      assert.equal(options.timeout, 3000);
+      assert.equal(options.killSignal, "SIGKILL");
+      assert.equal(options.maxBuffer, 64 * 1024);
       return "2.0.18";
     },
   });

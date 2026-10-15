@@ -3,6 +3,7 @@
 const { getProviderConfig } = require("./model-provider");
 const { secretVariants } = require("./providers/safety");
 const { createEventRedactor } = require("./cli-stream-redactor");
+const { parseModelReference } = require("./model-format");
 
 const mappings = {
   openrouter: { key: "OPENROUTER_API_KEY", url: "https://openrouter.ai/api/v1" },
@@ -128,11 +129,18 @@ function resolveCLIAuth(
   if (config.baseURL !== mappings[config.provider].url) {
     throw invalid("Custom model-provider URLs are unsupported for CLI authentication");
   }
-  const selected = model ? model.slice(prefix.length + 1) : config.defaultModel;
   if (model && !model.startsWith(`${prefix}/`)) {
     throw invalid("CLI model provider must match the selected model-provider");
   }
-  if (!selected || (selected !== config.defaultModel && !config.allowedModels.includes(selected))) {
+  const selected = model ? model.slice(prefix.length + 1) : config.defaultModel;
+  if (!selected)
+    throw invalid("Select a default model or an allowed model from the model-provider");
+  // Only V2/auto OpenCode selectors interpret #variant. Pi and explicit V1 retain literal IDs.
+  const reference = ["opencode", "opencode-v2"].includes(agent)
+    ? parseModelReference(`${prefix}/${selected}`)
+    : undefined;
+  const base = reference ? reference.modelID : selected;
+  if (!base || (base !== config.defaultModel && !config.allowedModels.includes(base))) {
     throw invalid("Select a default model or an allowed model from the model-provider");
   }
   env[mappings[config.provider].key] = config.apiKey;

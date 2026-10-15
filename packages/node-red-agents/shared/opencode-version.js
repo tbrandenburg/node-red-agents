@@ -15,12 +15,16 @@ function parseOpenCodeMajorVersion(versionString) {
 function detectOpenCodeMajorVersion({
   binary = "opencode",
   execFileSync = defaultExecFileSync,
+  timeoutMs = 3000,
 } = {}) {
   let stdout = "";
   try {
     stdout = execFileSync(binary, ["--version"], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"],
+      timeout: timeoutMs,
+      killSignal: "SIGKILL",
+      maxBuffer: 64 * 1024,
     });
     return parseOpenCodeMajorVersion(stdout);
   } catch (err) {

@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 "use strict";
 
+if (process.argv.includes("--version")) {
+  process.stdout.write("1.0.0\n");
+  return;
+}
+
 // Stand-in for `opencode run --format json` used only by the node-level
 // retry integration test's fatal-error case (issue #24): always fails
 // with a fatal-looking error (401 Unauthorized), tracked via a state file

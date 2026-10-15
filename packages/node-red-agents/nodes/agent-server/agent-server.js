@@ -1,6 +1,7 @@
 "use strict";
 
 const fs = require("fs");
+const { randomUUID } = require("node:crypto");
 const { execFileSync } = require("child_process");
 const { findFreePort } = require("./lib/port");
 const { InstanceRegistry } = require("./lib/registry");
@@ -11,6 +12,7 @@ const { request } = require("./lib/http");
 const { parseModel } = require("./lib/model");
 const { createDaemonAuth } = require("./lib/auth");
 const apiV2 = require("./lib/api");
+const { settleTurn } = require("./lib/recovery");
 const { detectOpenCodeMajorVersion } = require("../../shared/opencode-version");
 const { resolveCLIAuth, createSanitizer } = require("../../shared/cli-provider-auth");
 
@@ -28,6 +30,7 @@ module.exports = function (RED) {
     let versionDetectionWarningSent = false;
     const sanitizers = new Map();
     let closing = false;
+    let starting = 0;
     const sanitize = (value) => {
       for (const redact of sanitizers.keys()) value = redact(value);
       return value;
@@ -181,13 +184,12 @@ module.exports = function (RED) {
             ? "v2"
             : "v1";
       } catch (err) {
-        detectedApiVersion = "v1";
         if (!versionDetectionWarningSent) {
           versionDetectionWarningSent = true;
           node.warn(`could not detect OpenCode CLI version; using v1 server API: ${err.message}`);
         }
       }
-      return detectedApiVersion;
+      return detectedApiVersion || "v1";
     }
 
     // Extracts the assistant's text reply the same way the `agent`
@@ -206,12 +208,20 @@ module.exports = function (RED) {
     // process) and rejects on any failure along the way -- callers
     // never have to clean up a partially-started daemon themselves.
     async function spawnNewInstance(msg, model) {
-      if (node.maxInstances > 0 && node.registry.size() >= node.maxInstances) {
+      if (node.maxInstances > 0 && node.registry.size() + starting >= node.maxInstances) {
         throw new Error(
           `agent-server: max instances (${node.maxInstances}) reached, cannot spawn a new daemon`,
         );
       }
+      starting += 1;
+      try {
+        return await startInstance(msg, model);
+      } finally {
+        starting -= 1;
+      }
+    }
 
+    async function startInstance(msg, model) {
       const port = await findFreePort(node.hostname);
       if (closing) throw new Error("agent-server: node is closing");
       const baseUrl = `http://${node.hostname}:${port}`;
@@ -228,6 +238,7 @@ module.exports = function (RED) {
       sanitizers.set(localSanitize, owner);
       const env = providerAuth.env;
       if (version === "v2") {
+        env.OPENCODE_PASSWORD = auth.password;
         env.OPENCODE_SERVER_USERNAME = auth.username;
         env.OPENCODE_SERVER_PASSWORD = auth.password;
       } else if (node.authUsername || node.authPassword) {
@@ -252,7 +263,12 @@ module.exports = function (RED) {
         child.once("exit", () => {
           // Pending startup and intentional shutdown sanitize their final output first.
           if (!owner.sessionID || owner.stopping) return;
+          const busy = node.registry.get(owner.sessionID)?.busy;
           node.registry.delete(owner.sessionID);
+          if (!busy && !owner.failureReported) {
+            node.error("agent-server: owned daemon exited unexpectedly");
+            emitEvent(owner.sessionID, "failed", msg, localSanitize);
+          }
           sanitizers.delete(localSanitize);
           updateStatus();
         });
@@ -316,6 +332,8 @@ module.exports = function (RED) {
     // Shared by both the "spawn new" and "reuse existing" paths.
     async function sendMessage(sessionID, baseUrl, prompt, model, msg, send, done) {
       const record = node.registry.get(sessionID);
+      const owner = sanitizers.get(record.sanitize);
+      if (owner) owner.failureReported = false;
       const localSanitize = record.sanitize || sanitize;
       const originalSend = send;
       const originalDone = done;
@@ -333,17 +351,20 @@ module.exports = function (RED) {
       // elsewhere deliberately stay Date.now() -- those are for
       // human-readable/correlatable wall-clock history, not duration.
       const startedAtNs = process.hrtime.bigint();
+      const promptID = `msg_${randomUUID()}`;
+      let submitted = false;
       try {
         const body = {
           agent: msg.agent || "build",
           parts: [{ type: "text", text: String(prompt) }],
         };
         if (model) body.model = model;
-        const remainingMs = () =>
-          Math.max(
-            1,
-            node.requestTimeoutMs - Number((process.hrtime.bigint() - startedAtNs) / 1000000n),
-          );
+        const remainingMs = () => {
+          const remaining =
+            node.requestTimeoutMs - Number((process.hrtime.bigint() - startedAtNs) / 1000000n);
+          if (remaining <= 0) throw new Error("v2 prompt request deadline exceeded");
+          return remaining;
+        };
         const response =
           record.apiVersion === "v2"
             ? await (async () => {
@@ -352,8 +373,15 @@ module.exports = function (RED) {
                 if (model) {
                   await apiV2.switchModel(baseUrl, sessionID, model, deadlineOptions());
                 }
-                const admission = await apiV2.prompt(baseUrl, sessionID, prompt, deadlineOptions());
-                return apiV2.waitForCompletion(baseUrl, sessionID, admission.id, {
+                submitted = true;
+                const admission = await apiV2.prompt(baseUrl, sessionID, prompt, {
+                  ...deadlineOptions(),
+                  promptID,
+                });
+                if (admission?.id !== promptID) {
+                  throw new Error("v2 prompt admission returned an unexpected message ID");
+                }
+                return apiV2.waitForCompletion(baseUrl, sessionID, promptID, {
                   ...deadlineOptions(),
                 });
               })()
@@ -384,10 +412,34 @@ module.exports = function (RED) {
         updateStatus();
         done();
       } catch (err) {
+        // A broken transport can reject before the child exit event arrives.
+        // The input path reports this owned failure; exit must not duplicate it.
+        if (owner) owner.failureReported = true;
+        let failure = err;
+        if (submitted && node.registry.get(sessionID) === record) {
+          const settled = await settleTurn(baseUrl, sessionID, promptID, {
+            timeoutMs: node.requestTimeoutMs,
+            ...auth,
+          });
+          if (!settled && node.registry.get(sessionID) === record) {
+            const owner = sanitizers.get(record.sanitize);
+            if (owner) owner.stopping = true;
+            node.registry.delete(sessionID);
+            try {
+              await killDaemon(record.child);
+            } catch (cleanupError) {
+              failure = cleanupError;
+            } finally {
+              sanitizers.delete(record.sanitize);
+            }
+          }
+        }
         node.registry.setBusy(sessionID, false);
         emitEvent(sessionID, "failed", msg, localSanitize);
         updateStatus();
-        done(new Error(`agent-server: message to session "${sessionID}" failed: ${err.message}`));
+        done(
+          new Error(`agent-server: message to session "${sessionID}" failed: ${failure.message}`),
+        );
       }
     }
 
@@ -728,13 +780,18 @@ module.exports = function (RED) {
             })
             .finally(() => sanitizers.delete(redact));
         }),
-      ).then(() => {
-        if (node.srtTempSettingsFile) {
-          fs.unlink(node.srtTempSettingsFile, () => {});
-        }
-        node.status({});
-        done();
-      });
+      )
+        .then(() => {
+          if (node.srtTempSettingsFile) {
+            fs.unlink(node.srtTempSettingsFile, () => {});
+          }
+          node.status({});
+          done();
+        })
+        .catch((error) => {
+          node.error(new Error(sanitize(`agent-server: close failed: ${error.message}`)));
+          done(error);
+        });
     });
   }
 

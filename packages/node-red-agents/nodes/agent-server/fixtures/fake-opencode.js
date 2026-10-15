@@ -11,6 +11,10 @@ const http = require("http");
 const { createHash } = require("node:crypto");
 
 const args = process.argv.slice(2);
+if (args.includes("--version")) {
+  process.stdout.write(`${process.env.FAKE_OPENCODE_VERSION || "1.0.0"}\n`);
+  return;
+}
 function flag(name) {
   const i = args.indexOf(name);
   return i >= 0 ? args[i + 1] : undefined;
@@ -27,6 +31,19 @@ let sessionCounter = 0;
 let promptCounter = 0;
 let latestMessages = [];
 let blockPoll = false;
+let pollPages = [];
+let recoveryMode;
+let activeUser;
+
+function finishInterrupted() {
+  latestMessages.unshift({
+    id: `msg-interrupt-${promptCounter}`,
+    type: "idle",
+    outcome: "interrupted",
+  });
+  activeUser = undefined;
+  blockPoll = false;
+}
 
 function holdResponse(stage) {
   // A readiness marker proves the real HTTP handler admitted the blocked request.
@@ -69,6 +86,14 @@ function readJsonBody(req) {
 }
 
 const server = http.createServer((req, res) => {
+  if (process.env.FAKE_OPENCODE_CHECK_AUTH === "1" && req.url.startsWith("/api/")) {
+    const password = process.env.OPENCODE_PASSWORD || process.env.OPENCODE_SERVER_PASSWORD;
+    const expected = "Basic " + Buffer.from(`opencode:${password}`).toString("base64");
+    if (req.headers.authorization !== expected) {
+      res.writeHead(401).end();
+      return;
+    }
+  }
   if (req.url === "/api/info") {
     res.setHeader("Content-Type", "application/json");
     res.end(JSON.stringify({ version: "2.0.18", pid: process.pid }));
@@ -85,15 +110,59 @@ const server = http.createServer((req, res) => {
     if (req.method === "POST" && req.url.endsWith("/prompt")) {
       readJsonBody(req)
         .then((body) => {
+          if (body.id !== undefined && !/^msg_/.test(body.id)) {
+            res.writeHead(400).end();
+            return;
+          }
+          if (activeUser) {
+            res.writeHead(409).end(JSON.stringify({ message: "synthetic-private-busy" }));
+            return;
+          }
           if (body.text === "block-prompt") {
             holdResponse("prompt");
             return;
           }
           promptCounter += 1;
           blockPoll = body.text === "block-poll";
-          const user = { id: `msg-user-${promptCounter}`, type: "user" };
+          const user = { id: body.id || `msg-user-${promptCounter}`, type: "user" };
+          recoveryMode = body.text.startsWith("s4-") ? body.text : undefined;
+          if (recoveryMode && recoveryMode !== "s4-lost-completed") {
+            activeUser = user;
+            latestMessages.unshift(user);
+            blockPoll = true;
+            if (recoveryMode === "s4-lost-admission") {
+              req.socket.destroy();
+              return;
+            }
+            if (["s4-stalled-admission", "s4-delayed-admission"].includes(recoveryMode)) {
+              res.writeHead(200);
+              res.write('{"data":');
+              if (recoveryMode === "s4-delayed-admission") {
+                setTimeout(() => res.end(JSON.stringify(user) + "}"), 350);
+              }
+              holdResponse("admission-body");
+              return;
+            }
+            res.end(JSON.stringify({ data: user }));
+            return;
+          }
           const response = reply(body.text);
+          const previous = latestMessages;
+          const outcome =
+            body.text === "s3-interrupted"
+              ? "interrupted"
+              : response.error
+                ? "failed"
+                : "succeeded";
           latestMessages = [
+            {
+              id: `msg-idle-${promptCounter}`,
+              type: "idle",
+              outcome,
+              error: response.error
+                ? { type: response.error.name, status: response.error.data.statusCode }
+                : undefined,
+            },
             {
               id: `msg-assistant-${promptCounter}`,
               type: "assistant",
@@ -108,18 +177,85 @@ const server = http.createServer((req, res) => {
                 : undefined,
             },
             user,
+            ...previous,
           ];
+          pollPages = [];
+          if (body.text === "s6-long-turn") {
+            latestMessages.splice(
+              2,
+              0,
+              ...Array.from({ length: 60 }, (_, index) => ({
+                id: `msg-long-${promptCounter}-${index}`,
+                type: "assistant",
+                time: { completed: Date.now() },
+                content: [],
+              })),
+            );
+          }
+          if (body.text === "s3-multi-step") {
+            latestMessages[1].content = [{ type: "text", text: "final multi-step answer" }];
+            const tool = {
+              id: `msg-tool-${promptCounter}`,
+              type: "assistant",
+              time: { completed: Date.now() },
+              finish: "tool-calls",
+              content: [{ type: "text", text: "intermediate tool step" }],
+            };
+            latestMessages.splice(2, 0, tool);
+            pollPages = [
+              [user, ...previous],
+              [tool, user, ...previous],
+            ];
+          }
+          if (recoveryMode === "s4-lost-completed") {
+            req.socket.destroy();
+            return;
+          }
           res.end(JSON.stringify({ data: user }));
         })
         .catch(() => res.writeHead(400).end());
       return;
     }
-    if (req.method === "GET" && req.url.endsWith("/message")) {
+    if (req.method === "GET" && req.url.split("?")[0].endsWith("/message")) {
       if (blockPoll) {
         holdResponse("poll");
         return;
       }
-      res.end(JSON.stringify({ data: latestMessages }));
+      const url = new URL(req.url, "http://localhost");
+      const offset = Number(url.searchParams.get("cursor") || 0);
+      const timeline = pollPages.shift() || latestMessages;
+      res.end(
+        JSON.stringify({
+          data: timeline.slice(offset, offset + 50),
+          cursor: { next: timeline.length > offset ? String(offset + 50) : null, previous: null },
+        }),
+      );
+      return;
+    }
+    if (req.method === "POST" && req.url.endsWith("/interrupt")) {
+      if (recoveryMode === "s4-interrupt-failure") {
+        res.writeHead(500).end(JSON.stringify({ message: "synthetic-private-interrupt" }));
+        return;
+      }
+      if (recoveryMode === "s4-interrupt-stalled-body") {
+        res.writeHead(200);
+        res.write('{"interrupted":');
+        holdResponse("interrupt-body");
+        return;
+      }
+      if (recoveryMode === "s4-unconfirmed-idle") {
+        res.end(JSON.stringify({ interrupted: true }));
+        return;
+      }
+      if (activeUser) {
+        holdResponse("interrupt");
+        setTimeout(() => {
+          finishInterrupted();
+          res.end(JSON.stringify({ interrupted: true }));
+        }, 100);
+        return;
+      }
+      res.end(JSON.stringify({ interrupted: false }));
       return;
     }
     res.writeHead(204).end();

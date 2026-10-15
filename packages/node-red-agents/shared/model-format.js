@@ -31,4 +31,22 @@ function assertModelFormat(value) {
   }
 }
 
-module.exports = { assertModelFormat };
+// V2 selectors carry a variant; keep the legacy validator unchanged for V1.
+function parseModelReference(value, effort) {
+  if (value === undefined || value === null || value === "") return undefined;
+  const str = String(value);
+  assertModelFormat(str);
+  const match = /^([^/#]+)\/([^#]+)(?:#([^#]+))?$/.exec(str);
+  if (!match) throw new Error('invalid model reference -- expected "provider/model#variant"');
+  if (effort && (typeof effort !== "string" || effort.includes("#"))) {
+    throw new Error("invalid OpenCode effort -- expected a variant name without #");
+  }
+  const variant = effort || match[3];
+  return {
+    providerID: match[1],
+    modelID: match[2],
+    ...(variant ? { variant } : {}),
+  };
+}
+
+module.exports = { assertModelFormat, parseModelReference };

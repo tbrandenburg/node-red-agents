@@ -80,7 +80,7 @@ jobs:
       - name: Install opencode CLI
         # Bump manually to a verified exact npm version; global CLI installs
         # are not tracked by Dependabot's package.json-based npm updates.
-        run: npm install --global @opencode/cli@2.0.18
+        run: npm install --global @opencode/cli@2.0.28
       - run: make test-e2e
         env:
           NODE_RED_AGENTS_OPENCODE_MODE: v2

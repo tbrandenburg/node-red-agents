@@ -1,10 +1,12 @@
 "use strict";
 
 const fs = require("fs");
+const path = require("path");
 const { AgentAdapter } = require("./base");
 const { toOpenCodeMcp } = require("../mcp/normalize");
-const { assertModelFormat } = require("../../../../shared/model-format");
+const { assertModelFormat, parseModelReference } = require("../../../../shared/model-format");
 const { detectOpenCodeMajorVersion } = require("../../../../shared/opencode-version");
+const { parseV2Error, summarizeUsage } = require("./opencode-parsing");
 
 const detectedVersions = new Map();
 
@@ -32,6 +34,7 @@ class OpenCodeAdapter extends AgentAdapter {
   validate(resolved) {
     assertModelFormat(resolved.model);
     const version = this.resolveVersion(resolved);
+    if (version === 2) parseModelReference(resolved.model, resolved.effort);
 
     if (version === 2 && resolved.effort && !resolved.model) {
       throw new Error("OpenCode v2 effort requires an explicit model (provider/model)");
@@ -92,6 +95,9 @@ class OpenCodeAdapter extends AgentAdapter {
       );
     }
     const args = ["run", "--format", "json"];
+    // Own the v2 server so per-run env/config and SRT apply to execution,
+    // not a client connected to the user's shared background service.
+    if (version === 2) args.splice(1, 0, "--standalone");
 
     // Resuming an existing session (opencode run -s <id> ...) rather
     // than always starting a new one -- verified against `opencode run
@@ -99,10 +105,11 @@ class OpenCodeAdapter extends AgentAdapter {
     if (resolved.sessionID) args.push("--session", String(resolved.sessionID));
 
     if (resolved.cwd && version === 1) args.push("--dir", resolved.cwd);
-    const model =
-      resolved.model && version === 2 && resolved.effort
-        ? `${resolved.model}#${resolved.effort}`
-        : resolved.model;
+    const reference =
+      version === 2 ? parseModelReference(resolved.model, resolved.effort) : undefined;
+    const model = reference
+      ? `${reference.providerID}/${reference.modelID}${reference.variant ? `#${reference.variant}` : ""}`
+      : resolved.model;
     if (model) args.push("--model", model);
     if (resolved.auto) args.push("--auto");
 
@@ -127,6 +134,9 @@ class OpenCodeAdapter extends AgentAdapter {
     }
 
     const env = {};
+    const cwd = version === 2 ? path.resolve(resolved.cwd || process.cwd()) : undefined;
+    // v2 selects its Location from PWD, even when spawn's cwd differs.
+    if (cwd) env.PWD = cwd;
     const opencodeConfig = {};
     if (Array.isArray(resolved.mcpServers) && resolved.mcpServers.length > 0) {
       const mcp = toOpenCodeMcp(resolved.mcpServers);
@@ -161,19 +171,26 @@ class OpenCodeAdapter extends AgentAdapter {
       const agentName = "node-red-agent-tools";
       if (version === 2) {
         const permissions = [];
-        const v2Action = (name) => ({ bash: "shell", write: "edit", patch: "edit" })[name] || name;
-        for (const name of resolved.deniedTools || []) {
-          permissions.push({
-            action: v2Action(name),
-            resource: "*",
-            effect: "deny",
-          });
-        }
+        const aliases = new Map([
+          ["bash", "shell"],
+          ["write", "edit"],
+          ["patch", "edit"],
+          ["task", "subagent"],
+        ]);
+        const v2Action = (name) => aliases.get(name) || name;
+        // V2 uses the last matching rule; denies must override allows, including aliases.
         for (const name of resolved.allowedTools || []) {
           permissions.push({
             action: v2Action(name),
             resource: "*",
             effect: "allow",
+          });
+        }
+        for (const name of resolved.deniedTools || []) {
+          permissions.push({
+            action: v2Action(name),
+            resource: "*",
+            effect: "deny",
           });
         }
         opencodeConfig.agents = { [agentName]: { mode: "primary", permissions } };
@@ -188,13 +205,28 @@ class OpenCodeAdapter extends AgentAdapter {
 
     if (Object.keys(opencodeConfig).length > 0) {
       env.OPENCODE_CONFIG_CONTENT = JSON.stringify(opencodeConfig);
-      // v2's default shared service owns configuration and won't see this
-      // per-process environment value. Isolate only executions that need
-      // ephemeral MCP/permission config so the child loads its own config.
-      if (version === 2) args.splice(1, 0, "--standalone");
     }
 
-    return { command: "opencode", args, env };
+    return {
+      // v2 creates unknown --session IDs. Check on a private server first,
+      // then exec so the runtime retains the same owned PID and signal policy.
+      command: version === 2 && resolved.sessionID ? "sh" : "opencode",
+      args:
+        version === 2 && resolved.sessionID
+          ? [
+              "-c",
+              'opencode api --standalone GET "$1" >/dev/null 2>/dev/null || { echo "OpenCode resume session not found or unavailable" >&2; exit 1; }; shift; exec opencode "$@"',
+              "opencode-resume",
+              `/api/session/${encodeURIComponent(String(resolved.sessionID))}`,
+              ...args,
+            ]
+          : args,
+      env,
+      ...(cwd ? { cwd } : {}),
+      // v2.0.28 run handles SIGINT by interrupting its owned session; shell
+      // cleanup can take three seconds before escalating detached tools.
+      ...(version === 2 ? { cancellation: { signal: "SIGINT", graceMs: 5000 } } : {}),
+    };
   }
 
   resolveVersion(resolved) {
@@ -211,7 +243,6 @@ class OpenCodeAdapter extends AgentAdapter {
       detectedVersions.set(binary, version);
       return version;
     } catch (err) {
-      detectedVersions.set(binary, 1);
       if (typeof resolved.onWarning === "function") {
         resolved.onWarning(
           `could not detect OpenCode CLI version; using v1 behavior: ${err.message}`,
@@ -233,6 +264,11 @@ class OpenCodeAdapter extends AgentAdapter {
       return null;
     }
 
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    if (raw.type === "error" && typeof raw.error?.type === "string") {
+      // Provider response bodies/headers are not part of the public diagnostic contract.
+      raw.error = parseV2Error(raw.error).errorDetail;
+    }
     const type = TYPE_MAP[raw.type] || raw.type || "progress";
     return { type, sessionID: raw.sessionID, data: raw };
   }
@@ -254,10 +290,14 @@ class OpenCodeAdapter extends AgentAdapter {
     // cache:{read,write},total}, cost }. `costUsd`/`tokens` stay undefined
     // (rather than 0) when no step_finish event was observed at all, so
     // agent.js can omit the fields entirely instead of reporting a false 0.
-    const usage = summarizeUsage(raw);
+    const version = resolved ? this.resolveVersion(resolved) : this.fixedVersion || 1;
+    const usage = summarizeUsage(raw, version);
 
     if (errorEvent) {
       const errDetail = errorEvent.error || {};
+      if (typeof errDetail.type === "string") {
+        return { payload, sessionID, status: "failed", ...parseV2Error(errDetail), ...usage };
+      }
       const message =
         (errDetail.data && errDetail.data.message) ||
         errDetail.name ||
@@ -334,54 +374,8 @@ class OpenCodeAdapter extends AgentAdapter {
   }
 }
 
-// Sums cost (USD) and token counts across every step_finish event in a run.
-// Returns {} (no keys at all) when no step_finish event carried usable
-// data, so Object.assign(...) callers above never introduce costUsd/tokens
-// keys with `undefined` values -- agent.js relies on the key's mere
-// presence (not just its value) to decide whether to surface it.
-function summarizeUsage(raw) {
-  let costUsd;
-  let tokens;
-  for (const e of raw) {
-    if (e.type !== "step_finish" || !e.part || typeof e.part !== "object") continue;
-    const part = e.part;
-    if (typeof part.cost === "number") {
-      costUsd = (costUsd || 0) + part.cost;
-    }
-    if (part.tokens && typeof part.tokens === "object") {
-      tokens = tokens || {
-        total: 0,
-        input: 0,
-        output: 0,
-        reasoning: 0,
-        cache: { read: 0, write: 0 },
-      };
-      tokens.total += Number(part.tokens.total) || 0;
-      tokens.input += Number(part.tokens.input) || 0;
-      tokens.output += Number(part.tokens.output) || 0;
-      tokens.reasoning += Number(part.tokens.reasoning) || 0;
-      if (part.tokens.cache) {
-        tokens.cache.read += Number(part.tokens.cache.read) || 0;
-        tokens.cache.write += Number(part.tokens.cache.write) || 0;
-      }
-    }
-  }
-  const usage = {};
-  if (costUsd !== undefined) usage.costUsd = costUsd;
-  if (tokens !== undefined) usage.tokens = tokens;
-  return usage;
-}
-
 OpenCodeAdapter.CAPABILITIES = {
-  sessionResume: true, // opencode.js -s/--session verified working: an
-  // unresolvable/bogus sessionID hard-fails the CLI (exit 1, zero JSON
-  // events, "Session not found" on stderr) rather than silently
-  // falling back to a fresh session -- verified empirically with real
-  // CLI invocations. So `resumeOutcome()` (lib/execution/resume-
-  // outcome.js) reaching `false` for this adapter today always
-  // co-occurs with a failed execution; there is no known path where
-  // OpenCode reports status:"completed" after silently discarding a
-  // requested resume.
+  sessionResume: true, // v1 rejects unknown IDs; v2 requires the private API precheck above.
   structuredOutput: "best-effort", // no --schema/--json-schema CLI flag
   toolRestrictions: true, // via materialized temp agent config + --agent
   effortControl: true, // --variant, verified working

@@ -38,9 +38,10 @@ async function runAgent({
       id: executionId,
       command: built.command,
       args: built.args,
-      cwd: resolved.cwd || undefined,
+      cwd: built.cwd || resolved.cwd || undefined,
       env: Object.assign({}, auth ? auth.env : process.env, built.env || {}),
       timeoutMs: resolved.timeoutMs || undefined,
+      ...(built.cancellation ? { cancellation: built.cancellation } : {}),
     };
 
     const events = [];
@@ -90,7 +91,11 @@ async function runAgent({
       diagnostic(outcome.stderr),
       resolved,
     );
-    const status = outcome.timedOut ? "timeout" : result.status;
+    const status = outcome.timedOut ? "timeout" : outcome.cancelled ? "failed" : result.status;
+    if (outcome.cancelled && !outcome.timedOut) {
+      result.errorMessage = "execution cancelled";
+      result.retryable = false;
+    }
 
     if (onStatus) onStatus(status);
 

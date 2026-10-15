@@ -140,6 +140,48 @@ test("sanitizes nested echoes and encoded keys without removing application fiel
   assert.deepEqual(sanitize(value).env, { KEY: "[REDACTED]" });
 });
 
+test("OpenCode v2 auth allowlists the base model and retains variants without allowing bypasses", () => {
+  for (const agent of ["opencode", "opencode-v2"]) {
+    for (const model of ["openrouter/anthropic/claude-test#high", "openrouter/openai/test#low"]) {
+      const auth = resolveCLIAuth(configuration(), { authMode: "provider", agent, model }, {});
+      assert.equal(auth.model, model);
+      assert.equal(auth.env.OPENROUTER_API_KEY, "synthetic-provider-secret");
+    }
+    for (const model of [
+      "openrouter/not-allowed#high",
+      "openrouter/not-allowed#anthropic/claude-test",
+    ]) {
+      assert.throws(
+        () => resolveCLIAuth(configuration(), { authMode: "provider", agent, model }, {}),
+        /allowed model/,
+      );
+    }
+    for (const model of ["openrouter/openai/test#", "openrouter/openai/test#low#high"]) {
+      assert.throws(
+        () => resolveCLIAuth(configuration(), { authMode: "provider", agent, model }, {}),
+        /invalid model/,
+      );
+    }
+  }
+  for (const agent of ["opencode-v1", "pi"]) {
+    assert.throws(
+      () =>
+        resolveCLIAuth(
+          configuration(),
+          { authMode: "provider", agent, model: "openrouter/openai/test#low" },
+          {},
+        ),
+      /allowed model/,
+    );
+    const auth = resolveCLIAuth(
+      configuration("openrouter", { allowedModels: ["openai/test#literal"] }),
+      { authMode: "provider", agent, model: "openrouter/openai/test#literal" },
+      {},
+    );
+    assert.equal(auth.model, "openrouter/openai/test#literal");
+  }
+});
+
 test("default authentication preserves domain keys, probabilities and message histories", () => {
   const auth = resolveCLIAuth({}, { agent: "opencode-v1" }, {});
   const msg = {

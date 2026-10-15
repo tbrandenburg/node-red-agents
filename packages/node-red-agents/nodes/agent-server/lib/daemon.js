@@ -62,7 +62,7 @@ function appendBounded(buffer, chunk) {
 // baseUrl afterwards.
 function spawnDaemon(config) {
   const { cmd, args } = buildCommand(config);
-  const state = { stdout: "", stderr: "" };
+  const state = { stdout: "", stderr: "", spawnError: undefined };
   const sanitize = config.sanitize || ((value) => value);
   const diagnostics = {
     get stdout() {
@@ -71,6 +71,9 @@ function spawnDaemon(config) {
     get stderr() {
       return sanitize(state.stderr);
     },
+    get spawnError() {
+      return state.spawnError;
+    },
   };
 
   const child = spawn(cmd, args, {
@@ -78,6 +81,12 @@ function spawnDaemon(config) {
     env: config.env || process.env,
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  // Register before returning: ENOENT/EACCES are asynchronous error events,
+  // not exceptions from spawn, and an unhandled event would crash Node-RED.
+  child.on("error", () => {
+    state.spawnError = "daemon failed to spawn";
   });
 
   child.stdout.on("data", (chunk) => {
@@ -102,11 +111,12 @@ async function waitForHealthy(
   let lastError;
 
   while (Date.now() < deadline) {
+    if (diagnostics?.spawnError) throw new Error(diagnostics.spawnError);
     try {
       const check =
         apiVersion === "v2" ? health : (url, opts) => request(`${url}/global/health`, opts);
       const result = await check(baseUrl, {
-        timeoutMs: interval * 4,
+        timeoutMs: Math.max(1, Math.min(interval * 4, deadline - Date.now())),
         username,
         password,
       });
@@ -116,7 +126,9 @@ async function waitForHealthy(
       return result;
     } catch (err) {
       lastError = err;
-      await new Promise((r) => setTimeout(r, interval));
+      await new Promise((r) =>
+        setTimeout(r, Math.min(interval, Math.max(1, deadline - Date.now()))),
+      );
     }
   }
 
@@ -131,42 +143,56 @@ async function waitForHealthy(
 
 // `-pid` reaches the whole detached process group (see spawnDaemon).
 function killProcessGroup(child, signal) {
-  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  if (!child?.pid || child.exitCode !== null || child.signalCode !== null) return;
   try {
     process.kill(-child.pid, signal);
   } catch (err) {
     try {
       child.kill(signal);
-    } catch (_err) {
-      // Already exited between the check above and here.
+    } catch (fallback) {
+      if (fallback.code !== "ESRCH") {
+        throw new Error("owned daemon signal failed", { cause: fallback });
+      }
     }
   }
 }
 
 // SIGTERM, escalating to SIGKILL after GRACE_PERIOD_MS if it hasn't exited.
-// Resolves once the process has actually exited, or after a safety cap so
-// node close() can never hang forever on a daemon that refuses to die.
-function killDaemon(child) {
-  return new Promise((resolve) => {
-    if (!child || child.exitCode !== null || child.signalCode !== null) {
+// A bounded wait must reject, not claim cleanup succeeded without an exit.
+function killDaemon(child, { graceMs = GRACE_PERIOD_MS, confirmationMs = 2000 } = {}) {
+  return new Promise((resolve, reject) => {
+    if (!child?.pid || child.exitCode !== null || child.signalCode !== null) {
       resolve();
       return;
     }
 
     let settled = false;
-    const finish = () => {
+    let killTimer;
+    let safetyTimer;
+    const finish = (error) => {
       if (settled) return;
       settled = true;
       clearTimeout(killTimer);
       clearTimeout(safetyTimer);
-      resolve();
+      child.off("exit", exited);
+      if (error) reject(error);
+      else resolve();
     };
-
-    child.once("exit", finish);
-    killProcessGroup(child, "SIGTERM");
-
-    const killTimer = setTimeout(() => killProcessGroup(child, "SIGKILL"), GRACE_PERIOD_MS);
-    const safetyTimer = setTimeout(finish, GRACE_PERIOD_MS + 2000);
+    const exited = () => finish();
+    const signal = (value) => {
+      try {
+        killProcessGroup(child, value);
+      } catch (error) {
+        finish(error);
+      }
+    };
+    child.once("exit", exited);
+    killTimer = setTimeout(() => signal("SIGKILL"), graceMs);
+    safetyTimer = setTimeout(
+      () => finish(new Error("owned daemon exit could not be confirmed")),
+      graceMs + confirmationMs,
+    );
+    signal("SIGTERM");
   });
 }
 

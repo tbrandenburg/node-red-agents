@@ -101,9 +101,13 @@ test("post-registration event failure releases both registry and sanitizer owner
 test("unexpected exit releases idle daemon ownership and registry routing", async () => {
   const h = harness();
   await h.input({ payload: "hello" });
+  const errors = [];
+  h.node.on("error-reported", (value) => errors.push(value));
   h.children[0].exitCode = 1;
   h.children[0].emit("exit", 1);
   assert.equal(h.node.registry.size(), 0);
+  assert.deepEqual(errors, ["agent-server: owned daemon exited unexpectedly"]);
+  assert.equal(h.outputs.at(-1)[1].payload.type, "failed");
   assert.equal(await h.status(h.state.key), h.state.key);
   await h.close();
 });

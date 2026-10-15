@@ -3,7 +3,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { execSync } = require("node:child_process");
-const { runProcess } = require("../../lib/runtimes/process-exec");
+const { runProcess, terminate } = require("../../lib/runtimes/process-exec");
 
 let idCounter = 0;
 function nextId() {
@@ -133,3 +133,84 @@ test("terminate() kills a still-running process group on demand", async () => {
   const result = await promise;
   assert.notEqual(result.exitCode, 0);
 });
+
+for (const timeout of [false, true]) {
+  test(`v2 ${timeout ? "timeout" : "terminate"} sends SIGINT and suppresses late output even on exit zero`, async () => {
+    const id = nextId();
+    const lines = [];
+    const result = await runProcess(
+      {
+        id,
+        cmd: process.execPath,
+        args: [
+          "-e",
+          `
+          process.on('SIGTERM', () => {});
+          process.on('SIGINT', () => { console.log('late success'); process.exit(0); });
+          process.stdout.write('ready\\n' + ${timeout ? "''" : "'buffered late success\\n'"}); setInterval(() => {}, 1000);
+        `,
+        ],
+        cancellation: { signal: "SIGINT", graceMs: 200 },
+        timeoutMs: timeout ? 500 : undefined,
+      },
+      {
+        onLine: (line) => {
+          lines.push(line);
+          if (!timeout) {
+            terminate(id);
+            terminate(id);
+          }
+        },
+      },
+    );
+    assert.equal(result.exitCode, 0, "child's SIGINT handler must run");
+    assert.equal(result.cancelled, true);
+    assert.equal(result.timedOut, timeout);
+    assert.deepEqual(lines, ["ready"], "output after cancellation must not be forwarded");
+  });
+}
+
+for (const [detached, stderr] of [
+  [true, "inherit"],
+  [true, "ignore"],
+  [false, "inherit"],
+  [false, "ignore"],
+]) {
+  test(`v2 cleanup kills ${detached ? "detached" : "original-group"} owned descendants after the leader exits (stderr ${stderr})`, async () => {
+    const id = nextId();
+    let descendant;
+    const result = await runProcess(
+      {
+        id,
+        cmd: process.execPath,
+        args: [
+          "-e",
+          `
+        const { spawn } = require('node:child_process');
+        const child = spawn(process.execPath, ['-e', "process.on('SIGINT', () => {}); process.on('SIGTERM', () => {}); console.log('ready'); setInterval(() => {}, 1000)"], { detached: ${detached}, stdio: ['ignore', 'pipe', '${stderr}'] });
+        child.stdout.once('data', () => console.log(child.pid));
+        process.on('SIGINT', () => process.exit(0));
+      `,
+        ],
+        cancellation: { signal: "SIGINT", graceMs: 200 },
+      },
+      {
+        onLine: (line) => {
+          descendant = Number(line);
+          terminate(id);
+        },
+      },
+    );
+    assert.equal(result.cancelled, true);
+    assert.equal(result.exitCode, 0);
+    const state = execSync("ps -eo pid=,stat=")
+      .toString()
+      .split("\n")
+      .find((line) => Number(line.trim().split(/\s+/)[0]) === descendant);
+    assert.ok(
+      !state || state.trim().split(/\s+/)[1].startsWith("Z"),
+      "detached tool must not remain running",
+    );
+    assert.equal(result.stderr, "");
+  });
+}

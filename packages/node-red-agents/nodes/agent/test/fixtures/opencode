@@ -1,6 +1,11 @@
 #!/usr/bin/env node
 "use strict";
 
+if (process.argv.includes("--version")) {
+  process.stdout.write("1.0.0\n");
+  return;
+}
+
 // Stand-in for the real `opencode` CLI's `run --format json` output, used
 // only by node-level integration tests (see ../integration/). Emits a
 // single JSONL "text" event (opencode's real event vocabulary -- see

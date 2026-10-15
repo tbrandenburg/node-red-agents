@@ -13,7 +13,7 @@ PID_FILE      := $(USER_DIR)/.node-red.pid
 NAME          ?=
 BUMP          ?=
 
-.PHONY: help install start dev stop demo demo-install demo-stop new-node-package format lint test test-e2e test-model-e2e audit ci release publish clean
+.PHONY: help install start dev stop demo demo-install demo-stop new-node-package format lint test test-e2e test-model-e2e test-v2-acceptance audit ci release publish clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z0-9_-]+:.*## ' $(MAKEFILE_LIST) | sed -E 's/:.*## /|/' | awk -F'|' '{printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
@@ -91,6 +91,9 @@ test-e2e: install ## Run the smoke/E2E suite (boots a real, throwaway Node-RED i
 
 test-model-e2e: install ## Run real OpenRouter model/decision/credential E2E (requires OPENROUTER_API_KEY; billed requests; Gateway optional)
 	E2E_MODEL_LIVE=1 node --test --test-timeout=590000 test/integration/model-provider.spec.js
+
+test-v2-acceptance: install ## Run real v2.0.28 cwd/turn/pagination/recovery + Direct/SRT cancellation acceptance (OpenRouter key; billed)
+	NODE_RED_AGENTS_OPENCODE_MODE=v2 E2E_OPENCODE_V2_ACCEPTANCE=1 E2E_OPENCODE_CANCEL=1 node --test --test-concurrency=1 --test-timeout=300000 test/integration/opencode-v2-acceptance.spec.js test/integration/opencode-cancellation.spec.js
 
 format: install ## Check formatting with Prettier (use FIX=1 to rewrite files in place)
 	node_modules/.bin/prettier $(if $(FIX),--write,--check) .

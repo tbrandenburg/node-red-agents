@@ -82,6 +82,7 @@ function harness() {
         node.emit = events.emit.bind(events);
         node.send = (value) => outputs.push(value);
         node.status = () => {};
+        node.error = (value) => events.emit("error-reported", value);
         node.id = "server";
       },
       registerType: (_type, constructor) => {

@@ -116,6 +116,34 @@ test("close terminates a credential-bearing active child", { timeout: 8000 }, as
   await helper.unload();
 });
 
+test("v2 manual termination never retries with retryOnError all", { timeout: 8000 }, async () => {
+  await load({ agent: "opencode-v2", retryMaxAttempts: 3, retryOnError: "all", retryDelayMs: 1 });
+  const events = [];
+  const results = [];
+  const node = helper.getNode("a");
+  helper.getNode("out").on("input", (msg) => {
+    if (msg.agentExecution) results.push(msg);
+  });
+  const terminal = new Promise((resolve) => {
+    helper.getNode("events").on("input", (msg) => {
+      events.push(msg.payload.type);
+      // Each child announces readiness; terminate repeated attempts too so a
+      // regression fails on counts rather than leaving another hanging CLI.
+      if (msg.payload.type === "agent")
+        node.receive({ operation: "terminate", executionId: msg.executionId });
+      if (msg.payload.type === "failed") resolve();
+    });
+  });
+  node.receive({ payload: "hang" });
+  await terminal;
+  assert.equal(events.filter((type) => type === "running").length, 1);
+  assert.equal(events.filter((type) => type === "agent").length, 1);
+  assert.equal(events.includes("retrying"), false);
+  assert.equal(results.length, 1);
+  assert.equal(results[0].agentExecution.status, "failed");
+  assert.equal(results[0].agentExecution.timedOut, false);
+});
+
 test("environment mode uses ambient key and ignores a missing provider reference", async () => {
   const previous = process.env.OPENROUTER_API_KEY;
   process.env.OPENROUTER_API_KEY = "synthetic-ambient-agent";

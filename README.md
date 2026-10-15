@@ -46,6 +46,22 @@ specific, versioned, publishable package with seven node types.
 | **model** | Direct AI SDK generation, schema-validated structured output and embeddings. Two outputs carry a final `msg.modelResult` and optional streaming `msg.modelEvent` text deltas. |
 | **decision** | Typed Jev Boolean/Choice/Score questions through the AI SDK. Returns `msg.decisionResult` probabilities and available provider metadata; routing thresholds belong in a Switch node. |
 
+For OpenCode v2, `agent-server` waits for the admitted prompt's terminal `idle`
+message, not an intermediate assistant/tool step. A succeeded turn returns its
+last assistant answer; failed or interrupted turns emit `failed` without a
+success result. See [v2 turn completion](/docs/opencode-v2-turn-completion.md).
+
+V2 history fetches and completion polling follow pagination within one deadline,
+including admitted prompts beyond the default 50-message page. Starting daemons
+count against the instance cap, spawn errors are handled, and daemon cleanup
+requires a confirmed exit. Failed automatic version probes are bounded and retried.
+
+For an uncertain v2 submission or completion timeout, the session stays busy
+during bounded interrupt-and-idle recovery. If the node cannot confirm the
+caller's turn has settled, it removes and stops its owned private daemon;
+the old session ID cannot be reused. Send a message without a session ID to
+create a replacement. Request deadlines cover response headers and bodies.
+
 See each node's built-in help (Node-RED editor info panel) for the full
 list of fields and behaviors, or
 [`packages/node-red-agents/nodes/gh/README.md`](./packages/node-red-agents/nodes/gh/README.md)
@@ -70,6 +86,60 @@ runtime. Message fields cannot override provider credentials or URLs.
 auth mode is selected. Shared-provider mode uses supported CLI/provider mappings
 and child-process environments. Saved CLI login files can take precedence;
 running server daemons must be restarted after credential rotation.
+
+The `agent` node runs OpenCode v2 with `run --standalone` for each execution.
+V2 resumes first check session existence with a private API command: upstream
+`run --session` otherwise creates unknown IDs. A failed check rejects before
+submitting the prompt; the guard requires POSIX `sh`.
+Its private server receives that run's provider environment and ephemeral config;
+SRT wraps the private execution rather than a shared-service client. The resolved
+working directory is passed as both child cwd and `PWD` (v2 uses `PWD` to select
+its project). A blank cwd uses the Node-RED process's working directory, not an
+inherited `PWD`. This does not change v1, Pi or Copilot execution behavior, nor
+disable or reconfigure the user's shared OpenCode service. Private execution
+still uses the normal CLI profile, including saved sessions and logins.
+
+OpenCode v2 models accept `provider/model#variant`. An explicit **Effort** replaces
+that suffix rather than appending another one; `agent-server` sends the variant
+separately from the base model ID. Shared-provider authentication checks the base
+model against the provider's default/allowlist while retaining the variant.
+Tool restrictions translate `bash` to `shell`, `task` to `subagent`, and
+`write`/`patch` to `edit`; deny rules follow allow rules so overlaps remain denied.
+V2 errors retain type, message and HTTP status for retry decisions, but discard
+provider response bodies. Usage totals include uncached input, cache reads/writes,
+visible output and reasoning; legacy OpenCode output already includes reasoning,
+so missing legacy totals do not count it twice. Reported totals take precedence.
+See [v2 translation contracts](/docs/opencode-v2-translation.md) for pinned sources
+and verification details.
+
+OpenCode v2 timeout/termination sends `SIGINT` to interrupt the owned CLI session,
+then force-stops surviving owned processes after a five-second grace period.
+Detached tool descendants are retained for cleanup if the CLI exits first;
+cancelled runs cannot emit subsequent stdout events or report a completed result.
+The v1, Pi and Copilot signal policy remains `SIGTERM` with a two-second grace.
+Real active-tool acceptance (requires installed v2/SRT and `OPENROUTER_API_KEY`,
+incurs provider billing):
+
+```bash
+E2E_OPENCODE_CANCEL=1 node --test test/integration/opencode-cancellation.spec.js
+```
+
+This uses disposable profiles and tests direct terminate/timeout and SRT terminate.
+Set `E2E_OPENCODE_CANCEL_MODES=terminate,timeout` to test Direct without SRT;
+`E2E_OPENCODE_CANCEL_MODEL` can select a different authenticated OpenRouter model.
+
+For the full pinned **v2.0.28** acceptance (different cwd sentinel, multi-tool
+turns/durable idle, real >50-message pagination, child-subagent permission denial,
+active server abort/timeout with same-session recovery, and Direct/SRT cancellation):
+
+```bash
+make test-v2-acceptance
+NODE_RED_AGENTS_OPENCODE_MODE=v2 make test-model-e2e
+```
+
+Both are opt-in billed checks, not fork-PR CI requirements. Profiles, databases
+and Node-RED userDirs are disposable; only owned process IDs are checked/stopped.
+See [live acceptance commands and evidence](/docs/model-e2e.md#opencode-v2-integration-acceptance).
 
 ## Human interaction
 
@@ -363,7 +433,7 @@ make ci              # format + lint + test + test-e2e, the full local gate
 ## Continuous integration
 
 `.github/workflows/tests.yml` runs on every pull request, on push to
-`main`, and on manual dispatch, as three jobs (shown as `Tests / ...`
+`main`, and on manual dispatch, as four jobs (shown as `Tests / ...`
 in GitHub's checks UI):
 
 - **Format + Lint** -- `make format` + `make lint`.
@@ -376,6 +446,15 @@ in GitHub's checks UI):
   node's `direct` runtime is used, so `srt`
   ([Anthropic's sandbox-runtime](https://github.com/anthropic-experimental/sandbox-runtime))
   isn't needed in CI even though the `agent` node supports it.
+- **E2E v2** -- the same smoke suite with explicit v2 adapters and
+  `@opencode/cli@2.0.28`. The **E2E** job retains `opencode-ai@1.18.32`
+  and explicit v1 adapters. Pins are updated manually after real acceptance;
+  billed acceptance remains separate from these smoke jobs. The optional local
+  `E2E_OPENCODE_MODEL` override does not change CI's free-model default.
+  Local default-model verification reproduced the MCP turn's provider HTTP 403
+  ([#78](https://github.com/tbrandenburg/node-red-agents/issues/78)); authenticated
+  smoke/acceptance results and this CI-default blocker are recorded separately in
+  [the acceptance evidence](/docs/model-e2e.md#opencode-v2-integration-acceptance).
 
 ## Releasing
 

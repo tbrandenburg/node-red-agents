@@ -100,6 +100,36 @@ test("runtime timedOut always wins the final status, even if the adapter thinks 
   assert.equal(result.timedOut, true);
 });
 
+test("runtime cancellation wins over an exit-zero completed adapter result", async () => {
+  const statuses = [];
+  const result = await runAgent({
+    adapter: fakeAdapter({ resultOverride: { payload: "partial", status: "completed" } }),
+    runtime: fakeRuntime({ outcome: { exitCode: 0, signal: null, stderr: "", cancelled: true } }),
+    resolved: {},
+    executionId: "cancelled",
+    onStatus: (status) => statuses.push(status),
+  });
+  assert.deepEqual(statuses, ["running", "failed"]);
+  assert.equal(result.status, "failed");
+  assert.equal(result.errorMessage, "execution cancelled");
+  assert.equal(result.retryable, false);
+});
+
+test("cancelled timeout retains timeout retry eligibility", async () => {
+  const { shouldRetry } = require("../../lib/execution/retry");
+  const result = await runAgent({
+    adapter: fakeAdapter(),
+    runtime: fakeRuntime({
+      outcome: { exitCode: 0, signal: null, stderr: "", cancelled: true, timedOut: true },
+    }),
+    resolved: {},
+    executionId: "cancelled-timeout",
+  });
+  assert.equal(result.status, "timeout");
+  assert.equal(shouldRetry(result, "all"), true);
+  assert.notEqual(result.errorMessage, "execution cancelled");
+});
+
 test('adapter.validate() throwing prevents any execution (no onStatus("running"), rejects synchronously)', async () => {
   const statuses = [];
   const adapter = {

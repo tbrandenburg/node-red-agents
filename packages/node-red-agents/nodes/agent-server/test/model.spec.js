@@ -32,3 +32,19 @@ test("leading or trailing slash throws a clear error", () => {
   assert.throws(() => parseModel("/model"), /expected "provider\/model"/);
   assert.throws(() => parseModel("provider/"), /expected "provider\/model"/);
 });
+
+test("v2 models split nested IDs and variants without changing the legacy modelID", () => {
+  assert.deepEqual(parseModel("openrouter/openai/test#high", 2), {
+    providerID: "openrouter",
+    modelID: "openai/test",
+    variant: "high",
+  });
+  assert.deepEqual(parseModel("openrouter/openai/test#high"), {
+    providerID: "openrouter",
+    modelID: "openai/test#high",
+  });
+  assert.deepEqual(parseModel("openai/test", 2), { providerID: "openai", modelID: "test" });
+  assert.equal(parseModel("", 2), undefined);
+  for (const value of ["openai/test#", "openai/test#low#high", "openai#high/test", "openai/#high"])
+    assert.throws(() => parseModel(value, 2), /invalid model/);
+});

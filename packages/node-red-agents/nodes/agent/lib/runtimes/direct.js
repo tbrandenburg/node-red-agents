@@ -15,6 +15,7 @@ class DirectRuntime extends RuntimeProvider {
         cwd: executionRequest.cwd,
         env: executionRequest.env,
         timeoutMs: executionRequest.timeoutMs,
+        cancellation: executionRequest.cancellation,
       },
       handlers,
     );

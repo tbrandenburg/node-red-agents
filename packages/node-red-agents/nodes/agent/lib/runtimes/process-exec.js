@@ -5,6 +5,7 @@
 // direct.js / srt.js) -- everything about process lifecycle, JSONL line
 // buffering, and timeout handling lives here exactly once.
 const { spawn } = require("child_process");
+const { processTable, ownedDescendants, signalOwned } = require("./process-ownership");
 
 const GRACE_PERIOD_MS = 2000;
 
@@ -12,7 +13,8 @@ const GRACE_PERIOD_MS = 2000;
 const registry = new Map();
 
 function killProcessGroup(child, signal) {
-  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  if (!child || !child.pid) return;
+  if (child.exitCode !== null || child.signalCode !== null) return;
   try {
     // `detached: true` (see runProcess) gives the child its own process
     // group with pgid === child.pid, so `-pid` reaches the whole tree
@@ -28,8 +30,38 @@ function killProcessGroup(child, signal) {
   }
 }
 
+function stop(state) {
+  if (state.stopping) return;
+  state.stopping = true;
+  const policy = state.cancellation;
+  if (policy) {
+    state.cancelled = true;
+    if (state.timeoutTimer) clearTimeout(state.timeoutTimer);
+    try {
+      // Once exit is known, a recycled leader PID cannot establish new ownership.
+      if (state.child.exitCode === null && state.child.signalCode === null)
+        state.owned = ownedDescendants(state.child.pid, processTable());
+    } catch (error) {
+      state.diagnostic += `Could not inspect owned descendants: ${error.message}\n`;
+    }
+  }
+  killProcessGroup(state.child, policy?.signal || "SIGTERM");
+  state.killTimer = setTimeout(() => forceStop(state), policy?.graceMs || GRACE_PERIOD_MS);
+}
+
+function forceStop(state) {
+  killProcessGroup(state.child, "SIGKILL");
+  if (!state.owned.length) return;
+  try {
+    const table = processTable();
+    signalOwned(state.owned, state.child.pid, table);
+  } catch (error) {
+    state.diagnostic += `Could not inspect owned descendants: ${error.message}\n`;
+  }
+}
+
 function runProcess(executionRequest, handlers = {}) {
-  const { id, cmd, args, cwd, env, timeoutMs } = executionRequest;
+  const { id, cmd, args, cwd, env, timeoutMs, cancellation } = executionRequest;
 
   return new Promise((resolve, reject) => {
     let child;
@@ -48,16 +80,31 @@ function runProcess(executionRequest, handlers = {}) {
       return;
     }
 
-    const state = { child, timeoutTimer: null, killTimer: null, timedOut: false };
+    const state = {
+      child,
+      timeoutTimer: null,
+      killTimer: null,
+      timedOut: false,
+      cancellation,
+      cancelled: false,
+      stopping: false,
+      owned: [],
+      diagnostic: "",
+    };
     registry.set(id, state);
 
     let lineBuffer = "";
     let stderr = "";
 
     child.stdout.on("data", (chunk) => {
+      if (state.cancelled) return;
       lineBuffer += chunk.toString();
       let idx;
       while ((idx = lineBuffer.indexOf("\n")) >= 0) {
+        if (state.cancelled) {
+          lineBuffer = "";
+          return;
+        }
         const line = lineBuffer.slice(0, idx);
         lineBuffer = lineBuffer.slice(idx + 1);
         if (handlers.onLine) handlers.onLine(line);
@@ -70,8 +117,7 @@ function runProcess(executionRequest, handlers = {}) {
     if (timeoutMs && timeoutMs > 0) {
       state.timeoutTimer = setTimeout(() => {
         state.timedOut = true;
-        killProcessGroup(child, "SIGTERM");
-        state.killTimer = setTimeout(() => killProcessGroup(child, "SIGKILL"), GRACE_PERIOD_MS);
+        stop(state);
       }, timeoutMs);
     }
 
@@ -82,10 +128,18 @@ function runProcess(executionRequest, handlers = {}) {
     });
 
     child.on("close", (code, signal) => {
-      if (lineBuffer.length && handlers.onLine) handlers.onLine(lineBuffer);
+      if (state.cancelled) forceStop(state);
+      if (!state.cancelled && lineBuffer.length && handlers.onLine) handlers.onLine(lineBuffer);
       cleanupTimers(state);
       registry.delete(id);
-      resolve({ exitCode: code, signal, stderr, timedOut: state.timedOut, pid: child.pid });
+      resolve({
+        exitCode: code,
+        signal,
+        stderr: stderr + state.diagnostic,
+        timedOut: state.timedOut,
+        pid: child.pid,
+        ...(cancellation ? { cancelled: state.cancelled } : {}),
+      });
     });
   });
 }
@@ -98,8 +152,7 @@ function cleanupTimers(state) {
 function terminate(id) {
   const state = registry.get(id);
   if (!state) return;
-  killProcessGroup(state.child, "SIGTERM");
-  state.killTimer = setTimeout(() => killProcessGroup(state.child, "SIGKILL"), GRACE_PERIOD_MS);
+  stop(state);
 }
 
 module.exports = { runProcess, terminate, killProcessGroup, GRACE_PERIOD_MS };

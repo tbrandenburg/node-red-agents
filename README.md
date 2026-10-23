@@ -28,6 +28,7 @@ specific, versioned, publishable package with seven node types.
 - [Testing](#testing)
 - [Code style](#code-style)
 - [Continuous integration](#continuous-integration)
+- [Security maintenance](#security-maintenance)
 - [Releasing](#releasing)
 - [Adding a node](#adding-a-node)
 - [Troubleshooting: SRT sandbox errors](#troubleshooting-srt-fails-with-loopback-failed-rtm_newaddr)
@@ -455,6 +456,36 @@ in GitHub's checks UI):
   ([#78](https://github.com/tbrandenburg/node-red-agents/issues/78)); authenticated
   smoke/acceptance results and this CI-default blocker are recorded separately in
   [the acceptance evidence](/docs/model-e2e.md#opencode-v2-integration-acceptance).
+
+## Security maintenance
+
+The development runtime uses Node-RED 5.0.9 or newer, and the dev/demo
+dashboard uses 1.34.0 or newer. The workspace lockfile resolves AJV's
+`fast-uri` to 3.1.9 and Express's `proxy-addr` to 2.0.8. Existing consumers
+of the published nodes should refresh their own transitive dependencies;
+the repository lockfile is not shipped in the npm package.
+
+```sh
+make audit STRICT=1               # production high/critical gate; tooling advisory
+npm audit --omit=dev              # include moderate production findings
+cd data && npm audit fix && npm audit
+cd ../demo && npm audit fix && npm audit
+```
+
+The dev/demo lockfiles are local, ignored runtime state, so refresh them
+separately when updating an existing checkout. Avoid `npm audit fix --force`;
+review dependency changes and run `make ci` before releasing.
+
+Known tooling limitation: Node-RED 5.0.9 includes npm 11.21.1, whose bundled
+`ip-address` 10.7.2 is affected by the moderate
+[IPv6 zone parsing DoS advisory](https://github.com/advisories/GHSA-rxp7-6hxx-x8q5).
+The root override requires 10.7.4 for non-bundled copies, but npm's bundled
+copy needs an upstream npm release; normal overrides do not replace it.
+This dependency is not part of the published nodes' production tree.
+
+The dev/demo settings do not configure Node-RED admin authentication or an
+explicit loopback bind. Keep these instances network-isolated, or configure
+authentication and binding before exposing them to other users.
 
 ## Releasing
 

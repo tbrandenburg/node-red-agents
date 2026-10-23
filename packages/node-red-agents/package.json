@@ -62,7 +62,7 @@
     "node-red-node-test-helper": "^0.3.6"
   },
   "dependencies": {
-    "@ai-sdk/gateway": "4.0.111",
+    "@ai-sdk/gateway": "4.0.119",
     "@openrouter/ai-sdk-provider": "3.1.0",
     "ai": "7.0.138",
     "ajv": "^8.20.0",

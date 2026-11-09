@@ -247,7 +247,8 @@ Admin API deploy/inject and real WebSocket debug/Complete/Catch evidence).
 
 ## Prerequisites
 
-- Node 22+ (see `.nvmrc`)
+- Node 22+; use the patched version pinned in `.nvmrc` or a newer,
+  security-supported release (see [Security maintenance](#security-maintenance))
 - The [`opencode`](https://opencode.ai) CLI on your `PATH` and
   authenticated, if you want to use the `agent` node
 - `srt` ([Anthropic's sandbox-runtime CLI](https://github.com/anthropics/sandbox-runtime))
@@ -459,6 +460,22 @@ in GitHub's checks UI):
 
 ## Security maintenance
 
+The repository pins Node **22.23.4** in `.nvmrc` for development and CI.
+The [October 2026 Node.js security releases](https://nodejs.org/en/blog/vulnerability/october-2026-security-releases)
+address the eMudhra intermediate CA compromise in Node 22.23.4, 24.22.1 and
+26.12.1. Use at least the patched release for your release line, preferably
+the latest security-supported version. The package's `>=22` engine expresses
+compatibility, not a security guarantee: installing this package or using this
+repository's `.nvmrc` does not upgrade the Node-RED host's Node runtime.
+Consumers must update their own runtime, images and deployments and restart them.
+
+Review system and custom trust stores, `NODE_EXTRA_CA_CERTS`, explicit TLS
+`ca` options and TLS-intercepting proxies separately; their trust policies and
+verification paths may differ from Node's defaults. Update the verifier on
+each path and test the actual application's TLS path, not just a browser.
+Do not disable certificate verification to work around failures. See the
+[eMudhra test site](https://emudhra.we-have-a-problem.com/) for test endpoints.
+
 The development runtime uses Node-RED 5.0.9 or newer, and the dev/demo
 dashboard uses 1.34.0 or newer. The workspace lockfile resolves AJV's
 `fast-uri` to 3.1.9 and Express's `proxy-addr` to 2.0.8. Existing consumers
@@ -479,8 +496,8 @@ review dependency changes and run `make ci` before releasing.
 Known tooling limitation: Node-RED 5.0.9 includes npm 11.21.1, whose bundled
 `ip-address` 10.7.2 is affected by the moderate
 [IPv6 zone parsing DoS advisory](https://github.com/advisories/GHSA-rxp7-6hxx-x8q5).
-The root override requires 10.7.4 for non-bundled copies, but npm's bundled
-copy needs an upstream npm release; normal overrides do not replace it.
+The root override requires 10.7.4 for non-bundled copies, but updating npm's
+bundled copy requires a Node-RED registry update; normal overrides do not replace it.
 This dependency is not part of the published nodes' production tree.
 
 The dev/demo settings do not configure Node-RED admin authentication or an

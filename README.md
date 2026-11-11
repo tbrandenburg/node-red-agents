@@ -504,6 +504,28 @@ The dev/demo settings do not configure Node-RED admin authentication or an
 explicit loopback bind. Keep these instances network-isolated, or configure
 authentication and binding before exposing them to other users.
 
+## Agent model suggestions
+
+For OpenCode, the agent editor starts with a fixed list of suggestions including
+`opencode/big-pickle`; the list remains available when the catalog changes.
+Alternatively, choose a catalog provider to see up to 10 recent chat-oriented suggestions from a
+bundled [models.dev](https://models.dev/api.json?type=chat) snapshot. The editor
+shows its retrieval date. The provider selector is not saved and is separate
+from shared Model Provider credentials. Suggestions do not guarantee CLI,
+account, or allowlist availability. Enter older, custom, or `#variant` IDs
+freely; a blank Model retains the CLI or shared-provider default. OpenCode uses
+`provider/model` (including nested IDs), Copilot suggests bare GitHub Copilot
+IDs, and Pi uses `vercel-ai-gateway/model` for Vercel. Installation, flow
+execution, and opening the editor do not require access to models.dev.
+
+The upstream chat filter can include non-chat entries: its catalog defaults
+untyped models to chat, including some embeddings and entity-extraction models.
+The refresh retains untyped models but excludes explicit non-chat types and a
+few high-confidence specialized models. Descriptions mentioning extraction,
+classification or embeddings do not by themselves disqualify a chat model. This
+best-effort filter cannot guarantee every suggestion is a chat model. A stale
+fallback retains the previous snapshot unchanged, including any such entries.
+
 ## Releasing
 
 `packages/node-red-agents` is versioned and published independently of
@@ -519,10 +541,14 @@ git push --follow-tags
 make publish               # you enter your npm OTP (2FA) yourself
 ```
 
-- `make release` refuses to run with an uncommitted working tree, runs
-  `make test` first, bumps `packages/node-red-agents/package.json`'s
-  version (and the root lockfile), then commits and tags the result as
-  `node-red-agents@<version>`.
+- `make release` refuses a dirty or untracked working tree and an existing
+  target tag. It audits, refreshes the bundled catalog, bumps the package
+  version and lockfile, then tests that final state before committing and
+  tagging `node-red-agents@<version>`. Network/HTTP/timeout or invalid upstream
+  data produces a warning and retains the prior validated snapshot and date;
+  an invalid fallback or local write/marker error stops the release. A failure
+  may leave local changes or a release commit; inspect `git status` before
+  retrying. Publishing consumes the checked-in snapshot offline.
 - `make publish` refuses to run unless the tree is clean,
   `packages/node-red-agents/` at HEAD matches exactly what the version's
   tag pointed at (not literally HEAD == the tag commit -- unrelated

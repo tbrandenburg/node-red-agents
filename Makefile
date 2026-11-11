@@ -110,23 +110,33 @@ audit: install ## Check for known vulnerabilities (advisory by default; use STRI
 ci: format lint test test-e2e ## Run the full local gate: format check, lint, unit+integration tests, and the E2E suite
 
 release: ## Bump packages/node-red-agents's version and tag the release commit (usage: make release BUMP=patch, minor, or major)
-	@case "$(BUMP)" in \
-		patch|minor|major) ;; \
-		*) echo "usage: make release BUMP=patch|minor|major"; exit 1;; \
-	esac
-	@git diff --quiet && git diff --cached --quiet || \
-		(echo "release: working tree has uncommitted changes -- commit or stash first" && exit 1)
-	$(MAKE) audit STRICT=1
-	$(MAKE) test
-	cd $(PACKAGE_DIR) && npm version $(BUMP) --no-git-tag-version
-	@NEW_VERSION=$$(node -p "require('./$(PACKAGE_JSON)').version"); \
-	echo "Bumped $(PACKAGE_DIR) to $$NEW_VERSION"; \
-	npm install --package-lock-only --workspaces >/dev/null 2>&1; \
-	git add $(PACKAGE_JSON) package-lock.json; \
-	git commit -m "release: node-red-agents v$$NEW_VERSION"; \
-	git tag -a "node-red-agents@$$NEW_VERSION" -m "release: node-red-agents v$$NEW_VERSION"; \
-	echo "Tagged node-red-agents@$$NEW_VERSION on $$(git rev-parse --short HEAD)."; \
-	echo "Next: 'git push --follow-tags', then 'make publish' (you'll need to enter your npm OTP -- 2FA)."
+	@set -eu; \
+	trap 'echo "release failed; inspect git status and any release commit before retrying" >&2; git status --short >&2' EXIT; \
+	case "$(BUMP)" in patch|minor|major) ;; *) echo "usage: make release BUMP=patch|minor|major"; exit 1;; esac; \
+	test -z "$$(git status --porcelain --untracked-files=normal)" || { echo "release: working tree has uncommitted or untracked changes" >&2; exit 1; }; \
+	OLD=$$(node -p "require('./$(PACKAGE_JSON)').version"); \
+	NEW=$$(node -e 'const v=process.argv[1].match(/^(\d+)\.(\d+)\.(\d+)$$/); if(!v) process.exit(1); let [a,b,c]=v.slice(1).map(Number); if(process.argv[2]==="major"){a++;b=0;c=0} else if(process.argv[2]==="minor"){b++;c=0} else c++; console.log([a,b,c].join("."))' "$$OLD" "$(BUMP)"); \
+	TAG="node-red-agents@$$NEW"; \
+	if git rev-parse -q --verify "refs/tags/$$TAG" >/dev/null; then echo "release: tag $$TAG exists" >&2; exit 1; fi; \
+	BASE=$$(git rev-parse HEAD); \
+	$(MAKE) audit STRICT=1; \
+	node scripts/model-catalog.js --fallback; \
+	(cd $(PACKAGE_DIR) && npm version $(BUMP) --no-git-tag-version); \
+	test "$$(node -p "require('./$(PACKAGE_JSON)').version")" = "$$NEW"; \
+	npm install --package-lock-only --workspaces; \
+	$(MAKE) test; \
+	test "$$(git rev-parse HEAD)" = "$$BASE"; \
+	test -z "$$(git status --porcelain --untracked-files=normal | grep -vE '^ M (packages/node-red-agents/package.json|packages/node-red-agents/nodes/agent/agent.html|package-lock.json)$$' || true)" || { echo "release: unexpected changes after tests" >&2; exit 1; }; \
+	git add $(PACKAGE_JSON) package-lock.json $(PACKAGE_DIR)/nodes/agent/agent.html; \
+	TREE=$$(git write-tree); \
+	git commit -m "release: node-red-agents v$$NEW"; \
+	test "$$(git rev-parse HEAD^{tree})" = "$$TREE"; \
+	test "$$(git rev-parse HEAD^)" = "$$BASE"; \
+	git tag -a "$$TAG" -m "release: node-red-agents v$$NEW"; \
+	test "$$(git rev-parse "$$TAG^{commit}")" = "$$(git rev-parse HEAD)"; \
+	trap - EXIT; \
+	echo "Tagged $$TAG on $$(git rev-parse --short HEAD)."; \
+	echo "Next: 'git push --follow-tags', then 'make publish'."
 
 publish: ## Verify preconditions, run npm publish, and create the matching GitHub Release for packages/node-red-agents (you complete the npm 2FA/OTP prompt yourself; PUBLISH_DRY_RUN=1 to rehearse without publishing or releasing)
 	@git diff --quiet && git diff --cached --quiet || \

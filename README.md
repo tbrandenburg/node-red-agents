@@ -506,7 +506,9 @@ authentication and binding before exposing them to other users.
 
 ## Agent model suggestions
 
-The agent editor offers up to 10 recent chat-oriented suggestions per catalog provider from a
+For OpenCode, the agent editor starts with a fixed list of suggestions including
+`opencode/big-pickle`; the list remains available when the catalog changes.
+Alternatively, choose a catalog provider to see up to 10 recent chat-oriented suggestions from a
 bundled [models.dev](https://models.dev/api.json?type=chat) snapshot. The editor
 shows its retrieval date. The provider selector is not saved and is separate
 from shared Model Provider credentials. Suggestions do not guarantee CLI,

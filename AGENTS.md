@@ -28,6 +28,9 @@ commands (`make help`).
 
 ## Testing
 
+- If local validation fails or cannot run, use the matching pinned PR CI jobs
+  as independent validation. Report local failures and CI results separately;
+  do not suppress tests, waive required checks, or claim a local failure passed.
 - `make test` (or `npm test` from repo root) -- unit + node-level
   integration tests (`node --test` across `packages/node-red-agents`).
   Offline, no real CLIs invoked, this is the CI-facing gate. Run this

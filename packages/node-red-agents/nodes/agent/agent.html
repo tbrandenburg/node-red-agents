@@ -10,6 +10,11 @@
     // Kept in sync by hand with the server-side OPENCODE_AGENT_IDS in
     // agent.js (client-side editor code can't require() a Node module).
     const OPENCODE_AGENT_IDS = ["opencode", "opencode-v1", "opencode-v2"];
+    const FIXED_MODELS = [
+      "opencode/big-pickle",
+      "opencode/iceman-free",
+      "opencode/minimax-m3.1-flash-free",
+    ];
 
     function mcpServerRow(container, data) {
       data = data || { name: "", type: "remote", url: "", command: "", args: [] };
@@ -247,9 +252,15 @@
             return;
           }
           visibleInput.attr("list", "agent-model-suggestions");
+          const agent = $("#node-input-agent").val();
+          if (!providers.val() && OPENCODE_AGENT_IDS.includes(agent)) {
+            FIXED_MODELS.forEach((value) => {
+              $("<option/>").val(value).text("Fixed suggestion").appendTo(datalist);
+            });
+            return;
+          }
           const provider = MODEL_CATALOG.providers.find((entry) => entry[0] === providers.val());
           if (!provider) return;
-          const agent = $("#node-input-agent").val();
           const prefix = agent === "pi" && provider[0] === "vercel" ? "vercel-ai-gateway" : provider[0];
           provider[2].forEach((model) => {
             const value = agent === "copilot" ? model[0] : prefix + "/" + model[0];
@@ -258,9 +269,13 @@
         }
         function updateCatalogProviders() {
           const selected = providers.val();
-          const copilot = $("#node-input-agent").val() === "copilot";
+          const agent = $("#node-input-agent").val();
+          const copilot = agent === "copilot";
           providers.empty();
-          $("<option/>").val("").text("Choose a provider").appendTo(providers);
+          $("<option/>")
+            .val("")
+            .text(OPENCODE_AGENT_IDS.includes(agent) ? "Fixed models (OpenCode)" : "Choose a provider")
+            .appendTo(providers);
           MODEL_CATALOG.providers.filter((entry) => !copilot || entry[0] === "github-copilot").forEach((entry) => {
             $("<option/>").val(entry[0]).text(entry[1] + " (" + entry[0] + ")").appendTo(providers);
           });
@@ -764,7 +779,7 @@
   </div>
 
   <div class="form-row">
-    <label for="agent-catalog-provider">Catalog provider</label>
+    <label for="agent-catalog-provider">Suggestions</label>
     <select id="agent-catalog-provider" style="width:60%"></select>
   </div>
   <div class="form-tips">Catalog suggestions from models.dev, retrieved <span id="agent-catalog-date"></span>.
@@ -949,7 +964,8 @@
 </script>
 
 <script type="text/html" data-help-name="agent">
-  <p><b>Catalog suggestions:</b> Choose an editor-only catalog provider to suggest up to 10 recent
+  <p><b>Model suggestions:</b> OpenCode offers a fixed list including <code>opencode/big-pickle</code>.
+    Choose an editor-only catalog provider to suggest up to 10 recent
     models for a string Model. OpenCode uses provider/model, including nested IDs; Copilot uses bare
     github-copilot IDs; Pi uses vercel-ai-gateway for Vercel. Enter older, custom or #variant IDs
     freely. Blank Model retains the CLI/shared-provider default. The models.dev snapshot date is

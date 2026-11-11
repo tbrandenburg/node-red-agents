@@ -121,6 +121,44 @@ function values($, selector) {
     .get();
 }
 
+test("fixed OpenCode suggestions stay available without changing saved values or other agents", () => {
+  for (const agent of ["opencode", "opencode-v1", "opencode-v2"]) {
+    const { $ } = editor(fixture, { agent, model: "custom/model#variant", modelType: "str" });
+    const input = $("#node-input-model");
+    assert.equal($("#agent-catalog-provider option").first().text(), "Fixed models (OpenCode)");
+    assert.deepEqual(values($, "#agent-model-suggestions option"), [
+      "opencode/big-pickle",
+      "opencode/iceman-free",
+      "opencode/minimax-m3.1-flash-free",
+    ]);
+    assert.equal(input.typedInput("value"), "custom/model#variant");
+    input.typedInput("type", "flow");
+    assert.equal($("#agent-model-suggestions option").length, 0);
+    assert.equal(input.typedInput("value"), "custom/model#variant");
+    input.typedInput("type", "str");
+    assert.equal($("#agent-model-suggestions option").first().val(), "opencode/big-pickle");
+    $("#node-input-agent").val("pi").trigger("change");
+    assert.equal($("#agent-model-suggestions option").length, 0);
+    assert.equal(input.typedInput("value"), "custom/model#variant");
+    $("#node-input-agent").val("copilot").trigger("change");
+    assert.deepEqual(values($, "#agent-model-suggestions option"), ["copilot-model"]);
+    assert.equal(input.typedInput("value"), "custom/model#variant");
+  }
+});
+
+test("choosing a fixed model updates the string value through the visible input", () => {
+  const { $ } = editor(fixture, { agent: "opencode-v2", model: "custom/old", modelType: "str" });
+  const input = $("#node-input-model");
+  assert.equal(input.typedInput("value"), "custom/old");
+  input
+    .parent()
+    .find("input.red-ui-typedInput-input")
+    .val($("#agent-model-suggestions option").first().val())
+    .trigger("change");
+  assert.equal(input.typedInput("value"), "opencode/big-pickle");
+  assert.equal(input.typedInput("type"), "str");
+});
+
 test("registered editor filters catalog by provider and maps nested OpenCode, Copilot and Pi IDs", () => {
   const { $, definition, node } = editor(fixture, {
     model: "custom/old#variant",

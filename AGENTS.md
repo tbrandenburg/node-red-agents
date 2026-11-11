@@ -263,6 +263,9 @@ meant to read stdin.
 
 ## Lessons Learned
 
+- 2026-11-10: Pitfall: An agent edited and tested the coordinator tree instead of its assigned worktree. Prevention rule/countermeasure: Verify `git rev-parse --show-toplevel` and branch before every edit or validation run.
+- 2026-11-10: Pitfall: Process diagnostics exposed an API key in command arguments. Prevention rule/countermeasure: Inspect process IDs, names, and resource usage without printing full command lines.
+- 2026-11-10: Pitfall: A catalog's chat-filtered response included embedding and extraction models. Prevention rule/countermeasure: Verify upstream classification against model metadata and disclose uncertainty when its type labels are unreliable.
 - 2026-11-09: Pitfall: Local OpenCode E2E workarounds created nonrepresentative profiles and produced inconsistent results. Prevention rule/countermeasure: Prefer the pinned, clean CI v1/v2 jobs before constructing alternate local environments; report local failures separately.
 - 2026-11-09: Pitfall: npm 10 stripped existing platform `libc` metadata during validation installs. Prevention rule/countermeasure: Inspect the final lockfile diff after running install-backed checks and preserve unrelated platform metadata.
 - 2026-10-15: Pitfall: Cancellation entered retry-all, and escalation trusted an exited leader's numeric PGID. Prevention: Mark manual cancellation non-retryable; verify surviving owned process identities before post-exit signalling, and test recycled PID/PGID cases.

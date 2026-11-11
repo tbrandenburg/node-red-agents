@@ -219,18 +219,27 @@ test("v1 observer sees thrown post-start failure; both terminal observers are at
 
 test("deploy outage does not prevent execution and start acknowledgment is outside CLI timeout", async () => {
   const notices = [];
+  const timeoutSeconds = 2;
+  let acknowledgmentMs = 0;
   helper.settings({
     nodeRedAgentsLifecycleObserver: async (record) => {
       if (record.type === "node.deployed") throw new Error("inventory offline");
       notices.push(record);
       if (record.type === "execution.started") {
-        await new Promise((resolve) => setTimeout(resolve, 300));
+        const started = performance.now();
+        await new Promise((resolve) => setTimeout(resolve, 2200));
+        acknowledgmentMs = performance.now() - started;
       }
     },
   });
-  await helper.load(agentNode, flow({ timeout: "0.2", timeoutType: "num", retryMaxAttempts: 1 }));
+  await helper.load(
+    agentNode,
+    flow({ timeout: String(timeoutSeconds), timeoutType: "num", retryMaxAttempts: 1 }),
+  );
   const result = await receive(helper.getNode("output"), { payload: "hello" });
+  assert.ok(acknowledgmentMs > timeoutSeconds * 1000);
   assert.equal(result.agentExecution.status, "completed");
+  assert.equal(result.payload, "hello from fake opencode");
   assert.equal(notices.filter((record) => record.type === "execution.terminal").length, 1);
 });
 

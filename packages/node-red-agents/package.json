@@ -31,6 +31,7 @@
     "access": "public"
   },
   "files": [
+    "MODELS-DEV-LICENSE",
     "nodes/**/*.js",
     "nodes/**/*.html",
     "nodes/**/icons/**",
@@ -44,7 +45,7 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test --experimental-test-coverage=false 'nodes/**/test/**/*.spec.js' 'shared/**/test/**/*.spec.js'"
+    "test": "node --test --experimental-test-coverage=false 'nodes/**/test/**/*.spec.js' 'shared/**/test/**/*.spec.js' && node --test nodes/agent/test/catalog-release.cases.js"
   },
   "node-red": {
     "version": ">=4.0.0",
